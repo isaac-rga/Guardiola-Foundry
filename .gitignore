@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+
+dist/
+build/
+coverage/
+tmp/
+.adonisjs/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,27 @@
+{
+  "name": "guardiola-foundry",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@swc/core"]
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @guardiola-foundry/web --filter @guardiola-foundry/api dev",
+    "dev:web": "pnpm --filter @guardiola-foundry/web dev",
+    "dev:api": "pnpm --filter @guardiola-foundry/api dev",
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:migrate": "pnpm --filter @guardiola-foundry/api exec node ace migration:run",
+    "db:status": "pnpm --filter @guardiola-foundry/api exec node ace migration:status"
+  }
+}
