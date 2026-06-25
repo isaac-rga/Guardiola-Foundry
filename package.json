@@ -2,13 +2,15 @@
   "name": "guardiola-foundry",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@10.30.2",
+  "packageManager": "pnpm@11.8.0",
   "engines": {
     "node": ">=24",
-    "pnpm": ">=10"
+    "pnpm": ">=11"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["@swc/core"]
+    "onlyBuiltDependencies": [
+      "@swc/core"
+    ]
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @guardiola-foundry/web --filter @guardiola-foundry/api dev",
