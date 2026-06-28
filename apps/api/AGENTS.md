@@ -29,9 +29,9 @@ Keep controllers focused on HTTP concerns. Put domain behavior in the correspond
 
 Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Add a focused regression test for every behavior change. Run the targeted suite while developing and complete `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before submission.
 
-## Local AdonisJS Docs
+## Reference Docs
 
-Use the local AdonisJS 7 reference at `docs/reference/v7-docs/content` before guessing framework behavior.
+Use `@context7 /adonisjs/v7-docs` before guessing framework behavior. Navigate it by section:
 
 - `start/`: orientation docs such as installation, folder structure, configuration, deployment, and upgrade notes.
 - `guides/basics/`: routing, controllers, middleware, validation, request/response, sessions, uploads, and exception handling.

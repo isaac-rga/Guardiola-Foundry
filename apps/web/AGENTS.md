@@ -30,6 +30,17 @@ Tailwind CSS v4 is configured through Vite and `src/index.css`. Use utility clas
 
 Follow the shadcn/ui New York style configured in `components.json`. Reuse or extend primitives in `src/components/ui` before creating one-off controls. Preserve accessibility: semantic HTML, keyboard interaction, visible focus states, and accessible names are required.
 
+## Reference Docs
+
+Use these references before guessing library behavior:
+
+- `@context7 /reactjs/react.dev`: primary React reference for component, hooks, and rendering behavior.
+- `@context7 /tanstack/router`: primary routing reference for file-based routes, loaders, navigation, and search params.
+- `@context7 /tanstack/query`: feature-level reference for server-state, caching, invalidation, and mutations.
+- `@context7 /tanstack/table`: feature-level reference for column definitions, row models, sorting, and table state.
+- `@context7 /react-hook-form/documentation`: feature-level reference for form state, controllers, validation flow, and submission handling.
+- `@context7 /react-hook-form/resolvers`: reference for shared-schema validation, especially React Hook Form with Zod.
+
 ## Testing and Delivery
 
 Tests use Vitest, jsdom, and Testing Library. Colocate tests as `*.test.tsx`, query by accessible role or visible text, and assert user-observable behavior. Add focused regression coverage for changed interactions.
