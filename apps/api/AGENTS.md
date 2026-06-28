@@ -29,6 +29,21 @@ Keep controllers focused on HTTP concerns. Put domain behavior in the correspond
 
 Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Add a focused regression test for every behavior change. Run the targeted suite while developing and complete `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before submission.
 
+## Local AdonisJS Docs
+
+Use the local AdonisJS 7 reference at `docs/reference/v7-docs/content` before guessing framework behavior.
+
+- `start/`: orientation docs such as installation, folder structure, configuration, deployment, and upgrade notes.
+- `guides/basics/`: routing, controllers, middleware, validation, request/response, sessions, uploads, and exception handling.
+- `guides/auth/`: access tokens, session/basic auth guards, authorization, and verifying user credentials.
+- `guides/database/`: Lucid and Redis.
+- `guides/security/`: hashing, encryption, CORS, and rate limiting.
+- `guides/testing/`: API tests, database assertions, browser tests, test doubles, and test-state reset.
+- `guides/concepts/`: application lifecycle, dependency injection, container services, service providers, and scaffolding.
+- `guides/ace/`: `node ace` commands, custom commands, flags, prompts, and REPL usage.
+- `guides/digging_deeper/`: cache, queues, mail, locks, health checks, logger, and observability.
+- `reference/`: framework reference for `adonisrc`, application APIs, commands, exceptions, helpers, and config files under `reference/config/`.
+
 ## Commits, Pull Requests, and Configuration
 
 Use concise Conventional Commit subjects, such as `feat: add supplier endpoint` or `fix: reject invalid invoice totals`. Pull requests must describe API contract changes, verification performed, migrations, and new environment variables. Link relevant issues or specifications.
