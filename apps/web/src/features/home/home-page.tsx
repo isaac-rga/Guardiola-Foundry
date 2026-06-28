@@ -9,8 +9,8 @@ export function HomePage() {
         <p className="text-balance text-muted-foreground">
           The application foundation is ready. Business modules will be added from approved specifications.
         </p>
-        <Button type="button" disabled>
-          Scaffold ready
+        <Button asChild type="button">
+          <a href="/sign-in">Sign in</a>
         </Button>
       </section>
     </main>
