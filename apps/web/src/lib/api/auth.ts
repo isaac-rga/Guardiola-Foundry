@@ -1,5 +1,12 @@
-import { authSessionResponseSchema } from '@guardiola-foundry/shared-validation'
-import type { AuthSessionResponse, LoginRequest } from '@guardiola-foundry/shared-types'
+import {
+  authSessionResponseSchema,
+  currentSessionResponseSchema,
+} from '@guardiola-foundry/shared-validation'
+import type {
+  AuthSessionResponse,
+  CurrentSessionResponse,
+  LoginRequest,
+} from '@guardiola-foundry/shared-types'
 
 import { API_BASE_URL } from './config'
 
@@ -19,6 +26,23 @@ export async function signIn(credentials: LoginRequest): Promise<AuthSessionResp
   }
 
   return authSessionResponseSchema.parse(body)
+}
+
+export async function getCurrentSession(token: string): Promise<CurrentSessionResponse> {
+  const response = await fetch(resolveApiUrl('/auth/me'), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body))
+  }
+
+  return currentSessionResponseSchema.parse(body)
 }
 
 function resolveApiUrl(path: string) {

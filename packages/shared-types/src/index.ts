@@ -22,3 +22,9 @@ export interface AuthSessionResponse {
   expiresAt: string
   user: SessionUser
 }
+
+export interface CurrentSessionResponse {
+  tokenType: 'Bearer'
+  expiresAt: string
+  user: SessionUser
+}

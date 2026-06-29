@@ -1,4 +1,10 @@
-import type { AuthSessionResponse, HealthResponse, LoginRequest, SessionUser } from '@guardiola-foundry/shared-types'
+import type {
+  AuthSessionResponse,
+  CurrentSessionResponse,
+  HealthResponse,
+  LoginRequest,
+  SessionUser,
+} from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
 export const healthResponseSchema = z.object({
@@ -23,3 +29,9 @@ export const authSessionResponseSchema = z.object({
   expiresAt: z.string().datetime({ offset: true }),
   user: sessionUserSchema,
 }) satisfies z.ZodType<AuthSessionResponse>
+
+export const currentSessionResponseSchema = z.object({
+  tokenType: z.literal('Bearer'),
+  expiresAt: z.string().datetime({ offset: true }),
+  user: sessionUserSchema,
+}) satisfies z.ZodType<CurrentSessionResponse>

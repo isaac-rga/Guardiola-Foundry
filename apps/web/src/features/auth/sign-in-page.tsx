@@ -1,15 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { loginRequestSchema } from '@guardiola-foundry/shared-validation'
 import type { AuthSessionResponse, LoginRequest } from '@guardiola-foundry/shared-types'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
 import { signIn } from '@/lib/api/auth'
+import { bootstrapCurrentAuthSession, readCurrentAuthSession } from '@/lib/auth/current-auth-session'
 import { saveAuthSession } from '@/lib/auth/session-storage'
 
 export function SignInPage() {
-  const [session, setSession] = useState<AuthSessionResponse | null>(null)
+  const storedSession = readCurrentAuthSession()
+  const [session, setSession] = useState<AuthSessionResponse | null>(storedSession)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const {
     register,
@@ -23,6 +25,28 @@ export function SignInPage() {
       password: '',
     },
   })
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!storedSession) {
+      return
+    }
+
+    void (async () => {
+      const bootstrappedSession = await bootstrapCurrentAuthSession()
+
+      if (cancelled) {
+        return
+      }
+
+      setSession(bootstrappedSession)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmissionError(null)
@@ -40,6 +64,8 @@ export function SignInPage() {
       setSubmissionError(error instanceof Error ? error.message : 'Unable to sign in.')
     }
   })
+
+  const currentSession = session ?? storedSession
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(24,24,27,0.08),_transparent_45%),linear-gradient(180deg,_var(--color-background),_oklch(0.97_0_0))] px-6 py-16">
@@ -100,8 +126,10 @@ export function SignInPage() {
           </Button>
         </form>
 
-        {session ? (
-          <p className="mt-6 text-sm font-medium text-foreground">Signed in as {session.user.email}.</p>
+        {currentSession ? (
+          <p className="mt-6 text-sm font-medium text-foreground">
+            Signed in as {currentSession.user.email}.
+          </p>
         ) : null}
       </section>
     </main>

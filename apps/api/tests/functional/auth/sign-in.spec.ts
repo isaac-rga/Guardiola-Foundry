@@ -1,4 +1,5 @@
 import AccessToken from '#models/access_token'
+import { hashToken } from '#modules/auth/auth_service'
 import User from '#models/user'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -84,5 +85,101 @@ test.group('Auth sign-in', (group) => {
     const accessToken = await AccessToken.firstOrFail()
 
     assert.notEqual(accessToken.hash, body.token)
+  })
+
+  test('returns the current authenticated user for a valid bearer token', async ({
+    client,
+  }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const signInResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    signInResponse.assertStatus(200)
+
+    const { token } = signInResponse.body()
+
+    const meResponse = await client.get('/auth/me').header('Authorization', `Bearer ${token}`)
+
+    meResponse.assertStatus(200)
+    meResponse.assertBodyContains({
+      user: {
+        email: 'admin@example.com',
+        role: 'admin',
+        active: true,
+      },
+    })
+  })
+
+  test('treats a malformed bearer authorization header as unauthenticated', async ({ client }) => {
+    const meResponse = await client.get('/auth/me').header('Authorization', 'Basic opaque-access-token')
+
+    meResponse.assertStatus(401)
+    meResponse.assertBodyContains({
+      message: 'Unauthorized',
+    })
+  })
+
+  test('treats a revoked bearer token as unauthenticated', async ({ client }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const signInResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    signInResponse.assertStatus(200)
+
+    const accessToken = await AccessToken.firstOrFail()
+    accessToken.revokedAt = DateTime.utc()
+    await accessToken.save()
+
+    const meResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${signInResponse.body().token}`)
+
+    meResponse.assertStatus(401)
+    meResponse.assertBodyContains({
+      message: 'Unauthorized',
+    })
+  })
+
+  test('treats an expired bearer token as unauthenticated', async ({ client }) => {
+    const user = await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const rawToken = 'expired-access-token'
+
+    await AccessToken.create({
+      userId: user.id,
+      hash: hashToken(rawToken),
+      expiresAt: DateTime.utc().minus({ minute: 1 }),
+      revokedAt: null,
+    })
+
+    const meResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${rawToken}`)
+
+    meResponse.assertStatus(401)
+    meResponse.assertBodyContains({
+      message: 'Unauthorized',
+    })
   })
 })

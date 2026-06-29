@@ -1,4 +1,5 @@
-import { signIn } from '#modules/auth/auth_service'
+import { extractBearerToken } from '#modules/auth/bearer_token'
+import { getCurrentSession, signIn } from '#modules/auth/auth_service'
 import { loginRequestSchema } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -17,6 +18,26 @@ export default class AuthController {
     if (!session) {
       return response.unauthorized({
         message: 'Invalid email address or password.',
+      })
+    }
+
+    return response.ok(session)
+  }
+
+  async me({ request, response }: HttpContext) {
+    const token = extractBearerToken(request.header('authorization'))
+
+    if (!token) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const session = await getCurrentSession(token)
+
+    if (!session) {
+      return response.unauthorized({
+        message: 'Unauthorized',
       })
     }
 

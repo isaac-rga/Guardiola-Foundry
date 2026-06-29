@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -8,6 +8,7 @@ import { SignInPage } from './sign-in-page'
 
 describe('SignInPage', () => {
   afterEach(() => {
+    cleanup()
     localStorage.clear()
     vi.restoreAllMocks()
   })
@@ -27,7 +28,7 @@ describe('SignInPage', () => {
 
     const user = userEvent.setup()
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(JSON.stringify(session), {
         status: 200,
         headers: {
@@ -61,5 +62,93 @@ describe('SignInPage', () => {
 
     expect(JSON.parse(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)!)).toEqual(session)
     expect(screen.getByText('Signed in as admin@example.com.')).toBeInTheDocument()
+  })
+
+  it('bootstraps the current authenticated session from stored credentials on reload', async () => {
+    const storedSession = {
+      token: 'opaque-access-token',
+      tokenType: 'Bearer' as const,
+      expiresAt: '2026-07-28T18:33:00.000Z',
+      user: {
+        id: 1,
+        email: 'admin@example.com',
+        role: 'admin' as const,
+        active: true,
+      },
+    }
+
+    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(storedSession))
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          tokenType: 'Bearer',
+          expiresAt: storedSession.expiresAt,
+          user: storedSession.user,
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+
+    render(<SignInPage />)
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:3333/auth/me',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer opaque-access-token',
+          }),
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toEqual(JSON.stringify(storedSession))
+    })
+  })
+
+  it('clears stored credentials when the current session is no longer valid', async () => {
+    const storedSession = {
+      token: 'revoked-access-token',
+      tokenType: 'Bearer' as const,
+      expiresAt: '2026-07-28T18:33:00.000Z',
+      user: {
+        id: 1,
+        email: 'admin@example.com',
+        role: 'admin' as const,
+        active: true,
+      },
+    }
+
+    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(storedSession))
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          message: 'Unauthorized',
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+
+    render(<SignInPage />)
+
+    await waitFor(() => {
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+    })
+
+    expect(screen.queryByText('Signed in as admin@example.com.')).not.toBeInTheDocument()
   })
 })
