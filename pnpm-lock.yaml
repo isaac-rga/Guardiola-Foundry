@@ -19,6 +19,9 @@ importers:
       '@guardiola-foundry/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      '@guardiola-foundry/shared-validation':
+        specifier: workspace:*
+        version: link:../../packages/shared-validation
       luxon:
         specifier: ^3.7.2
         version: 3.7.2
