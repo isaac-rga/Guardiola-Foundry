@@ -45,6 +45,29 @@ export async function getCurrentSession(token: string): Promise<CurrentSessionRe
   return currentSessionResponseSchema.parse(body)
 }
 
+export async function logoutCurrentSession(token: string): Promise<void> {
+  const response = await fetch(resolveApiUrl('/auth/logout'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.ok) {
+    return
+  }
+
+  let body: unknown = null
+
+  try {
+    body = await response.json()
+  } catch {
+    body = null
+  }
+
+  throw new Error(getErrorMessage(body))
+}
+
 function resolveApiUrl(path: string) {
   if (!API_BASE_URL) {
     return path

@@ -68,6 +68,19 @@ export async function getCurrentSession(token: string): Promise<CurrentSessionRe
   }
 }
 
+export async function revokeCurrentSession(token: string): Promise<boolean> {
+  const accessToken = await AccessToken.findBy('hash', hashToken(token))
+
+  if (!accessToken || accessToken.revokedAt || accessToken.expiresAt <= DateTime.utc()) {
+    return false
+  }
+
+  accessToken.revokedAt = DateTime.utc()
+  await accessToken.save()
+
+  return true
+}
+
 export function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }

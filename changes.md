@@ -1,117 +1,161 @@
-# Protected Route Auth Gate
+# Current-Session Logout
 
-This change adds the first protected web route in the auth flow: `/app`.
+This slice adds one complete logout path for the current authenticated session.
 
-The goal of the slice is small and specific:
+The goal is narrow:
 
-- an unauthenticated visitor cannot enter the route
-- a previously authenticated `User` can recover their current session and enter it
-- an invalid stored session sends the visitor back to sign-in
+- a signed-in `User` can log out from the web app
+- `POST /auth/logout` revokes only the presented bearer token
+- the current browser session becomes unauthenticated
+- another active session for the same `User` keeps working
 
-## 1. Route entry now enforces authentication
+## 1. API route wiring
 
-The new route lives in `apps/web/src/routes/app.tsx`.
+The API entrypoint is `apps/api/start/routes.ts`.
 
-It uses a TanStack Router loader instead of checking auth inside the page component. That keeps the gate at the route boundary:
+This change adds:
 
-- the loader calls `requireCurrentAuthSession()`
-- if that returns a session, the route renders normally
-- if it cannot restore a valid session, the loader throws a redirect to `/sign-in`
+- `POST /auth/logout`
 
-This is the important behavior change: `/app` is now protected before the page renders.
+That route is handled by `AuthController.logout`, alongside the existing `login` and `me` endpoints. Keeping it inside the same `/auth` group makes the token lifecycle easy to follow in one place.
 
-## 2. Existing session bootstrap became a reusable route guard
+## 2. Controller behavior
 
-The main auth logic lives in `apps/web/src/lib/auth/current-auth-session.ts`.
+The HTTP behavior lives in `apps/api/app/modules/auth/controllers/auth_controller.ts`.
 
-There were already two useful behaviors in place:
+Walk through `logout()` in order:
 
-- read the stored session token from local storage
-- call `GET /auth/me` to confirm that the token still maps to a valid current session
+1. Read the `Authorization` header.
+2. Extract the bearer token with the existing `extractBearerToken()` helper.
+3. Return `401` when the request is missing a valid bearer token.
+4. Ask the auth service to revoke the current session token.
+5. Return `401` when that token is already invalid, revoked, or expired.
+6. Return `204 No Content` when revocation succeeds.
 
-This change adds `requireCurrentAuthSession()` on top of that existing bootstrap flow.
+That keeps the controller thin. It handles HTTP concerns only and leaves token state changes to the auth module.
 
-Walk through the code in order:
+## 3. Token revocation logic
 
-1. `bootstrapCurrentAuthSession()` loads the stored session.
-2. If nothing is stored, it returns `null`.
-3. If a token exists, it calls `getCurrentSession(token)`.
-4. On success, it rewrites local storage with the refreshed session payload and returns it.
-5. On failure, it clears local storage and returns `null`.
-6. `requireCurrentAuthSession()` turns that `null` case into a router redirect to `/sign-in`.
+The token revocation logic lives in `apps/api/app/modules/auth/auth_service.ts`.
 
-That keeps the responsibility narrow:
+The new function is `revokeCurrentSession(token)`.
 
-- bootstrap answers "can we restore a current session?"
-- the route guard answers "if not, where should the visitor go?"
+Its responsibilities are small:
 
-## 3. The protected page is intentionally minimal
+- hash the presented raw token the same way sign-in and `me` already do
+- find the matching access token record
+- reject missing, expired, or already-revoked tokens
+- set `revokedAt` for the matching token only
 
-The protected UI lives in `apps/web/src/features/auth/protected-app-page.tsx`.
+The important part is what it does **not** do:
 
-It only shows enough to prove that the authenticated route is using the current `User`:
+- it does not revoke every token for the user
+- it does not change any other active session
 
-- a heading for the authenticated area
-- the signed-in email address
-- the current role
+That matches the issue scope exactly: current-session logout, not global logout.
 
-That matches the issue scope. It proves the route is backed by the authenticated API session without introducing broader app-shell or dashboard work.
+## 4. Web API client
 
-## 4. Tests verify the behavior from the user’s point of view
+The web client entrypoint is `apps/web/src/lib/api/auth.ts`.
 
-The new route tests live in `apps/web/src/routes/-app.test.tsx`.
+This change adds `logoutCurrentSession(token)`, which:
 
-They use a memory router so the assertions stay at the public behavior seam: navigation and rendered UI.
+- sends `POST /auth/logout`
+- includes the current bearer token
+- returns quietly on success
+- throws a user-facing error when the API rejects the request
 
-The three test cases cover the acceptance criteria directly:
+This keeps the web route code simple. The route does not need to know fetch details or response parsing.
 
-1. `redirects unauthenticated visitors to sign-in`
-   When the visitor opens `/app` with no stored session, they land on the sign-in screen and no API call is made.
+## 5. Protected route logout flow
 
-2. `shows the current authenticated user on the protected route`
-   When a stored token exists and `/auth/me` succeeds, the route renders the protected page and shows the current `User`.
+The route behavior lives in `apps/web/src/routes/app.tsx`.
 
-3. `returns visitors to sign-in when the stored session is no longer valid`
-   When a stored token exists but `/auth/me` returns `401`, the stored session is cleared and the visitor is sent back to the unauthenticated flow.
+This is where the browser session transitions back to unauthenticated state.
 
-## 5. Why this shape was chosen
+Walk through `handleSignOut()`:
 
-This implementation keeps the diff small and aligned to the issue:
+1. Set local UI state to `isSigningOut`.
+2. Clear any previous logout error.
+3. Call `logoutCurrentSession(session.token)`.
+4. On success, remove the stored auth session with `clearAuthSession()`.
+5. Navigate back to `/sign-in`.
+6. On failure, keep the current session in place and show an error message.
 
-- one protected route
-- one focused route guard
-- one minimal authenticated view
-- one router-level test file
+The route owns this flow because it already has the authenticated session from the route loader. That keeps the feature local instead of introducing a broader auth coordinator.
+
+## 6. Protected page UI
+
+The UI lives in `apps/web/src/features/auth/protected-app-page.tsx`.
+
+The page is still intentionally small. It now shows:
+
+- the authenticated identity details
+- a `Sign out` button
+- an inline error message if logout fails
+
+The component stays presentational:
+
+- it receives `session`
+- it receives `isSigningOut`
+- it receives `logoutError`
+- it receives `onSignOut`
+
+That separation keeps async logout behavior in the route while the page just renders state.
+
+## 7. API test coverage
+
+The API regression test lives in `apps/api/tests/functional/auth/sign-in.spec.ts`.
+
+The new test proves the main contract:
+
+1. Sign in twice as the same user.
+2. Call `POST /auth/logout` with the first token.
+3. Verify the first token now fails against `GET /auth/me`.
+4. Verify the second token still succeeds against `GET /auth/me`.
+
+This is the key behavior of the slice. It verifies logout from the public HTTP boundary instead of asserting internal storage details.
+
+## 8. Web test coverage
+
+The web regression test lives in `apps/web/src/routes/-app.test.tsx`.
+
+It verifies the user-visible flow:
+
+1. Start on `/app` with a stored authenticated session.
+2. Confirm the protected route renders.
+3. Click `Sign out`.
+4. Verify the app calls `POST /auth/logout` with the current token.
+5. Verify local session storage is cleared.
+6. Verify the router returns to `/sign-in`.
+
+That gives confidence that the browser experience matches the API behavior.
+
+## 9. Why this shape
+
+This implementation stays intentionally small:
+
+- one new API endpoint
+- one small auth-service addition
+- one web client function
+- one route-owned logout flow
+- one presentational UI update
+- one API regression test
+- one web regression test
 
 It does not add:
 
 - a global auth provider
-- automatic post-login redirects
-- background session polling
-- a larger app shell
+- session management screens
+- logout-all-sessions behavior
+- refresh-token handling
 
-Those may be useful later, but they were not needed to satisfy this slice cleanly.
+Those would expand the surface area without helping this issue land more clearly.
 
-## 6. Technical Debt
+## 10. Technical debt
 
-- [AUDIT DETECTED]: Sign-in to protected-route handoff
-  - **Architectural Shortcuts Found**:
-    The sign-in screen saves the session and calls `onAuthenticated()` in `apps/web/src/features/auth/sign-in-page.tsx`, but the `/app` route loader immediately revalidates the same stored token through `requireCurrentAuthSession()` in `apps/web/src/routes/app.tsx` and `apps/web/src/lib/auth/current-auth-session.ts`.
-  - **Debt Metric Aggregation**:
-    New Bypass Comments: `0`
-    Missing Test Coverage: `No`
-  - **Downstream Impact Statement**:
-    A fresh sign-in now depends on an extra `/auth/me` round-trip before the user fully lands in `/app`, which adds latency and creates a second failure point if login succeeds but immediate session introspection is temporarily inconsistent.
-  - **Remediation Action**:
-    Introduce a shared auth-session cache or router context so successful sign-in can hydrate `/app` without forcing an immediate duplicate bootstrap request.
+- The protected auth feature still has no colocated component test for `apps/web/src/features/auth/protected-app-page.tsx`. The route test covers the happy-path logout flow, but the presentational states for `isSigningOut` and `logoutError` can drift without a nearby feature-level regression. Remediation: add `apps/web/src/features/auth/protected-app-page.test.tsx` that renders the component directly and asserts the identity, loading, and error states.
 
-- [AUDIT DETECTED]: Protected auth feature test proximity
-  - **Architectural Shortcuts Found**:
-    `apps/web/src/features/auth/protected-app-page.tsx` has no colocated `protected-app-page.test.tsx`; coverage currently exists only at the route level in `apps/web/src/routes/-app.test.tsx`.
-  - **Debt Metric Aggregation**:
-    New Bypass Comments: `0`
-    Missing Test Coverage: `Yes`
-  - **Downstream Impact Statement**:
-    Route tests protect the happy path, but the protected feature view can change markup or session rendering details without a focused feature-level regression test near the component.
-  - **Remediation Action**:
-    Add a colocated `protected-app-page.test.tsx` that renders the component with a session fixture and asserts the authenticated identity details.
+- `apps/web/src/lib/api/auth.ts` still reuses the shared `getErrorMessage()` fallback text `Unable to sign in. Check your credentials and try again.` for logout failures. That couples endpoint-specific UX copy to multiple auth actions and can surface the wrong message during a logout error. Remediation: let each auth client call provide its own fallback message, or split sign-in and logout error mapping.
+
+- `apps/api/tests/functional/auth/sign-in.spec.ts` now carries sign-in, current-session, and logout behavior under a single `Auth sign-in` test group. The HTTP coverage is present, but the file scope is drifting away from its name and makes future session-related failures harder to locate quickly. Remediation: split the session/logout cases into a dedicated auth-session spec or rename the suite so its boundary matches the behaviors it owns.
