@@ -1,7 +1,7 @@
 import AccessToken from '#models/access_token'
 import User from '#models/user'
 import hash from '@adonisjs/core/services/hash'
-import type { AuthSessionResponse } from '@guardiola-foundry/shared-types'
+import type { AuthSessionResponse, CurrentSessionResponse } from '@guardiola-foundry/shared-types'
 import { randomBytes, createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 
@@ -34,6 +34,31 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
     token: rawToken,
     tokenType: 'Bearer',
     expiresAt: expiresAt.toISO()!,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      active: user.active,
+    },
+  }
+}
+
+export async function getCurrentSession(token: string): Promise<CurrentSessionResponse | null> {
+  const accessToken = await AccessToken.findBy('hash', hashToken(token))
+
+  if (!accessToken || accessToken.revokedAt || accessToken.expiresAt <= DateTime.utc()) {
+    return null
+  }
+
+  const user = await User.find(accessToken.userId)
+
+  if (!user) {
+    return null
+  }
+
+  return {
+    tokenType: 'Bearer',
+    expiresAt: accessToken.expiresAt.toISO()!,
     user: {
       id: user.id,
       email: user.email,
