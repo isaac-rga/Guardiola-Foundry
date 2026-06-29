@@ -1,173 +1,117 @@
-# Changes: Current Authenticated Session Bootstrap
+# Protected Route Auth Gate
 
-This document explains the implementation for `.scratch/basic-authentication/issues/02-bootstrap-current-authenticated-session.md`.
+This change adds the first protected web route in the auth flow: `/app`.
 
-The goal of this slice is narrow: once a `User` has already signed in and stored a bearer token, the system should be able to recover the current authenticated session after a reload by calling `me`. If the token is expired or revoked, both the API and web app should fall back to an unauthenticated state.
+The goal of the slice is small and specific:
 
-## Start with the shared contract
+- an unauthenticated visitor cannot enter the route
+- a previously authenticated `User` can recover their current session and enter it
+- an invalid stored session sends the visitor back to sign-in
 
-The shared types for this slice live in:
+## 1. Route entry now enforces authentication
 
-- `packages/shared-types/src/index.ts`
-- `packages/shared-validation/src/index.ts`
+The new route lives in `apps/web/src/routes/app.tsx`.
 
-The sign-in slice already had `AuthSessionResponse`, which includes the raw bearer token returned at login time.
+It uses a TanStack Router loader instead of checking auth inside the page component. That keeps the gate at the route boundary:
 
-This slice adds `CurrentSessionResponse`, which intentionally does not include a token:
+- the loader calls `requireCurrentAuthSession()`
+- if that returns a session, the route renders normally
+- if it cannot restore a valid session, the loader throws a redirect to `/sign-in`
 
-- the client already has the stored bearer token,
-- `GET /auth/me` only needs to confirm whether that token still represents a valid session,
-- the API returns the refreshed `expiresAt` plus the current `user` payload.
+This is the important behavior change: `/app` is now protected before the page renders.
 
-That keeps the `me` endpoint focused on session introspection instead of token issuance.
+## 2. Existing session bootstrap became a reusable route guard
 
-## API walkthrough
+The main auth logic lives in `apps/web/src/lib/auth/current-auth-session.ts`.
 
-The API entrypoint is still `apps/api/start/routes.ts`.
+There were already two useful behaviors in place:
 
-This slice adds:
+- read the stored session token from local storage
+- call `GET /auth/me` to confirm that the token still maps to a valid current session
 
-- `GET /auth/me`
+This change adds `requireCurrentAuthSession()` on top of that existing bootstrap flow.
 
-That route is handled by `apps/api/app/modules/auth/controllers/auth_controller.ts`.
+Walk through the code in order:
 
-The controller logic is intentionally thin:
+1. `bootstrapCurrentAuthSession()` loads the stored session.
+2. If nothing is stored, it returns `null`.
+3. If a token exists, it calls `getCurrentSession(token)`.
+4. On success, it rewrites local storage with the refreshed session payload and returns it.
+5. On failure, it clears local storage and returns `null`.
+6. `requireCurrentAuthSession()` turns that `null` case into a router redirect to `/sign-in`.
 
-1. Read the `Authorization` header.
-2. Extract the bearer token.
-3. Reject the request with `401 Unauthorized` if the header is missing or malformed.
-4. Delegate token validation to `apps/api/app/modules/auth/auth_service.ts`.
-5. Return the current session payload on success, or `401` on failure.
+That keeps the responsibility narrow:
 
-## The auth service change
+- bootstrap answers "can we restore a current session?"
+- the route guard answers "if not, where should the visitor go?"
 
-The main new API behavior lives in `apps/api/app/modules/auth/auth_service.ts`.
+## 3. The protected page is intentionally minimal
 
-The existing `signIn` function still creates opaque bearer tokens and stores only their SHA-256 hash.
+The protected UI lives in `apps/web/src/features/auth/protected-app-page.tsx`.
 
-This slice adds `getCurrentSession(token)`, which works like this:
+It only shows enough to prove that the authenticated route is using the current `User`:
 
-1. Hash the presented bearer token with the same `hashToken` helper used during sign-in.
-2. Look up the persisted `AccessToken` by hash.
-3. Reject the token if it does not exist.
-4. Reject the token if it has `revokedAt`.
-5. Reject the token if `expiresAt` is already in the past.
-6. Load the owning `User`.
-7. Return the minimal current-session payload: `tokenType`, `expiresAt`, and `user`.
+- a heading for the authenticated area
+- the signed-in email address
+- the current role
 
-The key idea is that the API never trusts the raw token directly and never stores it at rest. Session recovery works by hashing the presented token and matching that hash against persisted token records.
+That matches the issue scope. It proves the route is backed by the authenticated API session without introducing broader app-shell or dashboard work.
 
-## Web walkthrough
+## 4. Tests verify the behavior from the user’s point of view
 
-The web implementation is spread across three files:
+The new route tests live in `apps/web/src/routes/-app.test.tsx`.
 
-- `apps/web/src/lib/api/auth.ts`
-- `apps/web/src/lib/auth/session-storage.ts`
-- `apps/web/src/features/auth/sign-in-page.tsx`
+They use a memory router so the assertions stay at the public behavior seam: navigation and rendered UI.
 
-### API client
+The three test cases cover the acceptance criteria directly:
 
-`apps/web/src/lib/api/auth.ts` now has two auth calls:
+1. `redirects unauthenticated visitors to sign-in`
+   When the visitor opens `/app` with no stored session, they land on the sign-in screen and no API call is made.
 
-- `signIn(credentials)`
-- `getCurrentSession(token)`
+2. `shows the current authenticated user on the protected route`
+   When a stored token exists and `/auth/me` succeeds, the route renders the protected page and shows the current `User`.
 
-`getCurrentSession` sends `GET /auth/me` with `Authorization: Bearer <token>`, parses the response with the shared `currentSessionResponseSchema`, and throws when the API responds with a failure.
+3. `returns visitors to sign-in when the stored session is no longer valid`
+   When a stored token exists but `/auth/me` returns `401`, the stored session is cleared and the visitor is sent back to the unauthenticated flow.
 
-### Session storage
+## 5. Why this shape was chosen
 
-`apps/web/src/lib/auth/session-storage.ts` now does more than just write to `localStorage`.
+This implementation keeps the diff small and aligned to the issue:
 
-It contains:
-
-- `saveAuthSession(session)`
-- `loadAuthSession()`
-- `clearAuthSession()`
-
-`loadAuthSession()` validates whatever is in `localStorage` against the shared `authSessionResponseSchema`. If the stored payload is malformed, it clears the bad value instead of letting invalid state leak into the UI.
-
-### Sign-in page bootstrap
-
-`apps/web/src/features/auth/sign-in-page.tsx` now handles both fresh sign-in and reload bootstrap.
-
-The flow is:
-
-1. Read the stored auth session on render.
-2. Use that stored session as the initial local session state.
-3. In `useEffect`, call `getCurrentSession(storedSession.token)` if a stored session exists.
-4. If `me` succeeds, rebuild the stored session with:
-   - the original stored token,
-   - the API-confirmed `tokenType`,
-   - the API-confirmed `expiresAt`,
-   - the API-confirmed `user`.
-5. Save that refreshed session back to `localStorage`.
-6. If `me` fails, clear storage and set the page back to an unauthenticated state.
-
-This is deliberately small. It gives the app one concrete bootstrap path without introducing a global auth provider or route guard yet.
-
-## Tests and verification
-
-The API behavior is covered by `apps/api/tests/functional/auth/sign-in.spec.ts`.
-
-The new tests prove:
-
-- `GET /auth/me` returns the current authenticated `User` for a valid bearer token,
-- a revoked bearer token is treated as unauthenticated,
-- an expired bearer token is treated as unauthenticated.
-
-The web behavior is covered by `apps/web/src/features/auth/sign-in-page.test.tsx`.
-
-The new tests prove:
-
-- a successful sign-in still stores the session payload,
-- a reload with stored credentials calls `GET /auth/me`,
-- valid stored credentials remain stored after successful bootstrap,
-- invalid stored credentials are cleared and treated as signed out.
-
-One implementation detail that mattered during verification: the shared packages had to be rebuilt so the app runtime could see the new `CurrentSessionResponse` exports from `dist`.
-
-## Why the implementation is shaped this way
-
-This slice intentionally avoids broader architecture.
+- one protected route
+- one focused route guard
+- one minimal authenticated view
+- one router-level test file
 
 It does not add:
 
-- a global auth context,
-- protected-route redirects,
-- logout,
-- refresh tokens,
-- cross-tab session synchronization.
+- a global auth provider
+- automatic post-login redirects
+- background session polling
+- a larger app shell
 
-Those would increase scope beyond what this issue asks for. The current shape proves the end-to-end bootstrap path first:
+Those may be useful later, but they were not needed to satisfy this slice cleanly.
 
-- API can validate an existing bearer token,
-- web can recover a session after reload,
-- invalid sessions are actively cleared.
+## 6. Technical Debt
 
-## What remains for later slices
+- [AUDIT DETECTED]: Sign-in to protected-route handoff
+  - **Architectural Shortcuts Found**:
+    The sign-in screen saves the session and calls `onAuthenticated()` in `apps/web/src/features/auth/sign-in-page.tsx`, but the `/app` route loader immediately revalidates the same stored token through `requireCurrentAuthSession()` in `apps/web/src/routes/app.tsx` and `apps/web/src/lib/auth/current-auth-session.ts`.
+  - **Debt Metric Aggregation**:
+    New Bypass Comments: `0`
+    Missing Test Coverage: `No`
+  - **Downstream Impact Statement**:
+    A fresh sign-in now depends on an extra `/auth/me` round-trip before the user fully lands in `/app`, which adds latency and creates a second failure point if login succeeds but immediate session introspection is temporarily inconsistent.
+  - **Remediation Action**:
+    Introduce a shared auth-session cache or router context so successful sign-in can hydrate `/app` without forcing an immediate duplicate bootstrap request.
 
-This change still leaves obvious follow-up work:
-
-- protect routes using the bootstrapped session,
-- add current-session logout,
-- revoke all sessions after password change,
-- reject inactive users on authenticated endpoints,
-- move session ownership out of the sign-in page into a reusable app-level boundary.
-
-That is consistent with the issue ordering in `.scratch/basic-authentication/issues/`.
-
-## Technical debt audit
-
-### [AUDIT DETECTED]: Current Authenticated Session Bootstrap
-
-- **Architectural Shortcuts Found**:
-  - `apps/web/src/features/auth/sign-in-page.tsx` owns session bootstrap, persistence refresh, and signed-in display state locally, so any future protected route or shared header will need to duplicate or extract that logic.
-  - `apps/api/app/modules/auth/controllers/auth_controller.ts` parses the bearer token inline inside `me`, which is fine for one endpoint but will create repeated authorization-header parsing once more authenticated routes are added.
-  - Shared contract changes in `packages/shared-types` and `packages/shared-validation` require rebuilt `dist` output before the apps see the new runtime exports, which is a process footgun for future slices.
-- **Debt Metric Aggregation**:
-  - New Bypass Comments: `0`
-  - Missing Test Coverage: `No`
-- **Downstream Impact Statement**:
-  - Leaving session bootstrap page-local slows the next auth slices because route protection, logout, and invalidation behavior will have to untangle UI concerns from session ownership before they can be reused safely.
-- **Remediation Action**:
-  - Extract bearer-session ownership into a reusable web auth boundary and move API bearer-token parsing into a dedicated middleware or guard before adding more authenticated endpoints.
+- [AUDIT DETECTED]: Protected auth feature test proximity
+  - **Architectural Shortcuts Found**:
+    `apps/web/src/features/auth/protected-app-page.tsx` has no colocated `protected-app-page.test.tsx`; coverage currently exists only at the route level in `apps/web/src/routes/-app.test.tsx`.
+  - **Debt Metric Aggregation**:
+    New Bypass Comments: `0`
+    Missing Test Coverage: `Yes`
+  - **Downstream Impact Statement**:
+    Route tests protect the happy path, but the protected feature view can change markup or session rendering details without a focused feature-level regression test near the component.
+  - **Remediation Action**:
+    Add a colocated `protected-app-page.test.tsx` that renders the component with a session fixture and asserts the authenticated identity details.

@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { loginRequestSchema } from '@guardiola-foundry/shared-validation'
 import type { AuthSessionResponse, LoginRequest } from '@guardiola-foundry/shared-types'
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,11 @@ import { signIn } from '@/lib/api/auth'
 import { bootstrapCurrentAuthSession, readCurrentAuthSession } from '@/lib/auth/current-auth-session'
 import { saveAuthSession } from '@/lib/auth/session-storage'
 
-export function SignInPage() {
+type SignInPageProps = {
+  onAuthenticated?: (session: AuthSessionResponse) => void | Promise<void>
+}
+
+export function SignInPage({ onAuthenticated }: SignInPageProps) {
   const storedSession = readCurrentAuthSession()
   const [session, setSession] = useState<AuthSessionResponse | null>(storedSession)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
@@ -24,6 +28,10 @@ export function SignInPage() {
       email: '',
       password: '',
     },
+  })
+  const handleAuthenticated = useEffectEvent(async (nextSession: AuthSessionResponse) => {
+    setSession(nextSession)
+    await onAuthenticated?.(nextSession)
   })
 
   useEffect(() => {
@@ -40,13 +48,18 @@ export function SignInPage() {
         return
       }
 
-      setSession(bootstrappedSession)
+      if (!bootstrappedSession) {
+        setSession(null)
+        return
+      }
+
+      await handleAuthenticated(bootstrappedSession)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [storedSession])
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmissionError(null)
@@ -55,7 +68,7 @@ export function SignInPage() {
       const nextSession = await signIn(values)
 
       saveAuthSession(nextSession)
-      setSession(nextSession)
+      await handleAuthenticated(nextSession)
       reset({
         email: '',
         password: '',

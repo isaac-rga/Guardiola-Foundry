@@ -1,3 +1,4 @@
+import { redirect } from '@tanstack/react-router'
 import type { AuthSessionResponse } from '@guardiola-foundry/shared-types'
 
 import { getCurrentSession } from '@/lib/api/auth'
@@ -31,4 +32,14 @@ export async function bootstrapCurrentAuthSession(): Promise<AuthSessionResponse
     clearAuthSession()
     return null
   }
+}
+
+export async function requireCurrentAuthSession(): Promise<AuthSessionResponse> {
+  const session = await bootstrapCurrentAuthSession()
+
+  if (!session) {
+    throw redirect({ to: '/sign-in' })
+  }
+
+  return session
 }
