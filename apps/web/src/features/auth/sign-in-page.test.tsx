@@ -27,6 +27,7 @@ describe('SignInPage', () => {
     }
 
     const user = userEvent.setup()
+    const onAuthenticated = vi.fn()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(JSON.stringify(session), {
@@ -37,7 +38,7 @@ describe('SignInPage', () => {
       })
     )
 
-    render(<SignInPage />)
+    render(<SignInPage onAuthenticated={onAuthenticated} />)
 
     await user.type(screen.getByLabelText(/email address/i), 'admin@example.com')
     await user.type(screen.getByLabelText(/password/i), 'Password123')
@@ -61,7 +62,7 @@ describe('SignInPage', () => {
     })
 
     expect(JSON.parse(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)!)).toEqual(session)
-    expect(screen.getByText('Signed in as admin@example.com.')).toBeInTheDocument()
+    expect(onAuthenticated).toHaveBeenCalledWith(session)
   })
 
   it('bootstraps the current authenticated session from stored credentials on reload', async () => {
@@ -78,6 +79,7 @@ describe('SignInPage', () => {
     }
 
     localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(storedSession))
+    const onAuthenticated = vi.fn()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(
@@ -95,7 +97,7 @@ describe('SignInPage', () => {
       )
     )
 
-    render(<SignInPage />)
+    render(<SignInPage onAuthenticated={onAuthenticated} />)
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -112,6 +114,8 @@ describe('SignInPage', () => {
     await waitFor(() => {
       expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toEqual(JSON.stringify(storedSession))
     })
+
+    expect(onAuthenticated).toHaveBeenCalledWith(storedSession)
   })
 
   it('clears stored credentials when the current session is no longer valid', async () => {
@@ -128,6 +132,7 @@ describe('SignInPage', () => {
     }
 
     localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(storedSession))
+    const onAuthenticated = vi.fn()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(
@@ -143,12 +148,12 @@ describe('SignInPage', () => {
       )
     )
 
-    render(<SignInPage />)
+    render(<SignInPage onAuthenticated={onAuthenticated} />)
 
     await waitFor(() => {
       expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
     })
 
-    expect(screen.queryByText('Signed in as admin@example.com.')).not.toBeInTheDocument()
+    expect(onAuthenticated).not.toHaveBeenCalled()
   })
 })
