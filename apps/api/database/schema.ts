@@ -26,6 +26,23 @@ export class AccessTokenSchema extends BaseModel {
   declare userId: number
 }
 
+export class LoginAttemptSchema extends BaseModel {
+  static $columns = ['createdAt', 'email', 'failureCount', 'id', 'lockedUntil', 'updatedAt'] as const
+  $columns = LoginAttemptSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare email: string
+  @column()
+  declare failureCount: number
+  @column({ isPrimary: true })
+  declare id: number
+  @column.dateTime()
+  declare lockedUntil: DateTime | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class UserSchema extends BaseModel {
   static $columns = ['active', 'createdAt', 'email', 'id', 'passwordHash', 'role', 'updatedAt'] as const
   $columns = UserSchema.$columns

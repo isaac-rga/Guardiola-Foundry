@@ -136,3 +136,11 @@ This patch stays narrow on purpose. It does not add:
 - a broader auth refactor
 
 It only implements the behavior in the issue: specific login failures, per-email lockout, and reset-after-success.
+
+## 8. Technical Debt Follow-Ups
+
+- The lockout contract currently depends on a raw message string (`Too many failed sign-in attempts. Try again in 15 minutes.`) that is duplicated across the API controller and web tests. A future wording change will force coordinated test rewrites instead of letting the client key off a stable auth error code.
+
+- `apps/api/tests/functional/auth/sign-in.spec.ts` now carries sign-in success, session, logout, password-change, inactive-user, and lockout coverage in one large file. The slice is well covered, but continued growth here will increase merge-conflict risk and make future auth failures harder to localize.
+
+- The change introduced formatter debt in `apps/api/tests/functional/auth/sign-in.spec.ts` in addition to the file’s pre-existing filename-case lint exception. The behavior is verified, but the file should be cleaned up with a formatter pass or targeted line wrapping before more auth cases land in the same spec.
