@@ -151,3 +151,11 @@ It does not add:
 - refresh-token handling
 
 Those would expand the surface area without helping this issue land more clearly.
+
+## 10. Technical debt
+
+- The protected auth feature still has no colocated component test for `apps/web/src/features/auth/protected-app-page.tsx`. The route test covers the happy-path logout flow, but the presentational states for `isSigningOut` and `logoutError` can drift without a nearby feature-level regression. Remediation: add `apps/web/src/features/auth/protected-app-page.test.tsx` that renders the component directly and asserts the identity, loading, and error states.
+
+- `apps/web/src/lib/api/auth.ts` still reuses the shared `getErrorMessage()` fallback text `Unable to sign in. Check your credentials and try again.` for logout failures. That couples endpoint-specific UX copy to multiple auth actions and can surface the wrong message during a logout error. Remediation: let each auth client call provide its own fallback message, or split sign-in and logout error mapping.
+
+- `apps/api/tests/functional/auth/sign-in.spec.ts` now carries sign-in, current-session, and logout behavior under a single `Auth sign-in` test group. The HTTP coverage is present, but the file scope is drifting away from its name and makes future session-related failures harder to locate quickly. Remediation: split the session/logout cases into a dedicated auth-session spec or rename the suite so its boundary matches the behaviors it owns.
