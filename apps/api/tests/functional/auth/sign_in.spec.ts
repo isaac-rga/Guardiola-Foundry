@@ -293,9 +293,7 @@ test.group('Auth sign-in', (group) => {
     assert.notEqual(accessToken.hash, body.token)
   })
 
-  test('returns the current authenticated user for a valid bearer token', async ({
-    client,
-  }) => {
+  test('returns the current authenticated user for a valid bearer token', async ({ client }) => {
     await User.create({
       email: 'admin@example.com',
       password: 'Password123',
@@ -325,7 +323,9 @@ test.group('Auth sign-in', (group) => {
   })
 
   test('treats a malformed bearer authorization header as unauthenticated', async ({ client }) => {
-    const meResponse = await client.get('/auth/me').header('Authorization', 'Basic opaque-access-token')
+    const meResponse = await client
+      .get('/auth/me')
+      .header('Authorization', 'Basic opaque-access-token')
 
     meResponse.assertStatus(401)
     meResponse.assertBodyContains({
@@ -379,9 +379,7 @@ test.group('Auth sign-in', (group) => {
       revokedAt: null,
     })
 
-    const meResponse = await client
-      .get('/auth/me')
-      .header('Authorization', `Bearer ${rawToken}`)
+    const meResponse = await client.get('/auth/me').header('Authorization', `Bearer ${rawToken}`)
 
     meResponse.assertStatus(401)
     meResponse.assertBodyContains({

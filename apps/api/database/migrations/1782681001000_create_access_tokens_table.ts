@@ -6,12 +6,7 @@ export default class extends BaseSchema {
   async up() {
     this.schema.createTable(this.tableName, (table) => {
       table.increments('id')
-      table
-        .integer('user_id')
-        .unsigned()
-        .notNullable()
-        .references('users.id')
-        .onDelete('CASCADE')
+      table.integer('user_id').unsigned().notNullable().references('users.id').onDelete('CASCADE')
       table.string('hash').notNullable().unique()
       table.timestamp('expires_at', { useTz: true }).notNullable()
       table.timestamp('revoked_at', { useTz: true }).nullable()
