@@ -1,218 +1,138 @@
-# Password Change
+# Specific Login Failures And Lockout Behavior
 
-This slice completes one authenticated password-change flow end to end.
+This slice completes the agreed sign-in feedback and lockout behavior for `/auth/login`.
 
 The behavior change is:
 
-- a signed-in `User` can submit `currentPassword` and `newPassword`
-- `POST /auth/change-password` rejects a wrong current password
-- `newPassword` must be at least 8 characters
-- a successful password change revokes every active bearer token for that `User`
-- after success, the `User` is sent back to sign-in and must authenticate with the new password
+- login now returns distinct failures for unknown `Email Address`, incorrect password, and inactive `User`
+- repeated failed attempts for the same normalized `Email Address` trigger a 15-minute lockout after 5 failures
+- a successful sign-in clears the failed-attempt state for that `Email Address`
+- the web sign-in flow surfaces the lockout response and keeps the user on `/sign-in`
 
 If you are reviewing the patch, read it in this order.
 
-## 1. Shared contract
+## 1. Persistence seam
 
 Start in:
 
-- `packages/shared-types/src/index.ts`
-- `packages/shared-validation/src/index.ts`
+- `apps/api/database/migrations/1782759000000_create_login_attempts_table.ts`
+- `apps/api/app/models/login_attempt.ts`
 
-This adds:
+This adds a small persistence seam for failed sign-in tracking:
 
-- `ChangePasswordRequest`
-- `changePasswordRequestSchema`
+- `email`
+- `failure_count`
+- `locked_until`
 
-The request stays intentionally small:
+The important design choice is that tracking is per normalized `Email Address`, not per `User` record. That lets the lockout apply even when the email does not map to an existing user.
 
-- `currentPassword` is required
-- `newPassword` is required and must be at least 8 characters
-
-This is the seam that keeps the API and web app aligned. The API validates incoming requests with it, and the web form uses the same schema for client-side validation.
-
-## 2. API route
+## 2. Auth service
 
 Next read:
 
-- `apps/api/start/routes.ts`
+- `apps/api/app/modules/auth/auth_service.ts`
 
-This adds:
+This file holds the actual sign-in policy.
 
-- `POST /auth/change-password`
+Walk through `signIn(email, password)` in order:
 
-The route sits with the rest of the auth lifecycle under `/auth`, next to `login`, `logout`, and `me`.
+1. Normalize the `Email Address`.
+2. Load the matching `login_attempts` record, if one exists.
+3. Short-circuit with `locked-out` when `locked_until` is still in the future.
+4. Look up the `User`.
+5. Return a specific failure for:
+   - unknown email
+   - inactive user
+   - incorrect password
+6. Record the failed attempt for each of those cases.
+7. Clear the failed-attempt record on successful sign-in.
+8. Create and return the bearer-token session as before.
 
-## 3. API controller
+The helper functions at the bottom are the core of the new state transition:
+
+- `recordFailedLoginAttempt(...)` increments `failure_count` and sets `locked_until` once the threshold reaches 5
+- `clearFailedLoginAttempt(...)` deletes the tracking row after a successful sign-in
+
+This keeps the new behavior local to the auth module instead of spreading lockout rules across controllers or models.
+
+## 3. Controller mapping
 
 Then read:
 
 - `apps/api/app/modules/auth/controllers/auth_controller.ts`
 
-`changePassword()` is the HTTP boundary. It does four things in order:
+`login()` is still the HTTP boundary. The change here is translation, not policy.
 
-1. Extract the bearer token from the `Authorization` header.
-2. Return `401` if the request is unauthenticated.
-3. Validate the body with `changePasswordRequestSchema` and return `422` on schema failure.
-4. Delegate to the auth service and translate the result into HTTP responses.
+The controller now maps auth-service outcomes to explicit HTTP responses:
 
-The service result mapping is:
+- `email-not-found` -> `401 Email Address was not found.`
+- `incorrect-password` -> `401 Password is incorrect.`
+- `inactive-user` -> `401 User is inactive.`
+- `locked-out` -> `429 Too many failed sign-in attempts. Try again in 15 minutes.`
 
-- `invalid-session` -> `401 Unauthorized`
-- `incorrect-current-password` -> `401 Current password is incorrect.`
-- `changed` -> `204 No Content`
+That keeps HTTP concerns in the controller and the behavioral rules in the service.
 
-That keeps transport concerns in the controller and auth state changes in the service.
-
-## 4. API service logic
-
-Then read:
-
-- `apps/api/app/modules/auth/auth_service.ts`
-
-The new function is `changePassword(token, currentPassword, newPassword)`.
-
-Walk through it in order:
-
-1. Look up the current access token by its hash.
-2. Reject expired or revoked tokens.
-3. Load the `User` for that token.
-4. Verify `currentPassword` against the stored password hash.
-5. Save the new password.
-6. Revoke all non-revoked access tokens for that user.
-
-This is the key behavior change in the slice:
-
-- `logout` still revokes only the presented token
-- `change-password` revokes every active token for the user
-
-That is what forces all old sessions to stop working immediately after a password change.
-
-## 5. Web API client
-
-Then move to:
-
-- `apps/web/src/lib/api/auth.ts`
-
-This adds `changePasswordCurrentSession(token, payload)`.
-
-It is deliberately parallel to the existing auth helpers:
-
-- it sends `POST /auth/change-password`
-- it includes the bearer token
-- it validates the outgoing payload with the shared schema
-- it converts API failures into user-facing errors
-
-This keeps request/response handling out of the route and page components.
-
-## 6. Protected route flow
-
-Next read:
-
-- `apps/web/src/routes/app.tsx`
-
-This route already owned the authenticated session and logout flow. It now owns password change too.
-
-`handleChangePassword()`:
-
-1. sets a pending state
-2. clears the previous password-change error
-3. calls `changePasswordCurrentSession(session.token, payload)`
-4. clears stored auth session data on success
-5. navigates back to `/sign-in`
-6. keeps the user on `/app` and shows the error on failure
-
-This keeps the async control flow close to the route loader that already provides the session token.
-
-## 7. Protected page UI
-
-Then read:
-
-- `apps/web/src/features/auth/protected-app-page.tsx`
-
-The page now renders a small password-change form inside the authenticated area:
-
-- current password input
-- new password input
-- shared-schema validation messages
-- API error message
-- loading state on submit
-
-The component still stays mostly presentational. It receives the async state and handler from the route:
-
-- `isChangingPassword`
-- `changePasswordError`
-- `onChangePassword`
-
-One small implementation detail is worth noticing: the form only resets after a successful password change. On failure, the values remain in place so the user can correct and retry.
-
-## 8. API tests
+## 4. API tests
 
 Then review:
 
 - `apps/api/tests/functional/auth/sign-in.spec.ts`
 
-The added API tests cover the public behavior:
+This is the main proof for the slice. The added tests cover:
 
-1. success path
-   - sign in twice
-   - change password with one token
-   - verify both old tokens stop working
-   - verify the old password no longer signs in
-   - verify the new password does sign in
+1. specific failure messages
+   - unknown `Email Address`
+   - incorrect password
+   - inactive `User`
 
-2. incorrect current password
-   - returns `401`
-   - leaves the existing password usable
+2. lockout activation and expiry
+   - 5 failed attempts still return the underlying auth failure
+   - the next attempt returns `429`
+   - the lockout lasts 15 minutes
+   - sign-in works again after the lockout window expires
 
-3. invalid new password
-   - returns `422`
-   - enforces the shared 8-character minimum
+3. unknown-email lockout
+   - repeated failures for a missing email also lock the same `Email Address`
 
-These stay at the HTTP boundary instead of testing internal implementation details.
+4. reset-on-success
+   - a successful sign-in clears previous failed-attempt state
+   - the threshold starts over after success
 
-## 9. Web tests
+One test detail worth noticing: these tests use `luxon` `Settings.now` so the lockout window can be exercised without introducing a deeper seam or waiting in real time.
 
-Finally review:
+## 5. Web behavior
 
-- `apps/web/src/routes/-app.test.tsx`
+Then move to:
 
-The added route tests cover the user-visible behavior:
+- `apps/web/src/features/auth/sign-in-page.test.tsx`
+- `apps/web/src/routes/-sign-in.test.tsx`
 
-1. successful password change
-   - submits the form
-   - calls `POST /auth/change-password`
-   - clears stored session state
-   - returns to `/sign-in`
+The web implementation already surfaced API `message` fields through the shared auth client, so this slice did not need production code changes in `apps/web`.
 
-2. incorrect current password
-   - shows the API error
-   - keeps the user on `/app`
-   - keeps the stored session intact
+Instead, the tests prove the existing flow behaves correctly with the new API response:
 
-3. too-short new password
-   - fails client-side validation
-   - never calls the password-change endpoint
+- `sign-in-page.test.tsx` verifies the lockout message is rendered and no session is stored
+- `-sign-in.test.tsx` verifies the user stays on `/sign-in` instead of navigating into the protected app
 
-## 10. Verification
+That is the end-to-end client behavior the issue asked for.
+
+## 6. Verification
 
 The narrow checks for this slice were:
 
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional --files tests/functional/auth/sign-in.spec.ts`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc --noEmit` in `apps/api`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/vitest run src/features/auth/sign-in-page.test.tsx src/routes/-sign-in.test.tsx`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc --noEmit` in `apps/api`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
 
-One repo-specific note: because the apps import `@guardiola-foundry/shared-types` and `@guardiola-foundry/shared-validation` through their package entrypoints, the shared package `dist/` outputs had to be rebuilt after adding the new request type and schema.
-
-## 11. What this does not do
+## 7. What This Does Not Do
 
 This patch stays narrow on purpose. It does not add:
 
-- password recovery
-- password strength scoring beyond the 8-character minimum
-- a separate account settings route
-- refresh-token behavior
-- a broader auth architecture rewrite
+- rate limiting for routes other than `/auth/login`
+- captcha or secondary anti-abuse mechanisms
+- generic auth-error messaging
+- admin tooling for inspecting or clearing lockouts
+- a broader auth refactor
 
-That keeps the diff tied to the issue: one complete `Password Change` path.
+It only implements the behavior in the issue: specific login failures, per-email lockout, and reset-after-success.

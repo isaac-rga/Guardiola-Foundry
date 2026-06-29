@@ -65,6 +65,35 @@ describe('SignInPage', () => {
     expect(onAuthenticated).toHaveBeenCalledWith(session)
   })
 
+  it('shows the API lockout message when sign-in is temporarily blocked', async () => {
+    const user = userEvent.setup()
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+
+    render(<SignInPage />)
+
+    await user.type(screen.getByLabelText(/email address/i), 'admin@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'Password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(
+      await screen.findByText('Too many failed sign-in attempts. Try again in 15 minutes.')
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+  })
+
   it('bootstraps the current authenticated session from stored credentials on reload', async () => {
     const storedSession = {
       token: 'opaque-access-token',
