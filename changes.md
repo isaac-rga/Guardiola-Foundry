@@ -91,3 +91,27 @@ It does not add:
 - a larger app shell
 
 Those may be useful later, but they were not needed to satisfy this slice cleanly.
+
+## 6. Technical Debt
+
+- [AUDIT DETECTED]: Sign-in to protected-route handoff
+  - **Architectural Shortcuts Found**:
+    The sign-in screen saves the session and calls `onAuthenticated()` in `apps/web/src/features/auth/sign-in-page.tsx`, but the `/app` route loader immediately revalidates the same stored token through `requireCurrentAuthSession()` in `apps/web/src/routes/app.tsx` and `apps/web/src/lib/auth/current-auth-session.ts`.
+  - **Debt Metric Aggregation**:
+    New Bypass Comments: `0`
+    Missing Test Coverage: `No`
+  - **Downstream Impact Statement**:
+    A fresh sign-in now depends on an extra `/auth/me` round-trip before the user fully lands in `/app`, which adds latency and creates a second failure point if login succeeds but immediate session introspection is temporarily inconsistent.
+  - **Remediation Action**:
+    Introduce a shared auth-session cache or router context so successful sign-in can hydrate `/app` without forcing an immediate duplicate bootstrap request.
+
+- [AUDIT DETECTED]: Protected auth feature test proximity
+  - **Architectural Shortcuts Found**:
+    `apps/web/src/features/auth/protected-app-page.tsx` has no colocated `protected-app-page.test.tsx`; coverage currently exists only at the route level in `apps/web/src/routes/-app.test.tsx`.
+  - **Debt Metric Aggregation**:
+    New Bypass Comments: `0`
+    Missing Test Coverage: `Yes`
+  - **Downstream Impact Statement**:
+    Route tests protect the happy path, but the protected feature view can change markup or session rendering details without a focused feature-level regression test near the component.
+  - **Remediation Action**:
+    Add a colocated `protected-app-page.test.tsx` that renders the component with a session fixture and asserts the authenticated identity details.
