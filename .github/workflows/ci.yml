@@ -8,17 +8,18 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: guardiola_foundry
+          POSTGRES_DB: guardiola_foundry_test
           POSTGRES_USER: guardiola_foundry
           POSTGRES_PASSWORD: guardiola_foundry
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U guardiola_foundry -d guardiola_foundry"
+          --health-cmd "pg_isready -U guardiola_foundry -d guardiola_foundry_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -31,23 +32,29 @@ jobs:
       APP_URL: http://localhost:3333
       APP_KEY: ci-only-app-key-with-at-least-32-characters
       LOG_LEVEL: info
+
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
       DB_USER: guardiola_foundry
       DB_PASSWORD: guardiola_foundry
-      DB_DATABASE: guardiola_foundry
+      DB_DATABASE: guardiola_foundry_test
+
       VITE_API_URL: http://localhost:3333
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11.8.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+
       - run: pnpm install --frozen-lockfile
+
       - run: pnpm db:status
       - run: pnpm lint
       - run: pnpm typecheck
