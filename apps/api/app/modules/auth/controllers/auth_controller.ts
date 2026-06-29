@@ -1,6 +1,14 @@
 import { extractBearerToken } from '#modules/auth/bearer_token'
-import { getCurrentSession, revokeCurrentSession, signIn } from '#modules/auth/auth_service'
-import { loginRequestSchema } from '@guardiola-foundry/shared-validation'
+import {
+  changePassword,
+  getCurrentSession,
+  revokeCurrentSession,
+  signIn,
+} from '#modules/auth/auth_service'
+import {
+  changePasswordRequestSchema,
+  loginRequestSchema,
+} from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class AuthController {
@@ -58,6 +66,44 @@ export default class AuthController {
     if (!revoked) {
       return response.unauthorized({
         message: 'Unauthorized',
+      })
+    }
+
+    return response.noContent()
+  }
+
+  async changePassword({ request, response }: HttpContext) {
+    const token = extractBearerToken(request.header('authorization'))
+
+    if (!token) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const payload = changePasswordRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({
+        errors: payload.error.flatten().fieldErrors,
+      })
+    }
+
+    const result = await changePassword(
+      token,
+      payload.data.currentPassword,
+      payload.data.newPassword
+    )
+
+    if (result === 'invalid-session') {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    if (result === 'incorrect-current-password') {
+      return response.unauthorized({
+        message: 'Current password is incorrect.',
       })
     }
 

@@ -1,9 +1,11 @@
 import {
   authSessionResponseSchema,
+  changePasswordRequestSchema,
   currentSessionResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   AuthSessionResponse,
+  ChangePasswordRequest,
   CurrentSessionResponse,
   LoginRequest,
 } from '@guardiola-foundry/shared-types'
@@ -68,6 +70,34 @@ export async function logoutCurrentSession(token: string): Promise<void> {
   throw new Error(getErrorMessage(body))
 }
 
+export async function changePasswordCurrentSession(
+  token: string,
+  payload: ChangePasswordRequest
+): Promise<void> {
+  const response = await fetch(resolveApiUrl('/auth/change-password'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(changePasswordRequestSchema.parse(payload)),
+  })
+
+  if (response.ok) {
+    return
+  }
+
+  let body: unknown = null
+
+  try {
+    body = await response.json()
+  } catch {
+    body = null
+  }
+
+  throw new Error(getErrorMessage(body))
+}
+
 function resolveApiUrl(path: string) {
   if (!API_BASE_URL) {
     return path
@@ -88,6 +118,22 @@ function getErrorMessage(body: unknown) {
     typeof body.message === 'string'
   ) {
     return body.message
+  }
+
+  if (
+    typeof body === 'object' &&
+    body !== null &&
+    'errors' in body &&
+    typeof body.errors === 'object' &&
+    body.errors !== null
+  ) {
+    const firstFieldError = Object.values(body.errors).find(
+      (value): value is string[] => Array.isArray(value) && typeof value[0] === 'string'
+    )
+
+    if (firstFieldError?.[0]) {
+      return firstFieldError[0]
+    }
   }
 
   return 'Unable to sign in. Check your credentials and try again.'

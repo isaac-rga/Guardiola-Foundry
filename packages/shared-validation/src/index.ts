@@ -1,5 +1,6 @@
 import type {
   AuthSessionResponse,
+  ChangePasswordRequest,
   CurrentSessionResponse,
   HealthResponse,
   LoginRequest,
@@ -15,6 +16,11 @@ export const loginRequestSchema = z.object({
   email: z.string().trim().email(),
   password: z.string().min(1),
 }) satisfies z.ZodType<LoginRequest>
+
+export const changePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+}) satisfies z.ZodType<ChangePasswordRequest>
 
 export const sessionUserSchema = z.object({
   id: z.number().int().positive(),

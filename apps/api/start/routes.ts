@@ -6,4 +6,5 @@ const HealthController = () => import('#modules/health/controllers/health_contro
 router.get('/health', [HealthController, 'show'])
 router.post('/auth/login', [AuthController, 'login'])
 router.post('/auth/logout', [AuthController, 'logout'])
+router.post('/auth/change-password', [AuthController, 'changePassword'])
 router.get('/auth/me', [AuthController, 'me'])
