@@ -41,6 +41,12 @@ There are no application migrations yet. When migrations are added, run them wit
 pnpm db:migrate
 ```
 
+The API test runner uses a dedicated PostgreSQL database named `guardiola_foundry_test`. On a fresh `pnpm db:up`, Docker creates it automatically. If your local Postgres volume already exists from an older setup, create it once with:
+
+```bash
+docker compose exec -T postgres psql -U guardiola_foundry -d postgres -c "CREATE DATABASE guardiola_foundry_test OWNER guardiola_foundry"
+```
+
 ## Run
 
 Run both applications:

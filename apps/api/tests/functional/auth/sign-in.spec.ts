@@ -6,7 +6,7 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 
 test.group('Auth sign-in', (group) => {
-  group.each.setup(() => testUtils.db().truncate())
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('rejects invalid login payloads using the shared login schema', async ({ client }) => {
     const invalidEmailResponse = await client.post('/auth/login').json({
