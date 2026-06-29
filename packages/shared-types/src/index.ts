@@ -16,6 +16,11 @@ export interface LoginRequest {
   password: string
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
 export interface AuthSessionResponse {
   token: string
   tokenType: 'Bearer'

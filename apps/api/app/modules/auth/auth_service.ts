@@ -6,6 +6,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 
 const ACCESS_TOKEN_LIFETIME_DAYS = 30
+type ChangePasswordResult = 'changed' | 'invalid-session' | 'incorrect-current-password'
 
 export async function signIn(email: string, password: string): Promise<AuthSessionResponse | null> {
   const user = await User.findBy('email', User.normalizeEmailAddress(email))
@@ -79,6 +80,42 @@ export async function revokeCurrentSession(token: string): Promise<boolean> {
   await accessToken.save()
 
   return true
+}
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<ChangePasswordResult> {
+  const accessToken = await AccessToken.findBy('hash', hashToken(token))
+
+  if (!accessToken || accessToken.revokedAt || accessToken.expiresAt <= DateTime.utc()) {
+    return 'invalid-session'
+  }
+
+  const user = await User.find(accessToken.userId)
+
+  if (!user) {
+    return 'invalid-session'
+  }
+
+  const passwordMatches = await hash.verify(user.password, currentPassword)
+
+  if (!passwordMatches) {
+    return 'incorrect-current-password'
+  }
+
+  user.password = newPassword
+  await user.save()
+
+  const activeTokens = await AccessToken.query().where('userId', user.id).whereNull('revokedAt')
+
+  for (const activeToken of activeTokens) {
+    activeToken.revokedAt = DateTime.utc()
+    await activeToken.save()
+  }
+
+  return 'changed'
 }
 
 export function hashToken(token: string) {
