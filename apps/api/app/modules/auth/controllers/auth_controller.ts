@@ -1,5 +1,5 @@
 import { extractBearerToken } from '#modules/auth/bearer_token'
-import { getCurrentSession, signIn } from '#modules/auth/auth_service'
+import { getCurrentSession, revokeCurrentSession, signIn } from '#modules/auth/auth_service'
 import { loginRequestSchema } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -42,5 +42,25 @@ export default class AuthController {
     }
 
     return response.ok(session)
+  }
+
+  async logout({ request, response }: HttpContext) {
+    const token = extractBearerToken(request.header('authorization'))
+
+    if (!token) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const revoked = await revokeCurrentSession(token)
+
+    if (!revoked) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    return response.noContent()
   }
 }

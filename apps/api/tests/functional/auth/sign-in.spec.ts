@@ -182,4 +182,58 @@ test.group('Auth sign-in', (group) => {
       message: 'Unauthorized',
     })
   })
+
+  test('revokes only the presented bearer token during current-session logout', async ({
+    client,
+  }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const firstSignInResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+    const secondSignInResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    firstSignInResponse.assertStatus(200)
+    secondSignInResponse.assertStatus(200)
+
+    const firstToken = firstSignInResponse.body().token
+    const secondToken = secondSignInResponse.body().token
+
+    const logoutResponse = await client
+      .post('/auth/logout')
+      .header('Authorization', `Bearer ${firstToken}`)
+
+    logoutResponse.assertStatus(204)
+
+    const revokedSessionResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${firstToken}`)
+
+    revokedSessionResponse.assertStatus(401)
+    revokedSessionResponse.assertBodyContains({
+      message: 'Unauthorized',
+    })
+
+    const remainingSessionResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${secondToken}`)
+
+    remainingSessionResponse.assertStatus(200)
+    remainingSessionResponse.assertBodyContains({
+      user: {
+        email: 'admin@example.com',
+        role: 'admin',
+        active: true,
+      },
+    })
+  })
 })
