@@ -36,9 +36,9 @@ Use these references before guessing library behavior:
 
 - `@context7 /reactjs/react.dev`: primary React reference for component, hooks, and rendering behavior.
 - `@context7 /tanstack/router`: primary routing reference for file-based routes, loaders, navigation, and search params.
-- `@context7 /tanstack/query`: feature-level reference for server-state, caching, invalidation, and mutations.
-- `@context7 /tanstack/table`: feature-level reference for column definitions, row models, sorting, and table state.
-- `@context7 /react-hook-form/documentation`: feature-level reference for form state, controllers, validation flow, and submission handling.
+- `@context7 /tanstack/query`: Reference for state, caching, invalidation, and mutations.
+- `@context7 /tanstack/table`: Reference for column definitions, row models, sorting, and table state.
+- `@context7 /react-hook-form/documentation`: Reference for form state, controllers, validation flow, and submission handling.
 - `@context7 /react-hook-form/resolvers`: reference for shared-schema validation, especially React Hook Form with Zod.
 
 ## Testing and Delivery
