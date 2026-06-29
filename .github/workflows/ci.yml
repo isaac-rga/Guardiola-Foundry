@@ -37,7 +37,7 @@ jobs:
       DB_PORT: 5432
       DB_USER: guardiola_foundry
       DB_PASSWORD: guardiola_foundry
-      DB_DATABASE: guardiola_foundry_test
+      DB_DATABASE: guardiola_foundry
 
       VITE_API_URL: http://localhost:3333
 
