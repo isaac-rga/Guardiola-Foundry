@@ -42,6 +42,8 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
+// These screens are intentionally example compositions for the authenticated shell.
+// Keep them available as reusable references until the real domain pages replace them.
 const dashboardMetrics = [
   { label: 'Open development styles', value: '14', detail: 'Across atelier, retail, and bridal capsule.' },
   { label: 'Waiting on fabric', value: '08', detail: 'Sourcing confirmations needed before cutting.' },
@@ -85,6 +87,8 @@ export function DashboardWorkspacePage() {
         ]}
         action={<Button size="lg">Review priorities</Button>}
       />
+
+      <ExampleWorkspaceNotice />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {dashboardMetrics.map((metric) => (
@@ -212,6 +216,8 @@ export function ProductsWorkspacePage() {
         }
       />
 
+      <ExampleWorkspaceNotice />
+
       <div className="grid gap-6 xl:grid-cols-[1.8fr_1fr]">
         <TableCard
           title="Current style list"
@@ -250,6 +256,8 @@ export function MaterialsWorkspacePage() {
         description="Track fabrics, trims, vendors, availability, and sourcing decisions with warm neutral surfaces and quiet status signaling."
         action={<Button size="lg">Add material</Button>}
       />
+
+      <ExampleWorkspaceNotice />
 
       <div className="grid gap-6 xl:grid-cols-[1.9fr_1fr]">
         <TableCard
@@ -294,6 +302,8 @@ export function InventoryWorkspacePage() {
           </Button>
         }
       />
+
+      <ExampleWorkspaceNotice />
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1.8fr]">
         <Card>
@@ -369,6 +379,8 @@ export function BillsOfMaterialsWorkspacePage() {
         description="BOM views stay dense and predictable, with enough hierarchy to keep product context visible without turning the grid into a landing page."
         action={<Button size="lg">Create BOM</Button>}
       />
+
+      <ExampleWorkspaceNotice />
 
       <div className="grid gap-6 xl:grid-cols-[1.75fr_1fr]">
         <TableCard
@@ -448,6 +460,25 @@ function TableCard({
             ))}
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ExampleWorkspaceNotice() {
+  return (
+    <Card className="border-border/60 bg-muted/25">
+      <CardContent className="flex flex-col gap-2 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">Example workspace screen</p>
+          <p className="text-sm leading-6 text-muted-foreground">
+            This layout is intentionally a reference composition for the authenticated shell. We will reuse it as
+            real domain pages are implemented.
+          </p>
+        </div>
+        <Badge variant="outline" className="w-fit">
+          Reusable example
+        </Badge>
       </CardContent>
     </Card>
   )
