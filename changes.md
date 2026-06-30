@@ -1,43 +1,30 @@
-# Authenticated App Shell
+# Authenticated Work-Area Routes And Navigation
 
-This branch keeps the shared authenticated `/app` shell, but removes the stale idea that the shell owns a fixed application bar or route-level page metadata contract.
+This slice completes `.scratch/authenticated-app-shell/issues/02-add-authenticated-work-area-routes-and-navigation`.
 
-The current contract is simpler and matches the implementation:
-
-- auth protection lives at the shared `/app` boundary
-- the shell owns the persistent sidebar, account menu, and authenticated frame
-- authenticated pages render inside that frame
-- each page owns its own visible header and body composition
-- `User Settings` stays inside the shell and continues to host password change
+The goal here is deliberately small: make the authenticated information architecture real without pretending the domain pages already exist. After this change, the signed-in shell exposes real URLs for `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials`, and each route owns its own visible page identity while sharing the same neutral placeholder body.
 
 If you are reviewing the patch, read it in this order.
 
-## 1. The shared shell seam
+## 1. The authenticated route boundary stays the seam
 
 Start in:
 
 - `apps/web/src/routes/app.tsx`
 - `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
 
-`app.tsx` remains the protected layout route for the authenticated application.
+Nothing about the auth boundary changes for this issue.
 
-That route still owns the same session-sensitive behavior:
+`/app` is still the protected layout route. It still:
 
-1. require a valid current session before rendering
-2. sign out the current session
-3. change the current user password
-4. clear stored auth state and return to `/sign-in` on success
+1. requires a valid current session before rendering
+2. signs out the current session
+3. changes the current user password
+4. clears stored auth state and returns to `/sign-in` after successful auth actions
 
-The shell owns the persistent frame around authenticated pages:
+That matters because issue 02 is not a new auth slice. It is a navigation and route-structure slice built on top of the shell seam from issue 01.
 
-- sidebar navigation
-- sidebar collapse behavior
-- shared account menu
-- authenticated content frame
-
-What it no longer pretends to own is page-title rendering. There is no shell-level app bar contract in the code anymore.
-
-## 2. Route pages now render directly
+## 2. The work areas are real routes, not one placeholder screen
 
 Next read:
 
@@ -46,134 +33,111 @@ Next read:
 - `apps/web/src/routes/app.materials.tsx`
 - `apps/web/src/routes/app.inventory.tsx`
 - `apps/web/src/routes/app.bills-of-materials.tsx`
-- `apps/web/src/routes/app.user-settings.tsx`
 
-These routes now render their page modules directly.
+These routes already existed on the branch, and this patch keeps them as the real route boundary for each work area:
 
-The cleanup here is intentional: the old `AppShellPage` wrapper exposed title, subtitle, and eyebrow props that the shell never consumed. Keeping that wrapper would leave a dead architectural seam in place and continue to suggest a shell-level metadata contract that does not exist.
+- `/app`
+- `/app/products`
+- `/app/materials`
+- `/app/inventory`
+- `/app/bills-of-materials`
 
-After this change, the route layer no longer claims to provide shell metadata. It just selects which authenticated page to render inside the shared frame.
+The important part of this issue is that navigation now lands on route-specific pages that are intentionally simple instead of showing rich example compositions that made the slice look more implemented than it is.
 
-## 3. Page identity belongs to the page body
+## 3. Page identity is route-owned, but the placeholder body is shared
 
 Then read:
 
 - `apps/web/src/features/app-shell/workspace-pages.tsx`
 - `apps/web/src/components/app/page-header.tsx`
-- `apps/web/src/features/auth/user-settings-page.tsx`
 
-This is the real page-identity seam today.
+This file is where the main implementation changed.
 
-The workspace pages render their own visible headers through `PageHeader`, and `User Settings` renders its own card-based account summary and password section inside the page body. That means:
+Before this patch, the work-area routes rendered elaborate example screens with tables, dialogs, metrics, and other domain-shaped placeholders. That drifted past the issue scope and broke the acceptance criteria for this slice, which call for:
 
-- navigation labels and page headings are allowed to diverge
-- page composition stays owned by the page module
-- the shell can stay focused on auth, navigation, and shared layout
+- real authenticated routes
+- route-owned visible page identity
+- one shared centered neutral empty-state surface
+- no duplicate page-title surface inside the page body
 
-This matches the implementation the branch already had; the cleanup just makes the contract honest.
+The new `workspace-pages.tsx` is intentionally narrow:
 
-## 4. Navigation and account behavior
+- each route renders a `PageHeader` with its own title and short description
+- each route then renders the same centered placeholder surface
+- that shared surface shows `Work in progress…`
+- the body no longer repeats the route title inside the placeholder card
+
+That keeps the architectural contract honest:
+
+- navigation identity belongs to the destination route
+- the shell stays focused on layout and navigation
+- future business pages can replace the placeholder body without reopening auth or shell concerns
+
+## 4. Navigation behavior stays persistent and ordered
 
 Stay in:
 
 - `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
 
-The first real authenticated information architecture is still:
+The sidebar navigation order remains:
 
-- `Home`
-- `Products`
-- `Materials`
-- `Inventory`
-- `Bills of Materials`
+1. `Home`
+2. `Products`
+3. `Materials`
+4. `Inventory`
+5. `Bills of Materials`
 
-`User Settings` still lives outside the main navigation and is reached from the bottom account menu.
+The active-state rule stays aligned with the PRD and issue:
 
-The account menu still carries the current signed-in identity:
+- `Home` stays interactive on `/app`
+- `Home` does not show the active highlight
+- non-Home work-area routes do show the active highlight when selected
 
-- fallback avatar from the first email letter
-- email address
-- human-friendly role label
+This means the shell continues to provide persistent navigation, but the route body is now visually honest about what is and is not implemented yet.
 
-`Log Out` still uses the same current-session logout behavior; it is just available from the shared shell instead of a one-off protected page.
-
-## 5. User settings remains inside the shell
+## 5. The tests now assert the real issue contract
 
 Then read:
-
-- `apps/web/src/features/auth/user-settings-page.tsx`
-
-This page still combines:
-
-- a read-only account summary
-- the existing password-change form
-
-The password-change behavior stays intentionally unchanged:
-
-- same shared Zod validation
-- same field set
-- same API call
-- same success path back to `/sign-in`
-- same inline error handling on failure
-
-This branch is about shell structure and contract cleanup, not auth-policy changes.
-
-## 6. PRD alignment
-
-Then read:
-
-- `.scratch/authenticated-app-shell/PRD.md`
-
-The PRD now matches the implemented architecture:
-
-- no fixed shell-level application bar
-- no route-to-shell metadata contract
-- page headers are page-owned, not shell-owned
-- the shell contract is auth, layout, navigation, and account actions
-
-That removes the main context mismatch that was present before this cleanup.
-
-## 7. Tests
-
-Finally read:
 
 - `apps/web/src/routes/-app.test.tsx`
 - `apps/web/src/routes/-sign-in.test.tsx`
-- `apps/web/src/test/setup.ts`
 
-The route tests still verify the shell at the authenticated boundary:
+The route tests now verify the behaviors this issue actually cares about:
 
-1. unauthenticated `/app` access redirects before protected content renders
-2. authenticated `/app` lands inside the shared shell
-3. child routes render their own page-specific header/content inside that shell
-4. `User Settings` renders inside the same shell and preserves password-change behavior
-5. sign-in still lands on `/app`
-6. logout still clears the current session and returns to sign-in
+- `/app` renders `Home` inside the authenticated shell
+- child routes render their own page identity
+- every work-area route shows the shared `Work in progress…` placeholder
+- the main navigation order is preserved
+- `Home` does not expose an active route state
+- non-Home destinations do expose active route state
+- sign-in still lands the user inside the authenticated home route
 
-The small `matchMedia` and `scrollTo` shims in `src/test/setup.ts` still exist because the shared sidebar primitives need those browser APIs in jsdom.
+This keeps the verification at the preferred seam: the real router plus the real shell, rather than lower-level component tests.
 
-## 8. Verification
+## 6. What did not change
 
-The checks for this cleanup are:
+This patch does not add:
 
+- real domain workflows for products, materials, inventory, or bills of materials
+- role-based navigation differences
+- changes to `User Settings`
+- changes to logout behavior
+- changes to password-change behavior
+
+That is intentional. The slice is about route structure and navigation truthfulness, not about filling the pages in early.
+
+## 7. Verification
+
+The checks run for this slice were:
+
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx` in `apps/web`
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run` in `apps/web`
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint src` in `apps/web`
 
-## 9. What this still does not do
+`pnpm typecheck` was attempted first, but it did not return in this environment, so the equivalent direct TypeScript build check was used instead.
 
-This branch still does not add:
+## 8. Technical debt
 
-- real business content for the authenticated work areas
-- role-based navigation differences
-- global search, notifications, or breadcrumbs
-- a fixed shell-level page-title surface
-- browser document-title management
-
-That keeps the implementation narrow: one shared authenticated shell, page-local page composition, and no dead metadata contract.
-
-## 10. Technical debt
-
-- `apps/web/src/features/app-shell/workspace-pages.tsx` is a large mixed-responsibility reference bundle that combines five route bodies, local dialog state, sample data, and shared helper components in one file. That keeps the shell slice moving, but it raises collision risk for future domain work and makes replacement with real pages less incremental.
-- Route coverage in `apps/web/src/routes/-app.test.tsx` proves the happy-path shell seam, but it does not exercise the highest-risk shell behaviors called out in the PRD: sidebar collapse persistence, mobile sheet dismissal on navigation, menu-close-on-selection, and reset-to-top behavior for repeated/current-route navigation.
-- Shared primitives under `apps/web/src/components/ui/` were expanded as part of the shell rollout, even though `apps/web/AGENTS.md` treats those files as a last-resort seam. The current branch has no primitive-level regression tests around the added sidebar, sheet, and dropdown interactions, so future shell work can regress shared UI behavior outside the app-shell feature boundary.
-- The current page-header contract is conventional rather than enforced. Future authenticated pages can still drift visually if they bypass `PageHeader` or invent competing header patterns without a tighter shared page-composition convention.
+- `apps/web/src/features/app-shell/workspace-pages.tsx` still centralizes all five work-area placeholders in one file. That is acceptable for this slice, but each real domain page should move to its own feature module when actual functionality starts landing.
+- The shell now has a clearer placeholder contract, but the branch still contains later-slice artifacts like `User Settings`. That is fine for the current branch, though it means future issue-by-issue review should stay disciplined about which acceptance criteria are being claimed at each step.

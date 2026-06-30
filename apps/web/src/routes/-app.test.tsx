@@ -35,10 +35,10 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(
-      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+      await screen.findByRole('heading', { name: 'Home' })
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
     expect(screen.getByAltText('Guardiola Bridal')).toBeInTheDocument()
-    expect(screen.getByText('Production queue')).toBeInTheDocument()
     expect(screen.getByText('admin@example.com')).toBeInTheDocument()
     expect(screen.getByText('Admin')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
@@ -46,9 +46,10 @@ describe('authenticated app shell routes', () => {
       'href',
       '/app/products'
     )
+    expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('renders route-specific page headers inside the shared shell for child routes', async () => {
+  it('renders route-specific page identity and shared placeholder content for child routes', async () => {
     seedStoredSession()
     mockCurrentSession()
 
@@ -57,13 +58,47 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.getByText('Current style list')).toBeInTheDocument()
-    expect(screen.getByText('Product lifecycle')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
       'aria-current',
       'page'
     )
     expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps the main navigation ordered and moves between authenticated work-area routes', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const router = createTestRouter('/app')
+
+    render(<RouterProvider router={router} />)
+
+    await screen.findByRole('heading', { name: 'Home' })
+
+    const navigationLabels = [
+      screen.getByRole('button', { name: 'Home' }).textContent,
+      screen.getByRole('link', { name: 'Products' }).textContent,
+      screen.getByRole('link', { name: 'Materials' }).textContent,
+      screen.getByRole('link', { name: 'Inventory' }).textContent,
+      screen.getByRole('link', { name: 'Bills of Materials' }).textContent,
+    ]
+
+    expect(navigationLabels).toEqual([
+      'Home',
+      'Products',
+      'Materials',
+      'Inventory',
+      'Bills of Materials',
+    ])
+
+    await user.click(screen.getByRole('link', { name: 'Inventory' }))
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Inventory' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('shows user settings in the shared shell and keeps password change behavior intact', async () => {
@@ -122,7 +157,7 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(
-      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+      await screen.findByRole('heading', { name: 'Home' })
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /open account menu/i }))

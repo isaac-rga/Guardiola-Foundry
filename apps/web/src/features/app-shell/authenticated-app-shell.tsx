@@ -183,24 +183,6 @@ export function AuthenticatedAppShell({
   )
 }
 
-export function WorkInProgressPage() {
-  return (
-    <div className="flex min-h-[calc(100svh-10rem)] items-center justify-center">
-      <section className="w-full max-w-3xl rounded-[2rem] border border-dashed border-border/80 bg-card/80 px-8 py-16 text-center shadow-[0_18px_48px_rgba(72,53,40,0.05)]">
-        <div className="mx-auto max-w-xl space-y-3">
-          <p className="text-sm font-medium tracking-[0.28em] text-muted-foreground uppercase">
-            Shared authenticated shell
-          </p>
-          <p className="font-editorial text-balance text-4xl leading-none">Work in progress</p>
-          <p className="text-sm leading-6 text-muted-foreground">
-            New product, materials, and operational workflows can slot into this shell without changing the routing or auth structure.
-          </p>
-        </div>
-      </section>
-    </div>
-  )
-}
-
 export function useAppShell() {
   const context = useContext(appShellContext)
 
