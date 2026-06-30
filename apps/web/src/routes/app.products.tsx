@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { AppShellPage, WorkInProgressPage } from '@/features/app-shell/authenticated-app-shell'
+import { AppShellPage } from '@/features/app-shell/authenticated-app-shell'
+import { ProductsWorkspacePage } from '@/features/app-shell/workspace-pages'
 
 export const Route = createFileRoute('/app/products')({
   component: ProductsRoute,
@@ -8,8 +9,12 @@ export const Route = createFileRoute('/app/products')({
 
 function ProductsRoute() {
   return (
-    <AppShellPage title="Products" subtitle="Work in progress…">
-      <WorkInProgressPage />
+    <AppShellPage
+      eyebrow="Product lifecycle"
+      title="Products"
+      subtitle="Collection oversight, approvals, and next production decisions."
+    >
+      <ProductsWorkspacePage />
     </AppShellPage>
   )
 }

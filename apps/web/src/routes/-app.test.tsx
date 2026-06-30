@@ -22,7 +22,7 @@ describe('authenticated app shell routes', () => {
     expect(
       await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })
     ).toBeInTheDocument()
-    expect(screen.queryByText('Work in progress…')).not.toBeInTheDocument()
+    expect(screen.queryByText(/a calm operating view for the atelier/i)).not.toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -34,8 +34,11 @@ describe('authenticated app shell routes', () => {
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
-    expect(screen.getAllByText('Work in progress…')).toHaveLength(2)
+    expect(
+      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+    ).toBeInTheDocument()
+    expect(screen.getByAltText('Guardiola Bridal')).toBeInTheDocument()
+    expect(screen.getByText('Production queue')).toBeInTheDocument()
     expect(screen.getByText('admin@example.com')).toBeInTheDocument()
     expect(screen.getByText('Admin')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
@@ -54,7 +57,8 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.getAllByText('Work in progress…')).toHaveLength(2)
+    expect(screen.getByText('Current style list')).toBeInTheDocument()
+    expect(screen.getByText('Product lifecycle')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
       'aria-current',
       'page'
@@ -74,7 +78,7 @@ describe('authenticated app shell routes', () => {
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: 'User Settings' })).toBeInTheDocument()
+    expect(await screen.findByText('Account details')).toBeInTheDocument()
     expect(screen.getByText('Email')).toBeInTheDocument()
     expect(screen.getAllByText('admin@example.com')).toHaveLength(2)
     expect(screen.getByText('Role')).toBeInTheDocument()
@@ -117,7 +121,9 @@ describe('authenticated app shell routes', () => {
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /open account menu/i }))
 

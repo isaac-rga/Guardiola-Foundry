@@ -1,6 +1,6 @@
 import type { PropsWithChildren, ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import {
   DropdownMenu,
@@ -25,6 +25,7 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
+import guardiolaBridalLogo from '@/assets/guardiola-bridal-logo.png'
 import { cn } from '@/lib/utils'
 import type { AuthSessionResponse, ChangePasswordRequest } from '@guardiola-foundry/shared-types'
 import {
@@ -38,6 +39,7 @@ import {
 import { createContext, useContext } from 'react'
 
 type AppShellMetadata = {
+  eyebrow?: string
   subtitle?: string
   title: string
 }
@@ -48,7 +50,6 @@ type AppShellContextValue = {
   isSigningOut: boolean
   logoutError: string | null
   session: AuthSessionResponse
-  setPageMetadata: (metadata: AppShellMetadata) => void
   onChangePassword: (payload: ChangePasswordRequest) => Promise<void>
   onSignOut: () => Promise<void>
 }
@@ -92,9 +93,6 @@ export function AuthenticatedAppShell({
 }: AuthenticatedAppShellProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [pageMetadata, setPageMetadata] = useState<AppShellMetadata>({
-    title: '',
-  })
 
   const contextValue = useMemo<AppShellContextValue>(
     () => ({
@@ -103,7 +101,6 @@ export function AuthenticatedAppShell({
       isSigningOut,
       logoutError,
       session,
-      setPageMetadata,
       onChangePassword,
       onSignOut,
     }),
@@ -113,8 +110,8 @@ export function AuthenticatedAppShell({
       isSigningOut,
       logoutError,
       session,
-      onChangePassword,
       onSignOut,
+      onChangePassword,
     ]
   )
 
@@ -122,17 +119,20 @@ export function AuthenticatedAppShell({
     <appShellContext.Provider value={contextValue}>
       <SidebarProvider defaultOpen>
         <Sidebar collapsible="icon">
-          <SidebarHeader className="gap-3 px-3 py-4">
+          <SidebarHeader className="gap-4 px-3 py-5">
             <Link
               to="/app"
-              className="rounded-xl px-2 py-2 transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-none"
+              className="flex min-h-18 items-center justify-center rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/35 px-3 py-4 transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-none"
+              aria-label="Guardiola Bridal home"
             >
-              <p className="text-xs font-semibold tracking-[0.3em] text-sidebar-foreground/65 uppercase">
-                Guardiola Foundry
-              </p>
-              <p className="mt-1 text-sm text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-                Authenticated workspace
-              </p>
+              <img
+                src={guardiolaBridalLogo}
+                alt="Guardiola Bridal"
+                className="h-auto w-full max-w-[11rem] object-contain group-data-[collapsible=icon]:hidden"
+              />
+              <span className="font-editorial hidden text-2xl leading-none tracking-[0.08em] text-sidebar-foreground group-data-[collapsible=icon]:inline">
+                GB
+              </span>
             </Link>
           </SidebarHeader>
           <SidebarSeparator />
@@ -141,7 +141,7 @@ export function AuthenticatedAppShell({
               <SidebarGroupContent>
                 <SidebarMenu>
                   {primaryNavigation.map((item) => {
-                    const isActive = item.to === '/app' ? false : location.pathname === item.to
+                    const isActive = location.pathname === item.to
 
                     return (
                       <SidebarMenuItem key={item.to}>
@@ -176,21 +176,10 @@ export function AuthenticatedAppShell({
           </SidebarFooter>
           <SidebarRail />
         </Sidebar>
-        <SidebarInset className="bg-muted/30">
-          <div className="flex min-h-svh flex-col">
-            <header className="sticky top-0 z-20 border-b border-border/70 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-              <div className="flex min-h-16 items-center gap-3 px-4 py-3 md:px-6">
-                <SidebarTrigger className="md:hidden" />
-                <div className="min-w-0 flex-1">
-                  <h1 className="text-xl font-semibold tracking-tight">{pageMetadata.title}</h1>
-                  {pageMetadata.subtitle ? (
-                    <p className="text-sm text-muted-foreground">{pageMetadata.subtitle}</p>
-                  ) : null}
-                </div>
-                <div aria-hidden="true" className="h-10 min-w-16 shrink-0" />
-              </div>
-            </header>
-            <div className="flex-1 px-4 py-6 md:px-6">
+        <SidebarInset className="bg-transparent">
+          <div className="relative flex min-h-svh flex-col">
+            <SidebarTrigger className="absolute top-4 left-4 z-20 md:hidden" />
+            <div className="flex-1 px-4 py-16 md:px-8 md:py-8">
               {children}
             </div>
           </div>
@@ -202,27 +191,22 @@ export function AuthenticatedAppShell({
 
 export function AppShellPage({
   children,
-  subtitle,
-  title,
 }: PropsWithChildren<AppShellMetadata>) {
-  const { setPageMetadata } = useAppShell()
-
-  useLayoutEffect(() => {
-    setPageMetadata({ title, subtitle })
-  }, [setPageMetadata, subtitle, title])
-
   return <>{children}</>
 }
 
 export function WorkInProgressPage() {
   return (
     <div className="flex min-h-[calc(100svh-10rem)] items-center justify-center">
-      <section className="w-full max-w-3xl rounded-[2rem] border border-dashed border-border bg-card/80 px-8 py-16 text-center shadow-sm">
+      <section className="w-full max-w-3xl rounded-[2rem] border border-dashed border-border/80 bg-card/80 px-8 py-16 text-center shadow-[0_18px_48px_rgba(72,53,40,0.05)]">
         <div className="mx-auto max-w-xl space-y-3">
-          <p className="text-sm font-semibold tracking-[0.3em] text-muted-foreground uppercase">
+          <p className="text-sm font-medium tracking-[0.28em] text-muted-foreground uppercase">
             Shared authenticated shell
           </p>
-          <p className="text-balance text-2xl font-semibold tracking-tight">Work in progress…</p>
+          <p className="font-editorial text-balance text-4xl leading-none">Work in progress</p>
+          <p className="text-sm leading-6 text-muted-foreground">
+            New product, materials, and operational workflows can slot into this shell without changing the routing or auth structure.
+          </p>
         </div>
       </section>
     </div>
@@ -252,12 +236,12 @@ function AccountMenu() {
           <button
             type="button"
             className={cn(
-              'flex w-full items-center gap-3 rounded-xl border border-sidebar-border/70 bg-sidebar-accent/50 px-2.5 py-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+              'flex w-full items-center gap-3 rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/55 px-3 py-2.5 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring',
               'group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0'
             )}
             aria-label="Open account menu"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sm font-medium text-sidebar-primary-foreground">
               {initials}
             </span>
             <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
@@ -291,7 +275,7 @@ function AccountMenu() {
       </DropdownMenu>
       {logoutError ? (
         <p
-          className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive group-data-[collapsible=icon]:hidden"
+          className="rounded-2xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-sm text-destructive group-data-[collapsible=icon]:hidden"
           role="alert"
         >
           {logoutError}

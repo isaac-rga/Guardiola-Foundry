@@ -9,7 +9,11 @@ export const Route = createFileRoute('/app/user-settings')({
 
 function UserSettingsRoute() {
   return (
-    <AppShellPage title="User Settings">
+    <AppShellPage
+      eyebrow="Settings"
+      title="User Settings"
+      subtitle="Profile context and account security remain calm, direct, and compact."
+    >
       <UserSettingsPage />
     </AppShellPage>
   )

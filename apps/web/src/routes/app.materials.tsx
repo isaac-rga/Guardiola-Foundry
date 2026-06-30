@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { AppShellPage, WorkInProgressPage } from '@/features/app-shell/authenticated-app-shell'
+import { AppShellPage } from '@/features/app-shell/authenticated-app-shell'
+import { MaterialsWorkspacePage } from '@/features/app-shell/workspace-pages'
 
 export const Route = createFileRoute('/app/materials')({
   component: MaterialsRoute,
@@ -8,8 +9,12 @@ export const Route = createFileRoute('/app/materials')({
 
 function MaterialsRoute() {
   return (
-    <AppShellPage title="Materials" subtitle="Work in progress…">
-      <WorkInProgressPage />
+    <AppShellPage
+      eyebrow="Inventory"
+      title="Materials"
+      subtitle="Track sourcing availability, vendor pressure, and quality review."
+    >
+      <MaterialsWorkspacePage />
     </AppShellPage>
   )
 }

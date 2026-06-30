@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { AppShellPage, WorkInProgressPage } from '@/features/app-shell/authenticated-app-shell'
+import { AppShellPage } from '@/features/app-shell/authenticated-app-shell'
+import { InventoryWorkspacePage } from '@/features/app-shell/workspace-pages'
 
 export const Route = createFileRoute('/app/inventory')({
   component: InventoryRoute,
@@ -8,8 +9,12 @@ export const Route = createFileRoute('/app/inventory')({
 
 function InventoryRoute() {
   return (
-    <AppShellPage title="Inventory" subtitle="Work in progress…">
-      <WorkInProgressPage />
+    <AppShellPage
+      eyebrow="Warehouse"
+      title="Inventory"
+      subtitle="Live stock visibility with structured filters and muted status signaling."
+    >
+      <InventoryWorkspacePage />
     </AppShellPage>
   )
 }
