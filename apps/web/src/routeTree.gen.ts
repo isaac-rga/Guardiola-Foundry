@@ -12,6 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppUserSettingsRouteImport } from './routes/app.user-settings'
+import { Route as AppProductsRouteImport } from './routes/app.products'
+import { Route as AppMaterialsRouteImport } from './routes/app.materials'
+import { Route as AppInventoryRouteImport } from './routes/app.inventory'
+import { Route as AppBillsOfMaterialsRouteImport } from './routes/app.bills-of-materials'
 
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
@@ -28,34 +34,108 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUserSettingsRoute = AppUserSettingsRouteImport.update({
+  id: '/user-settings',
+  path: '/user-settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProductsRoute = AppProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMaterialsRoute = AppMaterialsRouteImport.update({
+  id: '/materials',
+  path: '/materials',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInventoryRoute = AppInventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBillsOfMaterialsRoute = AppBillsOfMaterialsRouteImport.update({
+  id: '/bills-of-materials',
+  path: '/bills-of-materials',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/app': typeof AppRoute
+  '/app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
+  '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
+  '/app/inventory': typeof AppInventoryRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/products': typeof AppProductsRoute
+  '/app/user-settings': typeof AppUserSettingsRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/app': typeof AppRoute
   '/sign-in': typeof SignInRoute
+  '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
+  '/app/inventory': typeof AppInventoryRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/products': typeof AppProductsRoute
+  '/app/user-settings': typeof AppUserSettingsRoute
+  '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/app': typeof AppRoute
+  '/app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
+  '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
+  '/app/inventory': typeof AppInventoryRoute
+  '/app/materials': typeof AppMaterialsRoute
+  '/app/products': typeof AppProductsRoute
+  '/app/user-settings': typeof AppUserSettingsRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/app' | '/sign-in'
+  fullPaths:
+    | '/'
+    | '/app'
+    | '/sign-in'
+    | '/app/bills-of-materials'
+    | '/app/inventory'
+    | '/app/materials'
+    | '/app/products'
+    | '/app/user-settings'
+    | '/app/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/app' | '/sign-in'
-  id: '__root__' | '/' | '/app' | '/sign-in'
+  to:
+    | '/'
+    | '/sign-in'
+    | '/app/bills-of-materials'
+    | '/app/inventory'
+    | '/app/materials'
+    | '/app/products'
+    | '/app/user-settings'
+    | '/app'
+  id:
+    | '__root__'
+    | '/'
+    | '/app'
+    | '/sign-in'
+    | '/app/bills-of-materials'
+    | '/app/inventory'
+    | '/app/materials'
+    | '/app/products'
+    | '/app/user-settings'
+    | '/app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AppRoute: typeof AppRoute
+  AppRoute: typeof AppRouteWithChildren
   SignInRoute: typeof SignInRoute
 }
 
@@ -82,12 +162,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/user-settings': {
+      id: '/app/user-settings'
+      path: '/user-settings'
+      fullPath: '/app/user-settings'
+      preLoaderRoute: typeof AppUserSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/products': {
+      id: '/app/products'
+      path: '/products'
+      fullPath: '/app/products'
+      preLoaderRoute: typeof AppProductsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/materials': {
+      id: '/app/materials'
+      path: '/materials'
+      fullPath: '/app/materials'
+      preLoaderRoute: typeof AppMaterialsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/inventory': {
+      id: '/app/inventory'
+      path: '/inventory'
+      fullPath: '/app/inventory'
+      preLoaderRoute: typeof AppInventoryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/bills-of-materials': {
+      id: '/app/bills-of-materials'
+      path: '/bills-of-materials'
+      fullPath: '/app/bills-of-materials'
+      preLoaderRoute: typeof AppBillsOfMaterialsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
+interface AppRouteChildren {
+  AppBillsOfMaterialsRoute: typeof AppBillsOfMaterialsRoute
+  AppInventoryRoute: typeof AppInventoryRoute
+  AppMaterialsRoute: typeof AppMaterialsRoute
+  AppProductsRoute: typeof AppProductsRoute
+  AppUserSettingsRoute: typeof AppUserSettingsRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppBillsOfMaterialsRoute: AppBillsOfMaterialsRoute,
+  AppInventoryRoute: AppInventoryRoute,
+  AppMaterialsRoute: AppMaterialsRoute,
+  AppProductsRoute: AppProductsRoute,
+  AppUserSettingsRoute: AppUserSettingsRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AppRoute: AppRoute,
+  AppRoute: AppRouteWithChildren,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport

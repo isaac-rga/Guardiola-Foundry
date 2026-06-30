@@ -66,7 +66,7 @@ describe('sign-in route', () => {
     await user.type(screen.getByLabelText(/password/i), 'Password123')
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/app')

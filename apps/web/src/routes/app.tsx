@@ -1,7 +1,7 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Outlet, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffectEvent, useState } from 'react'
 
-import { ProtectedAppPage } from '@/features/auth/protected-app-page'
+import { AuthenticatedAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { changePasswordCurrentSession, logoutCurrentSession } from '@/lib/api/auth'
 import { requireCurrentAuthSession } from '@/lib/auth/current-auth-session'
 import { clearAuthSession } from '@/lib/auth/session-storage'
@@ -9,10 +9,10 @@ import type { ChangePasswordRequest } from '@guardiola-foundry/shared-types'
 
 export const Route = createFileRoute('/app')({
   loader: () => requireCurrentAuthSession(),
-  component: ProtectedAppRoute,
+  component: AppLayoutRoute,
 })
 
-function ProtectedAppRoute() {
+function AppLayoutRoute() {
   const navigate = useNavigate({ from: '/app' })
   const session = Route.useLoaderData()
   const [isChangingPassword, setIsChangingPassword] = useState(false)
@@ -54,7 +54,7 @@ function ProtectedAppRoute() {
   })
 
   return (
-    <ProtectedAppPage
+    <AuthenticatedAppShell
       session={session}
       isChangingPassword={isChangingPassword}
       changePasswordError={changePasswordError}
@@ -62,6 +62,8 @@ function ProtectedAppRoute() {
       isSigningOut={isSigningOut}
       logoutError={logoutError}
       onSignOut={handleSignOut}
-    />
+    >
+      <Outlet />
+    </AuthenticatedAppShell>
   )
 }

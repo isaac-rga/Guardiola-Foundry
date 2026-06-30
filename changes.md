@@ -1,218 +1,188 @@
-# Password Change
+# Authenticated App Shell
 
-This slice completes one authenticated password-change flow end to end.
+This slice turns `/app` from one protected placeholder page into the first real authenticated shell.
 
 The behavior change is:
 
-- a signed-in `User` can submit `currentPassword` and `newPassword`
-- `POST /auth/change-password` rejects a wrong current password
-- `newPassword` must be at least 8 characters
-- a successful password change revokes every active bearer token for that `User`
-- after success, the `User` is sent back to sign-in and must authenticate with the new password
+- auth protection now lives at the shared `/app` boundary
+- `/app` remains the real authenticated `Home` route
+- page title and optional subtitle now belong to each authenticated route
+- the shell provides one persistent application frame with sidebar navigation and a fixed app bar
+- `Password Change` moves into `/app/user-settings`
+- the throwaway prototype shell route is removed
 
 If you are reviewing the patch, read it in this order.
 
-## 1. Shared contract
+## 1. The shared shell seam
 
 Start in:
 
-- `packages/shared-types/src/index.ts`
-- `packages/shared-validation/src/index.ts`
-
-This adds:
-
-- `ChangePasswordRequest`
-- `changePasswordRequestSchema`
-
-The request stays intentionally small:
-
-- `currentPassword` is required
-- `newPassword` is required and must be at least 8 characters
-
-This is the seam that keeps the API and web app aligned. The API validates incoming requests with it, and the web form uses the same schema for client-side validation.
-
-## 2. API route
-
-Next read:
-
-- `apps/api/start/routes.ts`
-
-This adds:
-
-- `POST /auth/change-password`
-
-The route sits with the rest of the auth lifecycle under `/auth`, next to `login`, `logout`, and `me`.
-
-## 3. API controller
-
-Then read:
-
-- `apps/api/app/modules/auth/controllers/auth_controller.ts`
-
-`changePassword()` is the HTTP boundary. It does four things in order:
-
-1. Extract the bearer token from the `Authorization` header.
-2. Return `401` if the request is unauthenticated.
-3. Validate the body with `changePasswordRequestSchema` and return `422` on schema failure.
-4. Delegate to the auth service and translate the result into HTTP responses.
-
-The service result mapping is:
-
-- `invalid-session` -> `401 Unauthorized`
-- `incorrect-current-password` -> `401 Current password is incorrect.`
-- `changed` -> `204 No Content`
-
-That keeps transport concerns in the controller and auth state changes in the service.
-
-## 4. API service logic
-
-Then read:
-
-- `apps/api/app/modules/auth/auth_service.ts`
-
-The new function is `changePassword(token, currentPassword, newPassword)`.
-
-Walk through it in order:
-
-1. Look up the current access token by its hash.
-2. Reject expired or revoked tokens.
-3. Load the `User` for that token.
-4. Verify `currentPassword` against the stored password hash.
-5. Save the new password.
-6. Revoke all non-revoked access tokens for that user.
-
-This is the key behavior change in the slice:
-
-- `logout` still revokes only the presented token
-- `change-password` revokes every active token for the user
-
-That is what forces all old sessions to stop working immediately after a password change.
-
-## 5. Web API client
-
-Then move to:
-
-- `apps/web/src/lib/api/auth.ts`
-
-This adds `changePasswordCurrentSession(token, payload)`.
-
-It is deliberately parallel to the existing auth helpers:
-
-- it sends `POST /auth/change-password`
-- it includes the bearer token
-- it validates the outgoing payload with the shared schema
-- it converts API failures into user-facing errors
-
-This keeps request/response handling out of the route and page components.
-
-## 6. Protected route flow
-
-Next read:
-
 - `apps/web/src/routes/app.tsx`
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
 
-This route already owned the authenticated session and logout flow. It now owns password change too.
+`app.tsx` is no longer the authenticated page itself. It is now the protected layout route.
 
-`handleChangePassword()`:
+That route still does the same session-sensitive work it owned before:
 
-1. sets a pending state
-2. clears the previous password-change error
-3. calls `changePasswordCurrentSession(session.token, payload)`
-4. clears stored auth session data on success
-5. navigates back to `/sign-in`
-6. keeps the user on `/app` and shows the error on failure
+1. require a valid current session before rendering
+2. sign out the current session
+3. change the current user password
+4. clear stored auth state and return to `/sign-in` on success
 
-This keeps the async control flow close to the route loader that already provides the session token.
+What changed is where those behaviors render. Instead of passing everything into one page component, the route now renders `AuthenticatedAppShell` and an `Outlet`.
 
-## 7. Protected page UI
+That shell owns the persistent frame:
+
+- the sidebar and app bar
+- the shared account menu
+- the per-route page metadata contract
+- the full-width authenticated content surface
+
+This is the main architectural move in the slice: auth stays at the highest practical seam, and authenticated pages become children inside that frame.
+
+## 2. Route-owned page identity
+
+Next read:
+
+- `apps/web/src/routes/app.index.tsx`
+- `apps/web/src/routes/app.products.tsx`
+- `apps/web/src/routes/app.materials.tsx`
+- `apps/web/src/routes/app.inventory.tsx`
+- `apps/web/src/routes/app.bills-of-materials.tsx`
+- `apps/web/src/routes/app.user-settings.tsx`
+
+Each authenticated route now declares its own title and optional subtitle by rendering through `AppShellPage`.
+
+That gives the shell one simple contract:
+
+- every page must provide a title
+- pages may provide a subtitle
+- the shell app bar renders that metadata consistently
+
+For this first slice:
+
+- `Home` uses title `Home`
+- the placeholder routes use subtitle `Work in progress…`
+- `User Settings` omits the subtitle so the app bar collapses to the shorter form
+
+This keeps page identity in the route layer instead of hiding it inside feature components.
+
+## 3. Shared placeholder surface
+
+Then stay in:
+
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+
+`WorkInProgressPage` is the shared neutral empty-state surface used by:
+
+- `Home`
+- `Products`
+- `Materials`
+- `Inventory`
+- `Bills of Materials`
+
+The important detail here is what it does not do: it does not repeat the page title inside the page body.
+
+That leaves the fixed app bar as the one visible page-title surface, which was one of the explicit goals of the shell design.
+
+## 4. Sidebar and account menu behavior
+
+Still in:
+
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+
+Read the navigation and account menu together.
+
+The sidebar now establishes the first real authenticated information architecture:
+
+- `Home`
+- `Products`
+- `Materials`
+- `Inventory`
+- `Bills of Materials`
+
+Two decisions are worth noticing:
+
+1. `Home` is interactive but is not implemented as an active TanStack link, so it never picks up the active highlight rule.
+2. `User Settings` lives outside the main navigation and is reached from the bottom account menu.
+
+The account menu also carries the current signed-in identity:
+
+- fallback avatar from the first email letter
+- email address
+- human-friendly role label
+
+`Log Out` still goes through the same current-session logout path; it is just surfaced from a persistent shared place instead of the old placeholder page.
+
+## 5. User settings page
 
 Then read:
 
-- `apps/web/src/features/auth/protected-app-page.tsx`
+- `apps/web/src/features/auth/user-settings-page.tsx`
 
-The page now renders a small password-change form inside the authenticated area:
+This is where the old protected-page account content moved.
 
-- current password input
-- new password input
-- shared-schema validation messages
-- API error message
-- loading state on submit
+The page now combines:
 
-The component still stays mostly presentational. It receives the async state and handler from the route:
+- a small read-only account summary
+- the existing password-change form
 
-- `isChangingPassword`
-- `changePasswordError`
-- `onChangePassword`
+The password-change behavior itself stays intentionally unchanged:
 
-One small implementation detail is worth noticing: the form only resets after a successful password change. On failure, the values remain in place so the user can correct and retry.
+- same shared Zod validation
+- same field set
+- same API call
+- same success path back to `/sign-in`
+- same inline error handling on failure
 
-## 8. API tests
+The slice changes placement, not policy.
 
-Then review:
+## 6. Route tree and cleanup
 
-- `apps/api/tests/functional/auth/sign-in.spec.ts`
+Then glance at:
 
-The added API tests cover the public behavior:
+- `apps/web/src/routeTree.gen.ts`
 
-1. success path
-   - sign in twice
-   - change password with one token
-   - verify both old tokens stop working
-   - verify the old password no longer signs in
-   - verify the new password does sign in
+This reflects the new nested authenticated route structure under `/app`.
 
-2. incorrect current password
-   - returns `401`
-   - leaves the existing password usable
+It also shows an important cleanup outcome: the throwaway `/prototype/app-shell` route is gone because the real shell now exists.
 
-3. invalid new password
-   - returns `422`
-   - enforces the shared 8-character minimum
+## 7. Tests
 
-These stay at the HTTP boundary instead of testing internal implementation details.
-
-## 9. Web tests
-
-Finally review:
+Finally read:
 
 - `apps/web/src/routes/-app.test.tsx`
+- `apps/web/src/routes/-sign-in.test.tsx`
+- `apps/web/src/test/setup.ts`
 
-The added route tests cover the user-visible behavior:
+The old `/app` tests were centered on one placeholder page. They now verify shell behavior at the route boundary instead:
 
-1. successful password change
-   - submits the form
-   - calls `POST /auth/change-password`
-   - clears stored session state
-   - returns to `/sign-in`
+1. unauthenticated `/app` access redirects before shell content renders
+2. authenticated `/app` lands on `Home` inside the shared shell
+3. child routes surface their own metadata in the fixed app bar
+4. `User Settings` renders inside the same shell and preserves password-change behavior
+5. sign-in still lands on `/app`
+6. logout still clears the current session and returns to sign-in
 
-2. incorrect current password
-   - shows the API error
-   - keeps the user on `/app`
-   - keeps the stored session intact
+The small `matchMedia` and `scrollTo` shims in `src/test/setup.ts` are there because the shared sidebar primitives need those browser APIs in jsdom.
 
-3. too-short new password
-   - fails client-side validation
-   - never calls the password-change endpoint
+## 8. Verification
 
-## 10. Verification
+The checks for this slice were:
 
-The narrow checks for this slice were:
-
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional --files tests/functional/auth/sign-in.spec.ts`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc --noEmit` in `apps/api`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run` in `apps/web`
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional` in `apps/api`
 
-One repo-specific note: because the apps import `@guardiola-foundry/shared-types` and `@guardiola-foundry/shared-validation` through their package entrypoints, the shared package `dist/` outputs had to be rebuilt after adding the new request type and schema.
-
-## 11. What this does not do
+## 9. What this does not do
 
 This patch stays narrow on purpose. It does not add:
 
-- password recovery
-- password strength scoring beyond the 8-character minimum
-- a separate account settings route
-- refresh-token behavior
-- a broader auth architecture rewrite
+- real business content for the authenticated work areas
+- role-based navigation differences
+- global search, notifications, or app-bar actions
+- new password-management behavior beyond relocating the existing flow
+- a second shell implementation alongside the real one
 
-That keeps the diff tied to the issue: one complete `Password Change` path.
+That keeps the diff tied to the issue: establish one shared authenticated shell and move the existing account flow into it.
