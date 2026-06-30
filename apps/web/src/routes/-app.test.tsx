@@ -10,6 +10,7 @@ describe('authenticated app shell routes', () => {
   afterEach(() => {
     cleanup()
     localStorage.clear()
+    setViewportWidth(1024)
     vi.restoreAllMocks()
   })
 
@@ -99,6 +100,73 @@ describe('authenticated app shell routes', () => {
     expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Inventory' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('restores the collapsed desktop rail after the shell remounts', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const firstRender = render(<RouterProvider router={createTestRouter('/app')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    await user.keyboard('{Control>}b{/Control}')
+
+    expect(getDesktopSidebar(firstRender.container)).toHaveAttribute('data-state', 'collapsed')
+
+    firstRender.unmount()
+
+    mockCurrentSession()
+
+    const secondRender = render(<RouterProvider router={createTestRouter('/app/products')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(getDesktopSidebar(secondRender.container)).toHaveAttribute('data-state', 'collapsed')
+  })
+
+  it('resets the authenticated content region to the top when authenticated routes change', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const { container } = render(<RouterProvider router={createTestRouter('/app')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    const contentRegion = getAuthenticatedContentRegion(container)
+    contentRegion.scrollTop = 240
+
+    await user.click(screen.getByRole('link', { name: 'Inventory' }))
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+    expect(getAuthenticatedContentRegion(container).scrollTop).toBe(0)
+  })
+
+  it('dismisses the mobile shell before navigating to another authenticated route', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+    setViewportWidth(375)
+
+    const router = createTestRouter('/app')
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /toggle sidebar/i }))
+    expect(await screen.findByRole('dialog', { name: 'Sidebar' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Products' }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/app/products')
+      expect(screen.queryByRole('dialog', { name: 'Sidebar' })).not.toBeInTheDocument()
+    })
   })
 
   it('shows user settings in the shared shell and keeps password change behavior intact', async () => {
@@ -231,4 +299,32 @@ function currentSessionResponse() {
       },
     }
   )
+}
+
+function getDesktopSidebar(container: HTMLElement) {
+  const sidebar = container.querySelector('[data-slot="sidebar"][data-state]')
+
+  if (!sidebar) {
+    throw new Error('Expected the desktop sidebar to be rendered.')
+  }
+
+  return sidebar
+}
+
+function getAuthenticatedContentRegion(container: HTMLElement) {
+  const contentRegion = container.querySelector('[data-authenticated-content="true"]')
+
+  if (!(contentRegion instanceof HTMLElement)) {
+    throw new Error('Expected the authenticated content region to be rendered.')
+  }
+
+  return contentRegion
+}
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  })
 }
