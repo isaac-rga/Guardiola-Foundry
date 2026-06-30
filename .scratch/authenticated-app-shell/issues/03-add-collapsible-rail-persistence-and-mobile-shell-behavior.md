@@ -14,7 +14,7 @@ Deliver the shell interaction model by making the sidebar collapse into an icon 
 
 - [ ] On desktop, the sidebar collapses to an icon rail rather than disappearing, keeps stable icons for `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials`, and exposes tooltips when labels are hidden.
 - [ ] The collapse state persists across authenticated routes and remains restored after the browser is closed and reopened on the same machine.
-- [ ] On mobile, the application bar remains visible with the sidebar trigger, and route-changing navigation actions dismiss the transient shell first, then navigate and reset the content region to the top.
+- [ ] On mobile, the sidebar trigger remains available, and route-changing navigation actions dismiss the transient shell first, then navigate and reset the content region to the top.
 
 ## Blocked by
 

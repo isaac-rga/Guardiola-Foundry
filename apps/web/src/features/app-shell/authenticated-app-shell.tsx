@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
 
@@ -37,12 +37,6 @@ import {
   Shapes,
 } from 'lucide-react'
 import { createContext, useContext } from 'react'
-
-type AppShellMetadata = {
-  eyebrow?: string
-  subtitle?: string
-  title: string
-}
 
 type AppShellContextValue = {
   changePasswordError: string | null
@@ -187,12 +181,6 @@ export function AuthenticatedAppShell({
       </SidebarProvider>
     </appShellContext.Provider>
   )
-}
-
-export function AppShellPage({
-  children,
-}: PropsWithChildren<AppShellMetadata>) {
-  return <>{children}</>
 }
 
 export function WorkInProgressPage() {

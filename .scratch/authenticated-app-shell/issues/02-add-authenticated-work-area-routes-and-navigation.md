@@ -12,8 +12,8 @@ Deliver the first end-to-end authenticated navigation structure by adding real c
 
 ## Acceptance criteria
 
-- [ ] Authenticated users can navigate between `/app/products`, `/app/materials`, `/app/inventory`, and `/app/bills-of-materials` through persistent main navigation, and each route renders its own title in the fixed application bar.
-- [ ] `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` each have a real authenticated route with the shared centered neutral empty-state surface showing `Work in progress…` and no duplicate body title.
+- [ ] Authenticated users can navigate between `/app/products`, `/app/materials`, `/app/inventory`, and `/app/bills-of-materials` through persistent main navigation, and each route renders its own visible page identity within the authenticated page body.
+- [ ] `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` each have a real authenticated route with the shared centered neutral empty-state surface showing `Work in progress…` and no duplicate page-title surface inside the page body.
 - [ ] The main navigation order is `Home`, `Products`, `Materials`, `Inventory`, `Bills of Materials`, with active highlighting for the current non-Home route and no active highlight for `Home` on `/app`.
 
 ## Blocked by

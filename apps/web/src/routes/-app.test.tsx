@@ -48,7 +48,7 @@ describe('authenticated app shell routes', () => {
     )
   })
 
-  it('surfaces route-owned page metadata in the application bar for child routes', async () => {
+  it('renders route-specific page headers inside the shared shell for child routes', async () => {
     seedStoredSession()
     mockCurrentSession()
 
