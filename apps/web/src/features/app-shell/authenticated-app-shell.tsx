@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from '@tanstack/react-router'
+import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -136,15 +136,17 @@ export function useAppShell() {
 
 function AccountMenu() {
   const { isSigningOut, logoutError, onSignOut, session } = useAppShell()
-  const { isMobile, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, openMobile, setOpenMobile, state } = useSidebar()
   const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const roleLabel = toRoleLabel(session.user.role)
   const initials = session.user.email.slice(0, 1).toUpperCase()
+  const useCompactMenuWidth = isMobile || state === 'collapsed'
 
   return (
     <div className="space-y-2">
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -166,34 +168,30 @@ function AccountMenu() {
         <DropdownMenuContent
           align="end"
           side="top"
-          className="w-56 md:w-[var(--radix-dropdown-menu-trigger-width)]"
+          className={cn(
+            'w-56',
+            !useCompactMenuWidth && 'md:w-[var(--radix-dropdown-menu-trigger-width)]'
+          )}
         >
-          <DropdownMenuItem asChild>
-            <Link
-              to="/app/user-settings"
-              onClick={(event) => {
-                if (!isMobile) {
-                  return
-                }
+          <DropdownMenuItem
+            onSelect={() => {
+              setMenuOpen(false)
 
-                event.preventDefault()
+              if (isMobile && openMobile) {
+                setOpenMobile(false)
+              }
 
-                if (openMobile) {
-                  setOpenMobile(false)
-                }
-
-                void navigate({ to: '/app/user-settings' })
-              }}
-            >
+              void navigate({ to: '/app/user-settings' })
+            }}
+          >
               <Settings />
               <span>User Settings</span>
-            </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={isSigningOut}
-            onSelect={(event) => {
-              event.preventDefault()
+            onSelect={() => {
+              setMenuOpen(false)
 
               if (isMobile && openMobile) {
                 setOpenMobile(false)

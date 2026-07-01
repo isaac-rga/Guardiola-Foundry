@@ -248,6 +248,43 @@ describe('authenticated app shell routes', () => {
 
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
   })
+
+  it('closes the account menu immediately when log out is selected', async () => {
+    const user = userEvent.setup()
+    let resolveLogoutRequest!: (response: Response) => void
+
+    seedStoredSession()
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(currentSessionResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveLogoutRequest = resolve
+          })
+      )
+
+    const router = createTestRouter('/app/inventory')
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /open account menu/i }))
+    const menu = await screen.findByRole('menu')
+
+    await user.click(within(menu).getByRole('menuitem', { name: /log out/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(router.state.location.pathname).toBe('/app/inventory')
+    })
+
+    resolveLogoutRequest(new Response(null, { status: 204 }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/sign-in')
+    })
+  })
 })
 
 function createTestRouter(initialEntry: string) {
