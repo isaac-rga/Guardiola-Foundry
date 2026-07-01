@@ -1,188 +1,146 @@
-# Authenticated App Shell
+# Specific Login Failures And Lockout Behavior
 
-This slice turns `/app` from one protected placeholder page into the first real authenticated shell.
+This slice completes the agreed sign-in feedback and lockout behavior for `/auth/login`.
 
 The behavior change is:
 
-- auth protection now lives at the shared `/app` boundary
-- `/app` remains the real authenticated `Home` route
-- page title and optional subtitle now belong to each authenticated route
-- the shell provides one persistent application frame with sidebar navigation and a fixed app bar
-- `Password Change` moves into `/app/user-settings`
-- the throwaway prototype shell route is removed
+- login now returns distinct failures for unknown `Email Address`, incorrect password, and inactive `User`
+- repeated failed attempts for the same normalized `Email Address` trigger a 15-minute lockout after 5 failures
+- a successful sign-in clears the failed-attempt state for that `Email Address`
+- the web sign-in flow surfaces the lockout response and keeps the user on `/sign-in`
 
 If you are reviewing the patch, read it in this order.
 
-## 1. The shared shell seam
+## 1. Persistence seam
 
 Start in:
 
-- `apps/web/src/routes/app.tsx`
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+- `apps/api/database/migrations/1782759000000_create_login_attempts_table.ts`
+- `apps/api/app/models/login_attempt.ts`
 
-`app.tsx` is no longer the authenticated page itself. It is now the protected layout route.
+This adds a small persistence seam for failed sign-in tracking:
 
-That route still does the same session-sensitive work it owned before:
+- `email`
+- `failure_count`
+- `locked_until`
 
-1. require a valid current session before rendering
-2. sign out the current session
-3. change the current user password
-4. clear stored auth state and return to `/sign-in` on success
+The important design choice is that tracking is per normalized `Email Address`, not per `User` record. That lets the lockout apply even when the email does not map to an existing user.
 
-What changed is where those behaviors render. Instead of passing everything into one page component, the route now renders `AuthenticatedAppShell` and an `Outlet`.
-
-That shell owns the persistent frame:
-
-- the sidebar and app bar
-- the shared account menu
-- the per-route page metadata contract
-- the full-width authenticated content surface
-
-This is the main architectural move in the slice: auth stays at the highest practical seam, and authenticated pages become children inside that frame.
-
-## 2. Route-owned page identity
+## 2. Auth service
 
 Next read:
 
-- `apps/web/src/routes/app.index.tsx`
-- `apps/web/src/routes/app.products.tsx`
-- `apps/web/src/routes/app.materials.tsx`
-- `apps/web/src/routes/app.inventory.tsx`
-- `apps/web/src/routes/app.bills-of-materials.tsx`
-- `apps/web/src/routes/app.user-settings.tsx`
+- `apps/api/app/modules/auth/auth_service.ts`
 
-Each authenticated route now declares its own title and optional subtitle by rendering through `AppShellPage`.
+This file holds the actual sign-in policy.
 
-That gives the shell one simple contract:
+Walk through `signIn(email, password)` in order:
 
-- every page must provide a title
-- pages may provide a subtitle
-- the shell app bar renders that metadata consistently
+1. Normalize the `Email Address`.
+2. Load the matching `login_attempts` record, if one exists.
+3. Short-circuit with `locked-out` when `locked_until` is still in the future.
+4. Look up the `User`.
+5. Return a specific failure for:
+   - unknown email
+   - inactive user
+   - incorrect password
+6. Record the failed attempt for each of those cases.
+7. Clear the failed-attempt record on successful sign-in.
+8. Create and return the bearer-token session as before.
 
-For this first slice:
+The helper functions at the bottom are the core of the new state transition:
 
-- `Home` uses title `Home`
-- the placeholder routes use subtitle `Work in progress…`
-- `User Settings` omits the subtitle so the app bar collapses to the shorter form
+- `recordFailedLoginAttempt(...)` increments `failure_count` and sets `locked_until` once the threshold reaches 5
+- `clearFailedLoginAttempt(...)` deletes the tracking row after a successful sign-in
 
-This keeps page identity in the route layer instead of hiding it inside feature components.
+This keeps the new behavior local to the auth module instead of spreading lockout rules across controllers or models.
 
-## 3. Shared placeholder surface
-
-Then stay in:
-
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
-
-`WorkInProgressPage` is the shared neutral empty-state surface used by:
-
-- `Home`
-- `Products`
-- `Materials`
-- `Inventory`
-- `Bills of Materials`
-
-The important detail here is what it does not do: it does not repeat the page title inside the page body.
-
-That leaves the fixed app bar as the one visible page-title surface, which was one of the explicit goals of the shell design.
-
-## 4. Sidebar and account menu behavior
-
-Still in:
-
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
-
-Read the navigation and account menu together.
-
-The sidebar now establishes the first real authenticated information architecture:
-
-- `Home`
-- `Products`
-- `Materials`
-- `Inventory`
-- `Bills of Materials`
-
-Two decisions are worth noticing:
-
-1. `Home` is interactive but is not implemented as an active TanStack link, so it never picks up the active highlight rule.
-2. `User Settings` lives outside the main navigation and is reached from the bottom account menu.
-
-The account menu also carries the current signed-in identity:
-
-- fallback avatar from the first email letter
-- email address
-- human-friendly role label
-
-`Log Out` still goes through the same current-session logout path; it is just surfaced from a persistent shared place instead of the old placeholder page.
-
-## 5. User settings page
+## 3. Controller mapping
 
 Then read:
 
-- `apps/web/src/features/auth/user-settings-page.tsx`
+- `apps/api/app/modules/auth/controllers/auth_controller.ts`
 
-This is where the old protected-page account content moved.
+`login()` is still the HTTP boundary. The change here is translation, not policy.
 
-The page now combines:
+The controller now maps auth-service outcomes to explicit HTTP responses:
 
-- a small read-only account summary
-- the existing password-change form
+- `email-not-found` -> `401 Email Address was not found.`
+- `incorrect-password` -> `401 Password is incorrect.`
+- `inactive-user` -> `401 User is inactive.`
+- `locked-out` -> `429 Too many failed sign-in attempts. Try again in 15 minutes.`
 
-The password-change behavior itself stays intentionally unchanged:
+That keeps HTTP concerns in the controller and the behavioral rules in the service.
 
-- same shared Zod validation
-- same field set
-- same API call
-- same success path back to `/sign-in`
-- same inline error handling on failure
-
-The slice changes placement, not policy.
+## 4. API tests
 
 ## 6. Route tree and cleanup
 
 Then glance at:
 
-- `apps/web/src/routeTree.gen.ts`
+This is the main proof for the slice. The added tests cover:
 
-This reflects the new nested authenticated route structure under `/app`.
+1. specific failure messages
+   - unknown `Email Address`
+   - incorrect password
+   - inactive `User`
 
-It also shows an important cleanup outcome: the throwaway `/prototype/app-shell` route is gone because the real shell now exists.
+2. lockout activation and expiry
+   - 5 failed attempts still return the underlying auth failure
+   - the next attempt returns `429`
+   - the lockout lasts 15 minutes
+   - sign-in works again after the lockout window expires
 
-## 7. Tests
+3. unknown-email lockout
+   - repeated failures for a missing email also lock the same `Email Address`
 
-Finally read:
+4. reset-on-success
+   - a successful sign-in clears previous failed-attempt state
+   - the threshold starts over after success
 
-- `apps/web/src/routes/-app.test.tsx`
+One test detail worth noticing: these tests use `luxon` `Settings.now` so the lockout window can be exercised without introducing a deeper seam or waiting in real time.
+
+## 5. Web behavior
+
+Then move to:
+
+- `apps/web/src/features/auth/sign-in-page.test.tsx`
 - `apps/web/src/routes/-sign-in.test.tsx`
-- `apps/web/src/test/setup.ts`
 
-The old `/app` tests were centered on one placeholder page. They now verify shell behavior at the route boundary instead:
+The web implementation already surfaced API `message` fields through the shared auth client, so this slice did not need production code changes in `apps/web`.
 
-1. unauthenticated `/app` access redirects before shell content renders
-2. authenticated `/app` lands on `Home` inside the shared shell
-3. child routes surface their own metadata in the fixed app bar
-4. `User Settings` renders inside the same shell and preserves password-change behavior
-5. sign-in still lands on `/app`
-6. logout still clears the current session and returns to sign-in
+Instead, the tests prove the existing flow behaves correctly with the new API response:
 
-The small `matchMedia` and `scrollTo` shims in `src/test/setup.ts` are there because the shared sidebar primitives need those browser APIs in jsdom.
+- `sign-in-page.test.tsx` verifies the lockout message is rendered and no session is stored
+- `-sign-in.test.tsx` verifies the user stays on `/sign-in` instead of navigating into the protected app
 
-## 8. Verification
+That is the end-to-end client behavior the issue asked for.
 
-The checks for this slice were:
+## 6. Verification
 
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional` in `apps/api`
+The narrow checks for this slice were:
 
-## 9. What this does not do
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional --files tests/functional/auth/sign-in.spec.ts`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/vitest run src/features/auth/sign-in-page.test.tsx src/routes/-sign-in.test.tsx`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc --noEmit` in `apps/api`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
+
+## 7. What This Does Not Do
 
 This patch stays narrow on purpose. It does not add:
 
-- real business content for the authenticated work areas
-- role-based navigation differences
-- global search, notifications, or app-bar actions
-- new password-management behavior beyond relocating the existing flow
-- a second shell implementation alongside the real one
+- rate limiting for routes other than `/auth/login`
+- captcha or secondary anti-abuse mechanisms
+- generic auth-error messaging
+- admin tooling for inspecting or clearing lockouts
+- a broader auth refactor
 
-That keeps the diff tied to the issue: establish one shared authenticated shell and move the existing account flow into it.
+It only implements the behavior in the issue: specific login failures, per-email lockout, and reset-after-success.
+
+## 8. Technical Debt Follow-Ups
+
+- The lockout contract currently depends on a raw message string (`Too many failed sign-in attempts. Try again in 15 minutes.`) that is duplicated across the API controller and web tests. A future wording change will force coordinated test rewrites instead of letting the client key off a stable auth error code.
+
+- `apps/api/tests/functional/auth/sign-in.spec.ts` now carries sign-in success, session, logout, password-change, inactive-user, and lockout coverage in one large file. The slice is well covered, but continued growth here will increase merge-conflict risk and make future auth failures harder to localize.
+
+- The change introduced formatter debt in `apps/api/tests/functional/auth/sign-in.spec.ts` in addition to the file’s pre-existing filename-case lint exception. The behavior is verified, but the file should be cleaned up with a formatter pass or targeted line wrapping before more auth cases land in the same spec.

@@ -74,4 +74,44 @@ describe('sign-in route', () => {
       expect(router.state.location.pathname).toBe('/app')
     })
   })
+
+  it('keeps the user on sign-in and shows the lockout message when the API blocks sign-in', async () => {
+    const user = userEvent.setup()
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({
+        initialEntries: ['/sign-in'],
+      }),
+    })
+
+    render(<RouterProvider router={router} />)
+    expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/email address/i), 'admin@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'Password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(
+      await screen.findByText('Too many failed sign-in attempts. Try again in 15 minutes.')
+    ).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/sign-in')
+    })
+  })
 })

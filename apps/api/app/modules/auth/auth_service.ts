@@ -1,4 +1,5 @@
 import AccessToken from '#models/access_token'
+import LoginAttempt from '#models/login_attempt'
 import User from '#models/user'
 import hash from '@adonisjs/core/services/hash'
 import type { AuthSessionResponse, CurrentSessionResponse } from '@guardiola-foundry/shared-types'
@@ -6,20 +7,45 @@ import { randomBytes, createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
 
 const ACCESS_TOKEN_LIFETIME_DAYS = 30
+const LOGIN_LOCKOUT_THRESHOLD = 5
+const LOGIN_LOCKOUT_MINUTES = 15
+export type SignInResult =
+  | AuthSessionResponse
+  | 'email-not-found'
+  | 'incorrect-password'
+  | 'inactive-user'
+  | 'locked-out'
 type ChangePasswordResult = 'changed' | 'invalid-session' | 'incorrect-current-password'
 
-export async function signIn(email: string, password: string): Promise<AuthSessionResponse | null> {
-  const user = await User.findBy('email', User.normalizeEmailAddress(email))
+export async function signIn(email: string, password: string): Promise<SignInResult> {
+  const normalizedEmail = User.normalizeEmailAddress(email)
+  const now = DateTime.utc()
+  const loginAttempt = await LoginAttempt.findBy('email', normalizedEmail)
+
+  if (loginAttempt?.lockedUntil && loginAttempt.lockedUntil > now) {
+    return 'locked-out'
+  }
+
+  const user = await User.findBy('email', normalizedEmail)
 
   if (!user) {
-    return null
+    await recordFailedLoginAttempt(normalizedEmail, loginAttempt, now)
+    return 'email-not-found'
+  }
+
+  if (!user.active) {
+    await recordFailedLoginAttempt(normalizedEmail, loginAttempt, now)
+    return 'inactive-user'
   }
 
   const passwordMatches = await hash.verify(user.password, password)
 
   if (!passwordMatches) {
-    return null
+    await recordFailedLoginAttempt(normalizedEmail, loginAttempt, now)
+    return 'incorrect-password'
   }
+
+  await clearFailedLoginAttempt(loginAttempt)
 
   const rawToken = randomBytes(32).toString('hex')
   const expiresAt = DateTime.utc().plus({ days: ACCESS_TOKEN_LIFETIME_DAYS })
@@ -120,4 +146,41 @@ export async function changePassword(
 
 export function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
+}
+
+async function recordFailedLoginAttempt(
+  email: string,
+  loginAttempt: LoginAttempt | null,
+  now: DateTime
+) {
+  if (!loginAttempt) {
+    await LoginAttempt.create({
+      email,
+      failureCount: 1,
+      lockedUntil: null,
+    })
+
+    return
+  }
+
+  if (loginAttempt.lockedUntil && loginAttempt.lockedUntil <= now) {
+    loginAttempt.failureCount = 0
+    loginAttempt.lockedUntil = null
+  }
+
+  loginAttempt.failureCount += 1
+
+  if (loginAttempt.failureCount >= LOGIN_LOCKOUT_THRESHOLD) {
+    loginAttempt.lockedUntil = now.plus({ minutes: LOGIN_LOCKOUT_MINUTES })
+  }
+
+  await loginAttempt.save()
+}
+
+async function clearFailedLoginAttempt(loginAttempt: LoginAttempt | null) {
+  if (!loginAttempt) {
+    return
+  }
+
+  await loginAttempt.delete()
 }

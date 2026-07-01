@@ -3,10 +3,18 @@ import { hashToken } from '#modules/auth/auth_service'
 import User from '#models/user'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 
 test.group('Auth sign-in', (group) => {
-  group.each.setup(() => testUtils.db('postgres_test').truncate())
+  group.each.setup(() => {
+    Settings.now = () => Date.now()
+
+    return testUtils.db('postgres_test').truncate()
+  })
+
+  group.each.teardown(() => {
+    Settings.now = () => Date.now()
+  })
 
   test('rejects invalid login payloads using the shared login schema', async ({ client }) => {
     const invalidEmailResponse = await client.post('/auth/login').json({
@@ -44,6 +52,204 @@ test.group('Auth sign-in', (group) => {
     response.assertHeader('access-control-allow-origin', 'http://localhost:5173')
     response.assertHeader('access-control-allow-methods', 'GET,HEAD,POST,PUT,DELETE,OPTIONS')
     response.assertHeader('access-control-allow-headers', 'content-type')
+  })
+
+  test('returns a specific failure when the email address is unknown', async ({ client }) => {
+    const response = await client.post('/auth/login').json({
+      email: 'missing@example.com',
+      password: 'Password123',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({
+      message: 'Email Address was not found.',
+    })
+  })
+
+  test('returns a specific failure when the password is incorrect', async ({ client }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const response = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'WrongPassword123',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({
+      message: 'Password is incorrect.',
+    })
+  })
+
+  test('returns a specific failure when the user is inactive', async ({ client }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: false,
+    })
+
+    const response = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    response.assertStatus(401)
+    response.assertBodyContains({
+      message: 'User is inactive.',
+    })
+  })
+
+  test('locks sign-in for 15 minutes after 5 failed attempts for the same email address', async ({
+    client,
+  }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const lockedAt = DateTime.utc()
+    Settings.now = () => lockedAt.toMillis()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await client.post('/auth/login').json({
+        email: 'admin@example.com',
+        password: 'WrongPassword123',
+      })
+
+      response.assertStatus(401)
+      response.assertBodyContains({
+        message: 'Password is incorrect.',
+      })
+    }
+
+    const lockedResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    lockedResponse.assertStatus(429)
+    lockedResponse.assertBodyContains({
+      message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+    })
+
+    Settings.now = () => lockedAt.plus({ minutes: 14 }).toMillis()
+
+    const stillLockedResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    stillLockedResponse.assertStatus(429)
+    stillLockedResponse.assertBodyContains({
+      message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+    })
+
+    Settings.now = () => lockedAt.plus({ minutes: 15, seconds: 1 }).toMillis()
+
+    const unlockedResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    unlockedResponse.assertStatus(200)
+  })
+
+  test('locks repeated unknown-email failures for 15 minutes on the same email address', async ({
+    client,
+  }) => {
+    const lockedAt = DateTime.utc()
+    Settings.now = () => lockedAt.toMillis()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await client.post('/auth/login').json({
+        email: 'missing@example.com',
+        password: 'Password123',
+      })
+
+      response.assertStatus(401)
+      response.assertBodyContains({
+        message: 'Email Address was not found.',
+      })
+    }
+
+    const lockedResponse = await client.post('/auth/login').json({
+      email: 'missing@example.com',
+      password: 'Password123',
+    })
+
+    lockedResponse.assertStatus(429)
+    lockedResponse.assertBodyContains({
+      message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+    })
+
+    Settings.now = () => lockedAt.plus({ minutes: 15, seconds: 1 }).toMillis()
+
+    const unlockedResponse = await client.post('/auth/login').json({
+      email: 'missing@example.com',
+      password: 'Password123',
+    })
+
+    unlockedResponse.assertStatus(401)
+    unlockedResponse.assertBodyContains({
+      message: 'Email Address was not found.',
+    })
+  })
+
+  test('clears the failed-attempt counter after a successful sign-in', async ({ client }) => {
+    await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await client.post('/auth/login').json({
+        email: 'admin@example.com',
+        password: 'WrongPassword123',
+      })
+
+      response.assertStatus(401)
+      response.assertBodyContains({
+        message: 'Password is incorrect.',
+      })
+    }
+
+    const successfulResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    successfulResponse.assertStatus(200)
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await client.post('/auth/login').json({
+        email: 'admin@example.com',
+        password: 'WrongPassword123',
+      })
+
+      response.assertStatus(401)
+      response.assertBodyContains({
+        message: 'Password is incorrect.',
+      })
+    }
+
+    const lockedResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    lockedResponse.assertStatus(429)
+    lockedResponse.assertBodyContains({
+      message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
+    })
   })
 
   test('signs in a seeded user with a case-insensitive email address', async ({
@@ -87,9 +293,7 @@ test.group('Auth sign-in', (group) => {
     assert.notEqual(accessToken.hash, body.token)
   })
 
-  test('returns the current authenticated user for a valid bearer token', async ({
-    client,
-  }) => {
+  test('returns the current authenticated user for a valid bearer token', async ({ client }) => {
     await User.create({
       email: 'admin@example.com',
       password: 'Password123',
@@ -119,7 +323,9 @@ test.group('Auth sign-in', (group) => {
   })
 
   test('treats a malformed bearer authorization header as unauthenticated', async ({ client }) => {
-    const meResponse = await client.get('/auth/me').header('Authorization', 'Basic opaque-access-token')
+    const meResponse = await client
+      .get('/auth/me')
+      .header('Authorization', 'Basic opaque-access-token')
 
     meResponse.assertStatus(401)
     meResponse.assertBodyContains({
@@ -173,9 +379,7 @@ test.group('Auth sign-in', (group) => {
       revokedAt: null,
     })
 
-    const meResponse = await client
-      .get('/auth/me')
-      .header('Authorization', `Bearer ${rawToken}`)
+    const meResponse = await client.get('/auth/me').header('Authorization', `Bearer ${rawToken}`)
 
     meResponse.assertStatus(401)
     meResponse.assertBodyContains({

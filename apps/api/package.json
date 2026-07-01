@@ -9,7 +9,7 @@
     "build": "node ace build",
     "dev": "node ace serve --hmr",
     "test": "node ace test",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern 'database/schema.ts'",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit"
   },

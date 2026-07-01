@@ -23,9 +23,27 @@ export default class AuthController {
 
     const session = await signIn(payload.data.email, payload.data.password)
 
-    if (!session) {
+    if (session === 'email-not-found') {
       return response.unauthorized({
-        message: 'Invalid email address or password.',
+        message: 'Email Address was not found.',
+      })
+    }
+
+    if (session === 'incorrect-password') {
+      return response.unauthorized({
+        message: 'Password is incorrect.',
+      })
+    }
+
+    if (session === 'inactive-user') {
+      return response.unauthorized({
+        message: 'User is inactive.',
+      })
+    }
+
+    if (session === 'locked-out') {
+      return response.status(429).send({
+        message: 'Too many failed sign-in attempts. Try again in 15 minutes.',
       })
     }
 
