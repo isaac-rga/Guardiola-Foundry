@@ -1,215 +1,88 @@
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUTH_SESSION_STORAGE_KEY } from '@/lib/auth/session-storage'
 import { routeTree } from '../routeTree.gen'
 
-describe('protected app route', () => {
+describe('authenticated app shell routes', () => {
   afterEach(() => {
     cleanup()
     localStorage.clear()
     vi.restoreAllMocks()
   })
 
-  it('redirects unauthenticated visitors to sign-in', async () => {
+  it('redirects unauthenticated visitors to sign-in before shell content renders', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const router = createTestRouter('/app')
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/a calm operating view for the atelier/i)).not.toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('shows the current authenticated user on the protected route', async () => {
-    const session = {
-      token: 'opaque-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
-
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      new Response(
-        JSON.stringify({
-          tokenType: 'Bearer',
-          expiresAt: session.expiresAt,
-          user: session.user,
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    )
+  it('renders the authenticated home route inside the shared shell', async () => {
+    seedStoredSession()
+    mockCurrentSession()
 
     const router = createTestRouter('/app')
 
     render(<RouterProvider router={router} />)
 
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3333/auth/me',
-        expect.objectContaining({
-          method: 'GET',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer opaque-access-token',
-          }),
-        })
-      )
-    })
-
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
-    expect(screen.getByText('Signed in as admin@example.com.')).toBeInTheDocument()
-    expect(screen.getByText('Current role: admin.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+    ).toBeInTheDocument()
+    expect(screen.getByAltText('Guardiola Bridal')).toBeInTheDocument()
+    expect(screen.getByText('Production queue')).toBeInTheDocument()
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument()
+    expect(screen.getByText('Admin')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
+      'href',
+      '/app/products'
+    )
   })
 
-  it('returns visitors to sign-in when the stored session is no longer valid', async () => {
-    const session = {
-      token: 'revoked-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
+  it('surfaces route-owned page metadata in the application bar for child routes', async () => {
+    seedStoredSession()
+    mockCurrentSession()
 
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      new Response(
-        JSON.stringify({
-          message: 'Unauthorized',
-        }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    )
-
-    const router = createTestRouter('/app')
+    const router = createTestRouter('/app/products')
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
-    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(screen.getByText('Current style list')).toBeInTheDocument()
+    expect(screen.getByText('Product lifecycle')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('signs out the current authenticated session from the protected route', async () => {
+  it('shows user settings in the shared shell and keeps password change behavior intact', async () => {
     const user = userEvent.setup()
-    const session = {
-      token: 'opaque-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
 
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
+    seedStoredSession()
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            tokenType: 'Bearer',
-            expiresAt: session.expiresAt,
-            user: session.user,
-          }),
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      )
+      .mockResolvedValueOnce(currentSessionResponse())
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
 
-    const router = createTestRouter('/app')
+    const router = createTestRouter('/app/user-settings')
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /sign out/i }))
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://localhost:3333/auth/logout',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer opaque-access-token',
-          }),
-        })
-      )
-      expect(router.state.location.pathname).toBe('/sign-in')
-    })
-
-    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
-    expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
-  })
-
-  it('changes the password and returns the user to sign-in', async () => {
-    const user = userEvent.setup()
-    const session = {
-      token: 'opaque-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
-
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            tokenType: 'Bearer',
-            expiresAt: session.expiresAt,
-            user: session.user,
-          }),
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      )
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-
-    const router = createTestRouter('/app')
-
-    render(<RouterProvider router={router} />)
-
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
+    expect(await screen.findByText('Account details')).toBeInTheDocument()
+    expect(screen.getByText('Email')).toBeInTheDocument()
+    expect(screen.getAllByText('admin@example.com')).toHaveLength(2)
+    expect(screen.getByText('Role')).toBeInTheDocument()
+    expect(screen.getAllByText('Admin')).toHaveLength(2)
 
     await user.type(screen.getByLabelText(/current password/i), 'Password123')
     await user.type(screen.getByLabelText(/new password/i), 'NewPassword123')
@@ -234,114 +107,43 @@ describe('protected app route', () => {
     })
 
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
-    expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
   })
 
-  it('shows the API error when password change fails and keeps the user on the protected route', async () => {
+  it('signs out from the shared account menu and returns to sign-in', async () => {
     const user = userEvent.setup()
-    const session = {
-      token: 'opaque-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
 
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
+    seedStoredSession()
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            tokenType: 'Bearer',
-            expiresAt: session.expiresAt,
-            user: session.user,
-          }),
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            message: 'Current password is incorrect.',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      )
+      .mockResolvedValueOnce(currentSessionResponse())
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
 
     const router = createTestRouter('/app')
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+    ).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/current password/i), 'WrongPassword123')
-    await user.type(screen.getByLabelText(/new password/i), 'NewPassword123')
-    await user.click(screen.getByRole('button', { name: /change password/i }))
+    await user.click(screen.getByRole('button', { name: /open account menu/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Current password is incorrect.')
-    expect(router.state.location.pathname).toBe('/app')
-    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toEqual(JSON.stringify(session))
-  })
+    const menu = await screen.findByRole('menu')
+    await user.click(within(menu).getByRole('menuitem', { name: /log out/i }))
 
-  it('validates the new password length before calling the password-change endpoint', async () => {
-    const user = userEvent.setup()
-    const session = {
-      token: 'opaque-access-token',
-      tokenType: 'Bearer' as const,
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin' as const,
-        active: true,
-      },
-    }
-
-    localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session))
-
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          tokenType: 'Bearer',
-          expiresAt: session.expiresAt,
-          user: session.user,
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:3333/auth/logout',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer opaque-access-token',
+          }),
+        })
       )
-    )
+      expect(router.state.location.pathname).toBe('/sign-in')
+    })
 
-    const router = createTestRouter('/app')
-
-    render(<RouterProvider router={router} />)
-
-    expect(await screen.findByRole('heading', { name: /authenticated area/i })).toBeInTheDocument()
-
-    await user.type(screen.getByLabelText(/current password/i), 'Password123')
-    await user.type(screen.getByLabelText(/new password/i), 'short')
-    await user.click(screen.getByRole('button', { name: /change password/i }))
-
-    expect(await screen.findByText('Too small: expected string to have >=8 characters')).toBeInTheDocument()
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
   })
 })
 
@@ -352,4 +154,46 @@ function createTestRouter(initialEntry: string) {
       initialEntries: [initialEntry],
     }),
   })
+}
+
+function seedStoredSession() {
+  localStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify({
+      token: 'opaque-access-token',
+      tokenType: 'Bearer',
+      expiresAt: '2026-07-28T18:33:00.000Z',
+      user: {
+        id: 1,
+        email: 'admin@example.com',
+        role: 'admin',
+        active: true,
+      },
+    })
+  )
+}
+
+function mockCurrentSession() {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(currentSessionResponse())
+}
+
+function currentSessionResponse() {
+  return new Response(
+    JSON.stringify({
+      tokenType: 'Bearer',
+      expiresAt: '2026-07-28T18:33:00.000Z',
+      user: {
+        id: 1,
+        email: 'admin@example.com',
+        role: 'admin',
+        active: true,
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  )
 }

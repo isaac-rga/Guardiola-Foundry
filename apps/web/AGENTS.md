@@ -24,11 +24,24 @@ Use strict TypeScript, ES modules, two-space indentation, LF endings, single quo
 
 Keep components small and behavior-focused. Put server state in TanStack Query, not ad hoc effects. Use React Hook Form with shared Zod schemas for forms. Keep route loaders, search validation, and navigation concerns in route files; place domain rendering and interactions in feature modules.
 
+## UI Guidelines
+
+- Use shadcn/ui components from `@/components/ui`.
+- Do not install new UI libraries without approval.
+- Prefer composition over modifying base UI components.
+- Feature-specific components go under `src/features/<domain>/components`.
+- Shared app components go under `src/components/app`.
+- Forms should use shadcn form components with Zod schemas.
+- Do not modify src/components/ui
+
 ## Styling and UI Components
 
 Tailwind CSS v4 is configured through Vite and `src/index.css`. Use utility classes and existing semantic tokens such as `bg-background`, `text-muted-foreground`, and `border-border`; do not hardcode replacement colors when a token exists. Compose conditional classes with `cn()` from `@/lib/utils`.
 
-Follow the shadcn/ui New York style configured in `components.json`. Reuse or extend primitives in `src/components/ui` before creating one-off controls. Preserve accessibility: semantic HTML, keyboard interaction, visible focus states, and accessible names are required.
+Follow the shadcn/ui New York style configured in `components.json`. Reuse primitives from `src/components/ui` and compose app-specific or feature-specific components outside of `src/components/ui`, preferably under `src/components/app` or `src/features/<domain>/components`. Only modify `src/components/ui` when the task explicitly requires changing the shared design primitive.
+
+Use shadcn CLI to add missing primitives. Do not manually recreate shadcn components.
+If a primitive is missing, run: npx shadcn@latest add <component>
 
 ## Reference Docs
 
@@ -40,6 +53,7 @@ Use these references before guessing library behavior:
 - `@context7 /tanstack/table`: Reference for column definitions, row models, sorting, and table state.
 - `@context7 /react-hook-form/documentation`: Reference for form state, controllers, validation flow, and submission handling.
 - `@context7 /react-hook-form/resolvers`: reference for shared-schema validation, especially React Hook Form with Zod.
+- `@context7 /shadcn-ui/ui`: Primary reference for shadcn/ui primitives, component composition, theming, CLI usage, and extending the design system while preserving reusable base components.
 
 ## Testing and Delivery
 

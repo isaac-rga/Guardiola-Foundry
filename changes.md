@@ -74,9 +74,9 @@ That keeps HTTP concerns in the controller and the behavioral rules in the servi
 
 ## 4. API tests
 
-Then review:
+## 6. Route tree and cleanup
 
-- `apps/api/tests/functional/auth/sign-in.spec.ts`
+Then glance at:
 
 This is the main proof for the slice. The added tests cover:
 
