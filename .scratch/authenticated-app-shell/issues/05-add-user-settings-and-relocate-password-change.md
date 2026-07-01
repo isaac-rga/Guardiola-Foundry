@@ -12,7 +12,7 @@ Deliver the account-management destination by adding `/app/user-settings` inside
 
 ## Acceptance criteria
 
-- [ ] Authenticated users can open `/app/user-settings` from the account menu, remain inside the shared shell, and see page title `User Settings` with no subtitle.
+- [ ] Authenticated users can open `/app/user-settings` from the account menu and remain inside the shared shell, with `User Settings` content rendered as part of the destination page body rather than shell chrome.
 - [ ] The `User Settings` page shows the read-only account summary with `Email` and `Role` above the existing password-change form.
 - [ ] The relocated password-change flow keeps its current validation, error handling, and post-success sign-out behavior while the account menu still closes on selection.
 

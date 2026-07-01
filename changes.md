@@ -1,146 +1,120 @@
-# Specific Login Failures And Lockout Behavior
+# Bottom Account Menu And Shell-Level Logout
 
-This slice completes the agreed sign-in feedback and lockout behavior for `/auth/login`.
+This slice completes `.scratch/authenticated-app-shell/issues/04-add-bottom-account-menu-and-shell-level-logout.md`.
 
-The behavior change is:
-
-- login now returns distinct failures for unknown `Email Address`, incorrect password, and inactive `User`
-- repeated failed attempts for the same normalized `Email Address` trigger a 15-minute lockout after 5 failures
-- a successful sign-in clears the failed-attempt state for that `Email Address`
-- the web sign-in flow surfaces the lockout response and keeps the user on `/sign-in`
+The shared shell was already in place on this branch. What this issue finishes is the account-control path at the bottom of that shell: the menu now behaves like a real shell action surface instead of a mostly-correct dropdown.
 
 If you are reviewing the patch, read it in this order.
 
-## 1. Persistence seam
+## 1. The shell-level auth actions still live at the `/app` layout seam
 
-Start in:
+Start with:
 
-- `apps/api/database/migrations/1782759000000_create_login_attempts_table.ts`
-- `apps/api/app/models/login_attempt.ts`
+- `apps/web/src/routes/app.tsx`
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
 
-This adds a small persistence seam for failed sign-in tracking:
+`/app` is still the protected layout route, and it still owns the current-session actions for password change and logout.
 
-- `email`
-- `failure_count`
-- `locked_until`
+That seam matters for this issue because `Log Out` is supposed to work from any authenticated page. The route layout remains the one place that can guarantee that behavior without re-implementing sign-out logic in each child route.
 
-The important design choice is that tracking is per normalized `Email Address`, not per `User` record. That lets the lockout apply even when the email does not map to an existing user.
+## 2. The bottom account trigger still shows identity inline, but the menu is now controlled explicitly
 
-## 2. Auth service
+Stay in:
 
-Next read:
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
 
-- `apps/api/app/modules/auth/auth_service.ts`
+The trigger still follows the contract from the PRD:
 
-This file holds the actual sign-in policy.
+- the fallback avatar uses the first letter of the authenticated email address
+- the expanded sidebar shows email plus a human-readable role
+- the collapsed rail keeps only the avatar control
 
-Walk through `signIn(email, password)` in order:
+The important change in this slice is that `AccountMenu` now owns an explicit `menuOpen` state through Radix's controlled dropdown API.
 
-1. Normalize the `Email Address`.
-2. Load the matching `login_attempts` record, if one exists.
-3. Short-circuit with `locked-out` when `locked_until` is still in the future.
-4. Look up the `User`.
-5. Return a specific failure for:
-   - unknown email
-   - inactive user
-   - incorrect password
-6. Record the failed attempt for each of those cases.
-7. Clear the failed-attempt record on successful sign-in.
-8. Create and return the bearer-token session as before.
+Before this change, the dropdown was relying on default menu behavior. That worked for some cases, but it broke down once `Log Out` needed custom asynchronous handling. The old logout handler prevented the menu's default select behavior, which meant the menu could stay open while sign-out was in flight.
 
-The helper functions at the bottom are the core of the new state transition:
+After this change, item selection closes the menu intentionally before any follow-up action continues.
 
-- `recordFailedLoginAttempt(...)` increments `failure_count` and sets `locked_until` once the threshold reaches 5
-- `clearFailedLoginAttempt(...)` deletes the tracking row after a successful sign-in
+## 3. `User Settings` and `Log Out` now follow the same shell-action rule
 
-This keeps the new behavior local to the auth module instead of spreading lockout rules across controllers or models.
+Still in:
 
-## 3. Controller mapping
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+
+The account popover still has the same two action groups:
+
+- `User Settings`
+- `Log Out`
+
+What changed is the behavior contract around those actions.
+
+`User Settings` now uses the shell's route action directly instead of delegating to a nested link. That keeps the menu behavior and the route behavior in one place:
+
+- close the account menu
+- dismiss the mobile sheet if it is open
+- navigate to `/app/user-settings`
+
+`Log Out` now follows the same pattern:
+
+- close the account menu first
+- dismiss the mobile sheet if it is open
+- call the existing shell-level sign-out handler
+
+This keeps the implementation small and makes the menu behavior predictable even when the underlying action is asynchronous.
+
+## 4. Collapsed and mobile menus now use the compact popover width the PRD asked for
+
+Still in:
+
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+
+The menu width now depends on shell state:
+
+- expanded desktop keeps matching the trigger width
+- collapsed desktop uses a compact fixed width
+- mobile also uses the compact fixed width
+
+That fixes an important shell-detail bug. In the collapsed rail, the trigger becomes an avatar-sized button. Reusing the trigger width there made the popover collapse down toward the trigger size, which is not the intended account-menu presentation.
+
+The shell now checks the sidebar state and only uses trigger-width sizing when the desktop sidebar is actually expanded.
+
+## 5. The regression coverage stays at the route seam
 
 Then read:
 
-- `apps/api/app/modules/auth/controllers/auth_controller.ts`
+- `apps/web/src/routes/-app.test.tsx`
 
-`login()` is still the HTTP boundary. The change here is translation, not policy.
+The existing shell route suite already covered authenticated rendering, navigation, and a basic logout path. This slice adds a tighter regression around the account-menu contract:
 
-The controller now maps auth-service outcomes to explicit HTTP responses:
+- open the menu from an authenticated child route
+- select `Log Out`
+- verify the menu disappears immediately
+- then let the logout request resolve and verify redirect to `/sign-in`
 
-- `email-not-found` -> `401 Email Address was not found.`
-- `incorrect-password` -> `401 Password is incorrect.`
-- `inactive-user` -> `401 User is inactive.`
-- `locked-out` -> `429 Too many failed sign-in attempts. Try again in 15 minutes.`
+That test matters because it proves the menu closes before the asynchronous sign-out completes, which is the user-visible behavior this issue was missing.
 
-That keeps HTTP concerns in the controller and the behavioral rules in the service.
+## 6. What did not change
 
-## 4. API tests
+This patch does not change:
 
-## 6. Route tree and cleanup
+- the `/app` route structure
+- main navigation ordering or active-state rules
+- the password-change flow
+- session-storage clearing behavior
+- the logout API contract
 
-Then glance at:
+That is deliberate. The issue asked for the bottom account menu and reliable shell-level logout behavior, not another shell architecture pass.
 
-This is the main proof for the slice. The added tests cover:
+## 7. Verification
 
-1. specific failure messages
-   - unknown `Email Address`
-   - incorrect password
-   - inactive `User`
+The checks for this slice were:
 
-2. lockout activation and expiry
-   - 5 failed attempts still return the underlying auth failure
-   - the next attempt returns `429`
-   - the lockout lasts 15 minutes
-   - sign-in works again after the lockout window expires
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx --reporter=verbose` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint src` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
 
-3. unknown-email lockout
-   - repeated failures for a missing email also lock the same `Email Address`
+I will also run the broader test pass at the end of the implementation flow, per the repo guidance and the `implement` skill.
 
-4. reset-on-success
-   - a successful sign-in clears previous failed-attempt state
-   - the threshold starts over after success
+## 8. Technical debt
 
-One test detail worth noticing: these tests use `luxon` `Settings.now` so the lockout window can be exercised without introducing a deeper seam or waiting in real time.
-
-## 5. Web behavior
-
-Then move to:
-
-- `apps/web/src/features/auth/sign-in-page.test.tsx`
-- `apps/web/src/routes/-sign-in.test.tsx`
-
-The web implementation already surfaced API `message` fields through the shared auth client, so this slice did not need production code changes in `apps/web`.
-
-Instead, the tests prove the existing flow behaves correctly with the new API response:
-
-- `sign-in-page.test.tsx` verifies the lockout message is rendered and no session is stored
-- `-sign-in.test.tsx` verifies the user stays on `/sign-in` instead of navigating into the protected app
-
-That is the end-to-end client behavior the issue asked for.
-
-## 6. Verification
-
-The narrow checks for this slice were:
-
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional --files tests/functional/auth/sign-in.spec.ts`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/vitest run src/features/auth/sign-in-page.test.tsx src/routes/-sign-in.test.tsx`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc --noEmit` in `apps/api`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
-
-## 7. What This Does Not Do
-
-This patch stays narrow on purpose. It does not add:
-
-- rate limiting for routes other than `/auth/login`
-- captcha or secondary anti-abuse mechanisms
-- generic auth-error messaging
-- admin tooling for inspecting or clearing lockouts
-- a broader auth refactor
-
-It only implements the behavior in the issue: specific login failures, per-email lockout, and reset-after-success.
-
-## 8. Technical Debt Follow-Ups
-
-- The lockout contract currently depends on a raw message string (`Too many failed sign-in attempts. Try again in 15 minutes.`) that is duplicated across the API controller and web tests. A future wording change will force coordinated test rewrites instead of letting the client key off a stable auth error code.
-
-- `apps/api/tests/functional/auth/sign-in.spec.ts` now carries sign-in success, session, logout, password-change, inactive-user, and lockout coverage in one large file. The slice is well covered, but continued growth here will increase merge-conflict risk and make future auth failures harder to localize.
-
-- The change introduced formatter debt in `apps/api/tests/functional/auth/sign-in.spec.ts` in addition to the file’s pre-existing filename-case lint exception. The behavior is verified, but the file should be cleaned up with a formatter pass or targeted line wrapping before more auth cases land in the same spec.
+- The account menu still keeps trigger rendering, width policy, and action wiring in one component. That is fine at this size, but if more account actions arrive later, the menu-action wiring could be extracted into a small shell-local helper to keep the component from accumulating branching UI behavior.

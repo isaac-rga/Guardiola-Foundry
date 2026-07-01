@@ -8,7 +8,7 @@ Guardiola Foundry currently treats `/app` as a single protected page that mixes 
 
 ## Solution
 
-Introduce a shared authenticated app shell rooted at `/app` that owns route protection, persistent sidebar behavior, a fixed application bar, and shared navigation across real authenticated child routes. The shell will include `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` in the main navigation, with `User Settings` and `Log Out` available from a bottom-anchored user menu. The shell will support a persistent collapsible sidebar with an icon rail, use one consistent layout model across desktop and mobile, keep page title presentation visually consistent while allowing each route to define its own title and optional subtitle, and move the existing `Password Change` flow into `/app/user-settings`. Placeholder pages will be real authenticated routes with intentional empty-state surfaces, so the shell can be integrated cleanly before deeper page content is implemented.
+Introduce a shared authenticated app shell rooted at `/app` that owns route protection, persistent sidebar behavior, shared navigation across real authenticated child routes, and the bottom-anchored account menu. The shell will include `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` in the main navigation, with `User Settings` and `Log Out` available from a bottom-anchored user menu. The shell will support a persistent collapsible sidebar with an icon rail, use one consistent layout model across desktop and mobile, keep page identity visually consistent while allowing each authenticated page to own its visible header content, and move the existing `Password Change` flow into `/app/user-settings`. Placeholder pages will be real authenticated routes with intentional empty-state surfaces, so the shell can be integrated cleanly before deeper page content is implemented.
 
 ## User Stories
 
@@ -29,17 +29,17 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 15. As a `User`, I want the collapsed rail icons to show tooltips, so that navigation remains discoverable even when labels are hidden.
 16. As a `User`, I want the sidebar collapse state to persist as I move between authenticated pages, so that the shell respects my chosen working layout.
 17. As a `User`, I want the sidebar collapse state to persist if I close the app and return later on the same browser, so that the shell remembers my local preference.
-18. As a `User`, I want the fixed application bar to always show the current page title and optional subtitle, so that page identity stays visible while I navigate and scroll.
-19. As a `User`, I want the application bar to stay fixed while the authenticated content scrolls, so that persistent page context does not disappear on longer screens.
-20. As a `User`, I want pages without a subtitle to use a shorter application bar, so that the header does not waste vertical space when extra context is unnecessary.
-21. As a `User`, I want the application bar to reserve space for future page actions, so that new persistent controls can be added later without reshaping the shell.
-22. As a `User`, I want the application bar to update immediately when I navigate, so that the page title always matches my current route without delay.
-23. As a `User`, I want the content region below the application bar to use one consistent app surface, so that page bodies feel like part of one authenticated environment.
+18. As a `User`, I want each authenticated page to surface its own identity within the page body, so that page context stays clear without requiring shell-level title chrome.
+19. As a `User`, I want page identity to update immediately when I navigate, so that the content always matches my current route without delay.
+20. As a `User`, I want pages that need less context to use a shorter header treatment, so that the interface does not reserve empty shell-level space unnecessarily.
+21. As a `User`, I want page-specific actions to remain owned by each page composition, so that future controls can be added without reshaping the shared shell.
+22. As a `User`, I want the shared shell to stay focused on navigation and account access, so that page identity remains a responsibility of the destination page.
+23. As a `User`, I want the content region below the shell chrome to use one consistent app surface, so that page bodies feel like part of one authenticated environment.
 24. As a `User`, I want the content region to use full-width space by default, so that future operational screens are not boxed into a narrow layout too early.
 25. As a `User`, I want placeholder screens to feel intentionally unfinished rather than broken, so that empty routes still read as part of a deliberate product structure.
 26. As a `User`, I want `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` to use the same centered neutral empty-state surface for now, so that the first shell slice stays visually consistent.
 27. As a `User`, I want those placeholder pages to show `Work in progress…`, so that the app makes it obvious that content is still forthcoming.
-28. As a `User`, I want the page header to be the only visible page title on placeholder screens, so that titles are not duplicated between the shell and the page body.
+28. As a `User`, I want placeholder pages to avoid duplicate page-title surfaces inside the page body, so that page identity stays clean and intentional.
 29. As a `User`, I want the bottom of the sidebar to contain a user menu, so that account-related actions live in one predictable place.
 30. As a `User`, I want the user menu trigger to show a fallback avatar generated from my `Email Address`, so that the shell presents signed-in identity without needing profile data that does not exist yet.
 31. As a `User`, I want the expanded user menu trigger to show my `Email Address` and role, so that my identity context is visible without opening the menu.
@@ -61,15 +61,15 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 47. As a `User`, I want direct links to authenticated child routes like `/app/products` and `/app/user-settings` to work when I have a valid session, so that the route structure is real, not simulated.
 48. As a `User`, I want unauthenticated visits to any `/app` route to redirect me to `/sign-in` before shell content renders, so that protected app structure is never exposed without access.
 49. As a mobile `User`, I want the same shell concepts to work on small screens, so that mobile navigation does not invent a separate product model.
-50. As a mobile `User`, I want a sidebar trigger in the application bar, so that I can open the sidebar sheet while the persistent page title remains visible.
-51. As a mobile `User`, I want the application bar to stay visible even when the sidebar sheet is closed, so that page identity is always available on smaller screens too.
+50. As a mobile `User`, I want a sidebar trigger to remain available in the shell, so that I can open the sidebar sheet without introducing separate mobile-only shell chrome.
+51. As a mobile `User`, I want page identity to remain clear after the sidebar sheet closes, so that smaller screens still preserve destination context through the page body.
 52. As a mobile `User`, I want selecting any main navigation item in the sidebar sheet to close the sheet first and then navigate, so that transient navigation UI does not linger over the destination page.
 53. As a mobile `User`, I want tapping the clickable sidebar header in the sheet to close the sheet and then navigate to `/app`, so that the header follows the same route-changing rule as other navigation actions.
 54. As a mobile `User`, I want tapping `Log Out` in the sheet flow to dismiss the sheet before sign-out and redirect, so that transient shell behavior stays consistent even for session exit.
 55. As a mobile `User`, I want the same popover-based user menu behavior inside the sidebar sheet, so that the bottom account control behaves like the desktop shell rather than switching patterns.
 56. As a developer, I want the authenticated shell to be implemented at the highest practical seam, so that layout, auth, navigation, and page identity can be tested mostly through route-level behavior.
-57. As a developer, I want each authenticated route to declare its own page title and optional subtitle in the route layer, so that page identity belongs to routing rather than being inferred from feature internals.
-58. As a developer, I want navigation labels and page titles to remain independently configurable, so that short sidebar labels do not constrain fuller page identity over time.
+57. As a developer, I want each authenticated page to own its visible header content within the page body, so that page identity does not depend on shell-level metadata plumbing.
+58. As a developer, I want navigation labels and page identity surfaces to remain independently configurable, so that short sidebar labels do not constrain fuller page composition over time.
 59. As a developer, I want the first shell slice to keep the same navigation for `Admin` and `Operator`, so that role display can ship without prematurely turning shell work into authorization design.
 
 ## Implementation Decisions
@@ -77,14 +77,14 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 - The feature will replace the current single protected `/app` page with a shared authenticated shell rooted at `/app`, with real child routes for `Home`, `Products`, `Materials`, `Inventory`, `Bills of Materials`, and `User Settings`.
 - The auth check moves to the `/app` layout boundary so every authenticated child route inherits the same protected-entry behavior, including direct navigation and reload recovery on deep links.
 - The existing current-session bootstrap remains the source of truth for protected access. A valid stored bearer token continues to be revalidated before authenticated routes render, and invalid or missing sessions continue to redirect to `/sign-in`.
-- The current protected screen stops being the place where account actions, route protection, and placeholder content are mixed together. Those responsibilities are separated into shell-level layout, route-level page identity, and route-owned page bodies.
-- The shell owns the persistent sidebar, the fixed application bar, the shared content backdrop, the mobile sheet behavior, and the shared account menu placement.
-- Each authenticated route owns its page body and its page metadata contract: a required title and an optional subtitle.
-- Navigation labels and page titles are intentionally decoupled. They may match today, but they are not the same concept.
+- The current protected screen stops being the place where account actions, route protection, and placeholder content are mixed together. Those responsibilities are separated into shell-level layout and route-owned page bodies.
+- The shell owns the persistent sidebar, the shared content backdrop, the mobile sheet behavior, and the shared account menu placement.
+- Each authenticated page owns its page body and any visible header content rendered within that body.
+- Navigation labels and page identity surfaces are intentionally decoupled. They may match today, but they are not the same concept.
 - The main navigation order is `Home`, `Products`, `Materials`, `Inventory`, `Bills of Materials`.
 - The route path for bills of materials is the full canonical term, not an abbreviation.
 - `User Settings` lives at `/app/user-settings` and is not part of the main navigation list. It is accessed through the bottom account menu.
-- The clickable `Guardiola Foundry` sidebar header routes to `/app`.
+- The clickable `Guardiola Bridal` sidebar header routes to `/app`.
 - The `Home` navigation item remains interactive but never shows an active state, both in the expanded sidebar and in the collapsed icon rail.
 - Other main navigation items do show active state for the matching current route.
 - Selecting the currently active main navigation destination still behaves like navigation and resets the content region to the top.
@@ -93,20 +93,12 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 - The shell uses the existing collapsible sidebar primitive and keeps its browser-local persisted collapse state.
 - Sidebar collapse is browser-local only; it is not user-specific server-backed preference data.
 - On desktop, collapse behavior uses the icon rail pattern, not full off-canvas hiding.
-- On desktop, collapse/expand is driven by the existing sidebar rail interaction and the existing keyboard shortcut. The first slice does not add a visible application-bar toggle button.
-- The content area and fixed application bar resize with the sidebar and should transition smoothly with that shell state change.
-- The fixed application bar is scoped to the authenticated content area to the right of the sidebar or icon rail. It does not stretch across the full shell width when the rail remains visible.
-- The application bar is a full-width content-area bar, not an inset card-like page section.
-- The application bar stays fixed while the authenticated content region scrolls beneath it.
-- The application bar updates immediately on route change rather than animating between page identities.
-- Pages with no subtitle use a shorter single-line header presentation rather than reserving empty subtitle space.
-- The application bar includes a stable reserved actions area on the right, but that area remains empty in this slice.
-- Global search, notifications, breadcrumbs, page actions, and other persistent application-bar features are explicitly out of scope for this slice.
-- The authenticated content region beneath the fixed application bar uses one stable full-width app surface across all authenticated pages.
-- Scroll behavior is unified: the authenticated content region scrolls as one surface beneath the fixed application bar.
+- On desktop, collapse/expand is driven by the existing sidebar rail interaction and the existing keyboard shortcut. The first slice does not add a visible shell-level title bar toggle button.
+- The authenticated content region uses one stable full-width app surface across all authenticated pages.
+- Scroll behavior is unified: the authenticated content region scrolls as one surface within the shared shell.
 - Navigation between authenticated routes resets the content region to the top rather than attempting per-page scroll restoration.
 - `Home`, `Products`, `Materials`, `Inventory`, and `Bills of Materials` use a shared neutral placeholder surface with centered `Work in progress…` copy.
-- Those placeholder pages do not repeat their titles inside the page body. The fixed application bar is the only visible page-title surface for those routes.
+- Those placeholder pages do not repeat their titles between visible page-header content and the page body.
 - `Home` uses the same neutral empty-state surface as the other placeholder routes, rather than a separate dashboard-like treatment.
 - `User Settings` does not stay empty. It combines a small read-only account summary with the existing `Password Change` flow.
 - The account summary shows only `Email` and `Role`, not internal identifiers.
@@ -120,7 +112,7 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 - The expanded account popover matches the expanded trigger width. In collapsed or mobile contexts, it uses a compact fixed width and remains anchored to the trigger.
 - The account popover closes on outside interaction and on any item selection.
 - The account popover structure is split into user-related actions first and `Log Out` as the final standalone action.
-- On mobile, the shell keeps the same conceptual model: the application bar stays visible with page title and subtitle, the sidebar becomes a sheet, and route-changing actions dismiss the sheet before navigation.
+- On mobile, the shell keeps the same conceptual model: the sidebar becomes a sheet, page identity remains route-owned within the destination page, and route-changing actions dismiss the sheet before navigation.
 - Mobile route-changing behavior applies equally to main navigation items, the clickable sidebar header, and logout.
 - The user menu remains a popover-above-trigger interaction even within the mobile sidebar sheet, rather than becoming a different full-width inline section.
 - `Admin` and `Operator` use the same first-shell navigation and layout. Role-based navigation differences are intentionally deferred.
@@ -129,12 +121,12 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 
 ## Testing Decisions
 
-- Good tests for this feature should verify observable user behavior: protected-entry redirects, authenticated deep-link rendering, current-route page identity in the application bar, navigation highlighting, sidebar persistence, menu dismissal, route transitions, logout redirection, and the relocated `Password Change` flow. They should not assert implementation details like internal component decomposition, local state shape, or styling internals that are not user-observable.
+- Good tests for this feature should verify observable user behavior: protected-entry redirects, authenticated deep-link rendering, current-route page identity within the page body, navigation highlighting, sidebar persistence, menu dismissal, route transitions, logout redirection, and the relocated `Password Change` flow. They should not assert implementation details like internal component decomposition, local state shape, or styling internals that are not user-observable.
 - The highest preferred seam is the authenticated route boundary. Most coverage should come from route-level web tests that mount the real router and assert shell behavior through navigation and rendered outcomes.
-- The shared `/app` shell is the primary testing seam. It should verify route protection, direct landing on child routes, route metadata surfacing in the fixed application bar, main navigation ordering and active-state rules, `Home`’s no-active exception, click-to-navigate behavior for current and non-current destinations, and reset-to-top behavior on navigation.
+- The shared `/app` shell is the primary testing seam. It should verify route protection, direct landing on child routes, page identity rendering inside the authenticated page body, main navigation ordering and active-state rules, `Home`’s no-active exception, click-to-navigate behavior for current and non-current destinations, and reset-to-top behavior on navigation.
 - The account menu should be tested through the same route seam, including expanded and collapsed trigger behavior, menu dismissal on outside interaction, `User Settings` navigation, route-independent logout, and menu-close-before-navigation behavior.
 - The `User Settings` page should be tested as an authenticated route that renders the account summary plus the existing `Password Change` behavior, including unchanged validation and post-success sign-out behavior.
-- Mobile-specific behavior should be tested through the shell seam by exercising the sidebar sheet, confirming that navigation actions dismiss the sheet before route changes, and verifying that the persistent application bar still shows page title and subtitle when the sheet is closed.
+- Mobile-specific behavior should be tested through the shell seam by exercising the sidebar sheet, confirming that navigation actions dismiss the sheet before route changes, and verifying that page identity remains clear after the sheet closes.
 - The existing protected-route and sign-out/password-change route tests in the web app are the main prior art. They already exercise the current auth gate, current-session bootstrap, logout flow, invalid-session redirect, and password-change redirect behavior through route-level integration rather than low-level component tests.
 - Prior art also includes the current current-session bootstrap tests and sign-in route tests, which reinforce the existing protected-route seam and should continue to anchor session-oriented behavior.
 - New lower seams should be introduced only if a shell behavior cannot be verified cleanly at the route boundary. If that happens, the fallback seam should still stay high, such as a shared app-shell module rather than many page-specific helpers.
@@ -146,7 +138,8 @@ Introduce a shared authenticated app shell rooted at `/app` that owns route prot
 - Global search
 - Notifications
 - Breadcrumbs
-- Page-specific action buttons in the application bar
+- Fixed shell-level page-title bars
+- Shell-consumed route metadata contracts for page identity
 - Browser document-title management
 - User profile data beyond existing session identity
 - Real avatar uploads or persisted profile avatars

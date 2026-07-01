@@ -1,6 +1,6 @@
-import type { PropsWithChildren, ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { useLocation, useNavigate, Link } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu,
@@ -24,6 +24,7 @@ import {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import guardiolaBridalLogo from '@/assets/guardiola-bridal-logo.png'
 import { cn } from '@/lib/utils'
@@ -37,12 +38,6 @@ import {
   Shapes,
 } from 'lucide-react'
 import { createContext, useContext } from 'react'
-
-type AppShellMetadata = {
-  eyebrow?: string
-  subtitle?: string
-  title: string
-}
 
 type AppShellContextValue = {
   changePasswordError: string | null
@@ -72,6 +67,7 @@ type NavigationItem = {
 }
 
 const appShellContext = createContext<AppShellContextValue | null>(null)
+const SHELL_SIDEBAR_STORAGE_KEY = 'authenticated-app-shell.sidebar-open'
 
 const primaryNavigation: NavigationItem[] = [
   { icon: House, label: 'Home', to: '/app' },
@@ -91,9 +87,6 @@ export function AuthenticatedAppShell({
   onSignOut,
   session,
 }: AuthenticatedAppShellProps) {
-  const location = useLocation()
-  const navigate = useNavigate()
-
   const contextValue = useMemo<AppShellContextValue>(
     () => ({
       changePasswordError,
@@ -114,102 +107,20 @@ export function AuthenticatedAppShell({
       onChangePassword,
     ]
   )
+  const [sidebarOpen, setSidebarOpen] = useState(readPersistedSidebarOpenState)
 
   return (
     <appShellContext.Provider value={contextValue}>
-      <SidebarProvider defaultOpen>
-        <Sidebar collapsible="icon">
-          <SidebarHeader className="gap-4 px-3 py-5">
-            <Link
-              to="/app"
-              className="flex min-h-18 items-center justify-center rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/35 px-3 py-4 transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-none"
-              aria-label="Guardiola Bridal home"
-            >
-              <img
-                src={guardiolaBridalLogo}
-                alt="Guardiola Bridal"
-                className="h-auto w-full max-w-[11rem] object-contain group-data-[collapsible=icon]:hidden"
-              />
-              <span className="font-editorial hidden text-2xl leading-none tracking-[0.08em] text-sidebar-foreground group-data-[collapsible=icon]:inline">
-                GB
-              </span>
-            </Link>
-          </SidebarHeader>
-          <SidebarSeparator />
-          <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {primaryNavigation.map((item) => {
-                    const isActive = location.pathname === item.to
-
-                    return (
-                      <SidebarMenuItem key={item.to}>
-                        {item.to === '/app' ? (
-                          <SidebarMenuButton
-                            tooltip={item.label}
-                            onClick={() => {
-                              void navigate({ to: '/app' })
-                            }}
-                          >
-                            <item.icon />
-                            <span>{item.label}</span>
-                          </SidebarMenuButton>
-                        ) : (
-                          <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                            <Link to={item.to} aria-current={isActive ? 'page' : undefined}>
-                              <item.icon />
-                              <span>{item.label}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        )}
-                      </SidebarMenuItem>
-                    )
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </SidebarContent>
-          <SidebarSeparator />
-          <SidebarFooter className="px-3 py-3">
-            <AccountMenu />
-          </SidebarFooter>
-          <SidebarRail />
-        </Sidebar>
-        <SidebarInset className="bg-transparent">
-          <div className="relative flex min-h-svh flex-col">
-            <SidebarTrigger className="absolute top-4 left-4 z-20 md:hidden" />
-            <div className="flex-1 px-4 py-16 md:px-8 md:py-8">
-              {children}
-            </div>
-          </div>
-        </SidebarInset>
+      <SidebarProvider
+        open={sidebarOpen}
+        onOpenChange={(open) => {
+          setSidebarOpen(open)
+          persistSidebarOpenState(open)
+        }}
+      >
+        <AuthenticatedAppShellFrame>{children}</AuthenticatedAppShellFrame>
       </SidebarProvider>
     </appShellContext.Provider>
-  )
-}
-
-export function AppShellPage({
-  children,
-}: PropsWithChildren<AppShellMetadata>) {
-  return <>{children}</>
-}
-
-export function WorkInProgressPage() {
-  return (
-    <div className="flex min-h-[calc(100svh-10rem)] items-center justify-center">
-      <section className="w-full max-w-3xl rounded-[2rem] border border-dashed border-border/80 bg-card/80 px-8 py-16 text-center shadow-[0_18px_48px_rgba(72,53,40,0.05)]">
-        <div className="mx-auto max-w-xl space-y-3">
-          <p className="text-sm font-medium tracking-[0.28em] text-muted-foreground uppercase">
-            Shared authenticated shell
-          </p>
-          <p className="font-editorial text-balance text-4xl leading-none">Work in progress</p>
-          <p className="text-sm leading-6 text-muted-foreground">
-            New product, materials, and operational workflows can slot into this shell without changing the routing or auth structure.
-          </p>
-        </div>
-      </section>
-    </div>
   )
 }
 
@@ -225,13 +136,17 @@ export function useAppShell() {
 
 function AccountMenu() {
   const { isSigningOut, logoutError, onSignOut, session } = useAppShell()
+  const { isMobile, openMobile, setOpenMobile, state } = useSidebar()
+  const navigate = useNavigate()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const roleLabel = toRoleLabel(session.user.role)
   const initials = session.user.email.slice(0, 1).toUpperCase()
+  const useCompactMenuWidth = isMobile || state === 'collapsed'
 
   return (
     <div className="space-y-2">
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -253,19 +168,35 @@ function AccountMenu() {
         <DropdownMenuContent
           align="end"
           side="top"
-          className="w-56 md:w-[var(--radix-dropdown-menu-trigger-width)]"
+          className={cn(
+            'w-56',
+            !useCompactMenuWidth && 'md:w-[var(--radix-dropdown-menu-trigger-width)]'
+          )}
         >
-          <DropdownMenuItem asChild>
-            <Link to="/app/user-settings">
+          <DropdownMenuItem
+            onSelect={() => {
+              setMenuOpen(false)
+
+              if (isMobile && openMobile) {
+                setOpenMobile(false)
+              }
+
+              void navigate({ to: '/app/user-settings' })
+            }}
+          >
               <Settings />
               <span>User Settings</span>
-            </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={isSigningOut}
-            onSelect={(event) => {
-              event.preventDefault()
+            onSelect={() => {
+              setMenuOpen(false)
+
+              if (isMobile && openMobile) {
+                setOpenMobile(false)
+              }
+
               void onSignOut()
             }}
           >
@@ -287,4 +218,141 @@ function AccountMenu() {
 
 function toRoleLabel(role: AuthSessionResponse['user']['role']) {
   return role.charAt(0).toUpperCase() + role.slice(1)
+}
+
+function AuthenticatedAppShellFrame({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { isMobile, openMobile, setOpenMobile } = useSidebar()
+  const contentRegionRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const contentRegion = contentRegionRef.current
+
+    if (!contentRegion) {
+      return
+    }
+
+    contentRegion.scrollTop = 0
+  }, [location.pathname])
+
+  const navigateWithinShell = (to: NavigationItem['to']) => {
+    if (isMobile && openMobile) {
+      setOpenMobile(false)
+    }
+
+    void navigate({ to })
+  }
+
+  return (
+    <>
+      <Sidebar collapsible="icon">
+        <SidebarHeader className="gap-4 px-3 py-5">
+          <Link
+            to="/app"
+            className="flex min-h-18 items-center justify-center rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/35 px-3 py-4 transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-none"
+            aria-label="Guardiola Bridal home"
+            onClick={(event) => {
+              if (!isMobile) {
+                return
+              }
+
+              event.preventDefault()
+              navigateWithinShell('/app')
+            }}
+          >
+            <img
+              src={guardiolaBridalLogo}
+              alt="Guardiola Bridal"
+              className="h-auto w-full max-w-[11rem] object-contain group-data-[collapsible=icon]:hidden"
+            />
+            <span className="font-editorial hidden text-2xl leading-none tracking-[0.08em] text-sidebar-foreground group-data-[collapsible=icon]:inline">
+              GB
+            </span>
+          </Link>
+        </SidebarHeader>
+        <SidebarSeparator />
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {primaryNavigation.map((item) => {
+                  const isActive = location.pathname === item.to
+
+                  return (
+                    <SidebarMenuItem key={item.to}>
+                      {item.to === '/app' ? (
+                        <SidebarMenuButton
+                          tooltip={item.label}
+                          onClick={() => {
+                            navigateWithinShell('/app')
+                          }}
+                        >
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      ) : (
+                        <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
+                          <Link
+                            to={item.to}
+                            aria-current={isActive ? 'page' : undefined}
+                            onClick={(event) => {
+                              if (!isMobile) {
+                                return
+                              }
+
+                              event.preventDefault()
+                              navigateWithinShell(item.to)
+                            }}
+                          >
+                            <item.icon />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      )}
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarSeparator />
+        <SidebarFooter className="px-3 py-3">
+          <AccountMenu />
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
+      <SidebarInset className="h-svh overflow-hidden bg-transparent">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <SidebarTrigger className="absolute top-4 left-4 z-20 md:hidden" />
+          <div
+            ref={contentRegionRef}
+            data-authenticated-content="true"
+            className="flex-1 overflow-y-auto px-4 py-16 md:px-8 md:py-8"
+          >
+            {children}
+          </div>
+        </div>
+      </SidebarInset>
+    </>
+  )
+}
+
+function readPersistedSidebarOpenState() {
+  const storedValue = localStorage.getItem(SHELL_SIDEBAR_STORAGE_KEY)
+
+  if (storedValue === 'false') {
+    return false
+  }
+
+  if (storedValue === 'true') {
+    return true
+  }
+
+  return true
+}
+
+function persistSidebarOpenState(open: boolean) {
+  localStorage.setItem(SHELL_SIDEBAR_STORAGE_KEY, String(open))
 }

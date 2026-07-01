@@ -10,6 +10,7 @@ describe('authenticated app shell routes', () => {
   afterEach(() => {
     cleanup()
     localStorage.clear()
+    setViewportWidth(1024)
     vi.restoreAllMocks()
   })
 
@@ -35,10 +36,10 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(
-      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+      await screen.findByRole('heading', { name: 'Home' })
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
     expect(screen.getByAltText('Guardiola Bridal')).toBeInTheDocument()
-    expect(screen.getByText('Production queue')).toBeInTheDocument()
     expect(screen.getByText('admin@example.com')).toBeInTheDocument()
     expect(screen.getByText('Admin')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
@@ -46,9 +47,10 @@ describe('authenticated app shell routes', () => {
       'href',
       '/app/products'
     )
+    expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('surfaces route-owned page metadata in the application bar for child routes', async () => {
+  it('renders route-specific page identity and shared placeholder content for child routes', async () => {
     seedStoredSession()
     mockCurrentSession()
 
@@ -57,13 +59,114 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.getByText('Current style list')).toBeInTheDocument()
-    expect(screen.getByText('Product lifecycle')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
       'aria-current',
       'page'
     )
     expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps the main navigation ordered and moves between authenticated work-area routes', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const router = createTestRouter('/app')
+
+    render(<RouterProvider router={router} />)
+
+    await screen.findByRole('heading', { name: 'Home' })
+
+    const navigationLabels = [
+      screen.getByRole('button', { name: 'Home' }).textContent,
+      screen.getByRole('link', { name: 'Products' }).textContent,
+      screen.getByRole('link', { name: 'Materials' }).textContent,
+      screen.getByRole('link', { name: 'Inventory' }).textContent,
+      screen.getByRole('link', { name: 'Bills of Materials' }).textContent,
+    ]
+
+    expect(navigationLabels).toEqual([
+      'Home',
+      'Products',
+      'Materials',
+      'Inventory',
+      'Bills of Materials',
+    ])
+
+    await user.click(screen.getByRole('link', { name: 'Inventory' }))
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Inventory' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('restores the collapsed desktop rail after the shell remounts', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const firstRender = render(<RouterProvider router={createTestRouter('/app')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    await user.keyboard('{Control>}b{/Control}')
+
+    expect(getDesktopSidebar(firstRender.container)).toHaveAttribute('data-state', 'collapsed')
+
+    firstRender.unmount()
+
+    mockCurrentSession()
+
+    const secondRender = render(<RouterProvider router={createTestRouter('/app/products')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(getDesktopSidebar(secondRender.container)).toHaveAttribute('data-state', 'collapsed')
+  })
+
+  it('resets the authenticated content region to the top when authenticated routes change', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+
+    const { container } = render(<RouterProvider router={createTestRouter('/app')} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    const contentRegion = getAuthenticatedContentRegion(container)
+    contentRegion.scrollTop = 240
+
+    await user.click(screen.getByRole('link', { name: 'Inventory' }))
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+    expect(getAuthenticatedContentRegion(container).scrollTop).toBe(0)
+  })
+
+  it('dismisses the mobile shell before navigating to another authenticated route', async () => {
+    const user = userEvent.setup()
+
+    seedStoredSession()
+    mockCurrentSession()
+    setViewportWidth(375)
+
+    const router = createTestRouter('/app')
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /toggle sidebar/i }))
+    expect(await screen.findByRole('dialog', { name: 'Sidebar' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Products' }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/app/products')
+      expect(screen.queryByRole('dialog', { name: 'Sidebar' })).not.toBeInTheDocument()
+    })
   })
 
   it('shows user settings in the shared shell and keeps password change behavior intact', async () => {
@@ -122,7 +225,7 @@ describe('authenticated app shell routes', () => {
     render(<RouterProvider router={router} />)
 
     expect(
-      await screen.findByRole('heading', { name: /a calm operating view for the atelier/i })
+      await screen.findByRole('heading', { name: 'Home' })
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /open account menu/i }))
@@ -144,6 +247,43 @@ describe('authenticated app shell routes', () => {
     })
 
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+  })
+
+  it('closes the account menu immediately when log out is selected', async () => {
+    const user = userEvent.setup()
+    let resolveLogoutRequest!: (response: Response) => void
+
+    seedStoredSession()
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(currentSessionResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveLogoutRequest = resolve
+          })
+      )
+
+    const router = createTestRouter('/app/inventory')
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /open account menu/i }))
+    const menu = await screen.findByRole('menu')
+
+    await user.click(within(menu).getByRole('menuitem', { name: /log out/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(router.state.location.pathname).toBe('/app/inventory')
+    })
+
+    resolveLogoutRequest(new Response(null, { status: 204 }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/sign-in')
+    })
   })
 })
 
@@ -196,4 +336,32 @@ function currentSessionResponse() {
       },
     }
   )
+}
+
+function getDesktopSidebar(container: HTMLElement) {
+  const sidebar = container.querySelector('[data-slot="sidebar"][data-state]')
+
+  if (!sidebar) {
+    throw new Error('Expected the desktop sidebar to be rendered.')
+  }
+
+  return sidebar
+}
+
+function getAuthenticatedContentRegion(container: HTMLElement) {
+  const contentRegion = container.querySelector('[data-authenticated-content="true"]')
+
+  if (!(contentRegion instanceof HTMLElement)) {
+    throw new Error('Expected the authenticated content region to be rendered.')
+  }
+
+  return contentRegion
+}
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  })
 }
