@@ -33,3 +33,46 @@ export interface CurrentSessionResponse {
   expiresAt: string
   user: SessionUser
 }
+
+export type ProductLifecycleStatus =
+  | 'concept'
+  | 'fabric-trim-selection'
+  | 'design-and-prototyping'
+  | 'testing'
+  | 'approved'
+  | 'on-documentation'
+  | 'finished'
+
+export type ProductStatus = 'active' | 'inactive'
+
+export interface ProductCollection {
+  id: number
+  name: string
+}
+
+export interface ProductCreatedBy {
+  id: number
+  email: string
+}
+
+export interface ProductSummary {
+  id: string
+  name: string
+  lifecycleStatus: ProductLifecycleStatus
+  productStatus: ProductStatus
+  collection: ProductCollection | null
+  createdAt: string
+  createdBy: ProductCreatedBy
+}
+
+export interface ListProductsResponse {
+  products: ProductSummary[]
+  collections: ProductCollection[]
+}
+
+export interface CreateProductRequest {
+  name: string
+  lifecycleStatus?: ProductLifecycleStatus
+  productStatus?: ProductStatus
+  collectionId?: number | null
+}

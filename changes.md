@@ -1,120 +1,148 @@
-# Bottom Account Menu And Shell-Level Logout
+# Product Domain And Create Workflow
 
-This slice completes `.scratch/authenticated-app-shell/issues/04-add-bottom-account-menu-and-shell-level-logout.md`.
+This slice completes `.scratch/product-management/issues/01-establish-the-product-domain-and-create-workflow.md`.
 
-The shared shell was already in place on this branch. What this issue finishes is the account-control path at the bottom of that shell: the menu now behaves like a real shell action surface instead of a mostly-correct dropdown.
+The branch started with only a shell-level `/app/products` placeholder. This change turns that route into the first real Product workflow and establishes the Product seam the later product-management issues can build on.
 
 If you are reviewing the patch, read it in this order.
 
-## 1. The shell-level auth actions still live at the `/app` layout seam
+## 1. Shared contracts define the Product seam once
 
 Start with:
 
-- `apps/web/src/routes/app.tsx`
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+- `packages/shared-types/src/index.ts`
+- `packages/shared-validation/src/index.ts`
 
-`/app` is still the protected layout route, and it still owns the current-session actions for password change and logout.
+This slice introduces the Product language that both apps now share:
 
-That seam matters for this issue because `Log Out` is supposed to work from any authenticated page. The route layout remains the one place that can guarantee that behavior without re-implementing sign-out logic in each child route.
+- `ProductLifecycleStatus`
+- `ProductStatus`
+- `ProductCollection`
+- `ProductSummary`
+- `ListProductsResponse`
+- `CreateProductRequest`
 
-## 2. The bottom account trigger still shows identity inline, but the menu is now controlled explicitly
+The important decision here is that the create path stays small without staying vague. The contract now makes the defaults explicit:
 
-Stay in:
+- `Lifecycle Status` defaults to `concept`
+- `Product Status` defaults to `active`
 
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+It also establishes the durable record shape that later list and edit work can keep using:
 
-The trigger still follows the contract from the PRD:
+- short stable `Product ID`
+- immutable `Created by`
+- immutable `Created at`
+- optional `Collection`
 
-- the fallback avatar uses the first letter of the authenticated email address
-- the expanded sidebar shows email plus a human-readable role
-- the collapsed rail keeps only the avatar control
+That keeps the domain vocabulary in one place instead of letting the API and web invent separate Product models.
 
-The important change in this slice is that `AccountMenu` now owns an explicit `menuOpen` state through Radix's controlled dropdown API.
-
-Before this change, the dropdown was relying on default menu behavior. That worked for some cases, but it broke down once `Log Out` needed custom asynchronous handling. The old logout handler prevented the menu's default select behavior, which meant the menu could stay open while sign-out was in flight.
-
-After this change, item selection closes the menu intentionally before any follow-up action continues.
-
-## 3. `User Settings` and `Log Out` now follow the same shell-action rule
-
-Still in:
-
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
-
-The account popover still has the same two action groups:
-
-- `User Settings`
-- `Log Out`
-
-What changed is the behavior contract around those actions.
-
-`User Settings` now uses the shell's route action directly instead of delegating to a nested link. That keeps the menu behavior and the route behavior in one place:
-
-- close the account menu
-- dismiss the mobile sheet if it is open
-- navigate to `/app/user-settings`
-
-`Log Out` now follows the same pattern:
-
-- close the account menu first
-- dismiss the mobile sheet if it is open
-- call the existing shell-level sign-out handler
-
-This keeps the implementation small and makes the menu behavior predictable even when the underlying action is asynchronous.
-
-## 4. Collapsed and mobile menus now use the compact popover width the PRD asked for
-
-Still in:
-
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
-
-The menu width now depends on shell state:
-
-- expanded desktop keeps matching the trigger width
-- collapsed desktop uses a compact fixed width
-- mobile also uses the compact fixed width
-
-That fixes an important shell-detail bug. In the collapsed rail, the trigger becomes an avatar-sized button. Reusing the trigger width there made the popover collapse down toward the trigger size, which is not the intended account-menu presentation.
-
-The shell now checks the sidebar state and only uses trigger-width sizing when the desktop sidebar is actually expanded.
-
-## 5. The regression coverage stays at the route seam
+## 2. The API now owns real Product persistence instead of placeholder route copy
 
 Then read:
 
+- `apps/api/database/migrations/1783341000000_create_collections_table.ts`
+- `apps/api/database/migrations/1783341000500_seed_collections_table.ts`
+- `apps/api/database/migrations/1783341001000_create_products_table.ts`
+- `apps/api/app/models/collection.ts`
+- `apps/api/app/models/product.ts`
+- `apps/api/app/modules/products/products_service.ts`
+- `apps/api/app/modules/products/controllers/products_controller.ts`
+- `apps/api/start/routes.ts`
+
+This is the backend seam for the first Product workflow.
+
+The migrations add two tables:
+
+- `collections` as controlled reference data, prefilled with annual tags
+- `products` as the new Product register
+
+`products_service.ts` keeps the logic intentionally small:
+
+- list products newest first
+- create a Product with persisted defaults when the request omits statuses
+- allow explicit lifecycle and product-status overrides
+- validate optional collection linkage
+- generate a short stable public Product ID in the form `P-XXXXXX`
+- serialize immutable creation metadata from the authenticated user
+
+The controller does not introduce a broad auth abstraction. It reuses the existing bearer-token flow, authenticates the request, validates the shared create payload, and returns either:
+
+- `200` for list
+- `201` for create
+- `401` for unauthenticated access
+- `422` for invalid payloads or a missing collection reference
+
+That is enough to establish the Product domain seam without dragging in edit, delete, or workflow-transition logic from later issues.
+
+## 3. `/app/products` is now a real working surface
+
+Then read:
+
+- `apps/web/src/lib/api/products.ts`
+- `apps/web/src/features/products/product-management-page.tsx`
+- `apps/web/src/routes/app.products.tsx`
+
+The route no longer renders shell placeholder copy. It now renders a real Product page with two responsibilities:
+
+- load the persisted Product register
+- create a Product from a lightweight modal
+
+The modal stays aligned with the PRD’s first-slice rule:
+
+- `Product name` is required
+- `Lifecycle Status` is editable but defaults to `Concept`
+- `Product Status` is editable but defaults to `Active`
+
+`Collection` is established in the domain and API, but it is not pushed into this lightweight modal yet. That keeps issue 01 scoped to fast registration instead of starting list/filter/reference-data UI work early.
+
+After a successful create:
+
+- the modal closes
+- the form resets to its defaults
+- the new Product is inserted at the top of the local query cache
+- the working list shows the new persisted row immediately
+
+The list itself is deliberately modest in this slice. It shows the newly established Product metadata without trying to pre-implement the full search-and-filter table from issue 02.
+
+## 4. The tests cover both the persisted seam and the route seam
+
+Then read:
+
+- `apps/api/tests/functional/products/create_products.spec.ts`
+- `apps/web/src/routes/-products.test.tsx`
 - `apps/web/src/routes/-app.test.tsx`
 
-The existing shell route suite already covered authenticated rendering, navigation, and a basic logout path. This slice adds a tighter regression around the account-menu contract:
+The API test covers the persistence contract:
 
-- open the menu from an authenticated child route
-- select `Log Out`
-- verify the menu disappears immediately
-- then let the logout request resolve and verify redirect to `/sign-in`
+- create with only `name` persists `concept` and `active`
+- Product IDs are short and stable in the API response
+- created metadata comes from the authenticated user
+- list results are returned newest first with the seeded collection reference data
+- lifecycle, product-status, and collection overrides persist correctly
 
-That test matters because it proves the menu closes before the asynchronous sign-out completes, which is the user-visible behavior this issue was missing.
+The web route test covers the user-facing create flow:
 
-## 6. What did not change
+- the create modal opens from `/app/products`
+- submitting only a product name sends the default statuses
+- explicit lifecycle and product-status overrides are submitted when selected
+- the new Product appears in the working list immediately after success
 
-This patch does not change:
+`-app.test.tsx` also now treats `/app/products` as a live route instead of a placeholder route, which keeps the shared shell suite aligned with the current UI.
 
-- the `/app` route structure
-- main navigation ordering or active-state rules
-- the password-change flow
-- session-storage clearing behavior
-- the logout API contract
-
-That is deliberate. The issue asked for the bottom account menu and reliable shell-level logout behavior, not another shell architecture pass.
-
-## 7. Verification
+## 5. Verification
 
 The checks for this slice were:
 
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx --reporter=verbose` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -p tsconfig.json` in `packages/shared-types`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -p tsconfig.json` in `packages/shared-validation`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc --noEmit` in `apps/api`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/eslint app/modules/products app/models/collection.ts app/models/product.ts tests/functional/products/create_products.spec.ts database/migrations/1783341000000_create_collections_table.ts database/migrations/1783341000500_seed_collections_table.ts database/migrations/1783341001000_create_products_table.ts start/routes.ts --ignore-pattern 'database/schema.ts'` in `apps/api`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional` in `apps/api`
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint src` in `apps/web`
 - `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
+- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run --reporter=verbose` in `apps/web`
 
-I will also run the broader test pass at the end of the implementation flow, per the repo guidance and the `implement` skill.
+## 6. Technical debt
 
-## 8. Technical debt
-
-- The account menu still keeps trigger rendering, width policy, and action wiring in one component. That is fine at this size, but if more account actions arrive later, the menu-action wiring could be extracted into a small shell-local helper to keep the component from accumulating branching UI behavior.
+- The product route tests still need a few jsdom compatibility shims for the Radix Select interaction path. The assertions are passing, but the test file is carrying environment-level glue that would be better centralized if more select-heavy route tests arrive.
+- Collection reference data is seeded with a minimal annual set to establish the controlled-data seam. If the business already has a canonical collection catalog, a later slice should move those values from migration defaults into a clearer source of truth.
