@@ -29,6 +29,7 @@ test.group('Products create flow', (group) => {
       name: 'Valencia Gown',
       lifecycleStatus: 'concept',
       productStatus: 'active',
+      productCategory: null,
       createdBy: {
         email: 'admin@example.com',
       },
@@ -50,6 +51,7 @@ test.group('Products create flow', (group) => {
           name: 'Valencia Gown',
           lifecycleStatus: 'concept',
           productStatus: 'active',
+          productCategory: null,
         },
       ],
       collections: [{ name: '2025' }, { name: '2026' }, { name: '2027' }],
@@ -77,6 +79,7 @@ test.group('Products create flow', (group) => {
       name: 'Mila Cape',
       lifecycleStatus: 'testing',
       productStatus: 'inactive',
+      productCategory: null,
       collection: {
         id: collection.id,
         name: '2026',
@@ -86,15 +89,49 @@ test.group('Products create flow', (group) => {
       },
     })
   })
+
+  test('lists products newest first', async ({ assert, client }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    const firstResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Aster Dress',
+      })
+
+    firstResponse.assertStatus(201)
+
+    const secondResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Bianca Veil',
+      })
+
+    secondResponse.assertStatus(201)
+
+    const listResponse = await client
+      .get('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    listResponse.assertStatus(200)
+    assert.equal(listResponse.body().products[0]?.id, secondResponse.body().id)
+    assert.equal(listResponse.body().products[1]?.id, firstResponse.body().id)
+  })
 })
 
 async function authenticateAs(client: any, role: 'admin' | 'operator') {
-  await User.create({
-    email: `${role}@example.com`,
-    password: 'Password123',
-    role,
-    active: true,
-  })
+  await User.firstOrCreate(
+    {
+      email: `${role}@example.com`,
+    },
+    {
+      password: 'Password123',
+      role,
+      active: true,
+    }
+  )
 
   const response = await client.post('/auth/login').json({
     email: `${role}@example.com`,

@@ -63,6 +63,7 @@ function serializeProduct(product: Product): ProductSummary {
     name: product.name,
     lifecycleStatus: product.lifecycleStatus,
     productStatus: product.productStatus,
+    productCategory: null,
     collection: product.collection
       ? {
           id: product.collection.id,

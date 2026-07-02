@@ -59,6 +59,8 @@ export const productLifecycleStatusSchema = z.enum([
 
 export const productStatusSchema = z.enum(['active', 'inactive'])
 
+export const productCategorySchema = z.enum(['dress', 'accessory', 'other'])
+
 export const productCollectionSchema = z.object({
   id: z.number().int().positive(),
   name: z.string().min(1),
@@ -74,6 +76,7 @@ export const productSummarySchema = z.object({
   name: z.string().min(1),
   lifecycleStatus: productLifecycleStatusSchema,
   productStatus: productStatusSchema,
+  productCategory: productCategorySchema.nullable(),
   collection: productCollectionSchema.nullable(),
   createdAt: z.string().datetime({ offset: true }),
   createdBy: productCreatedBySchema,

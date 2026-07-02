@@ -1,148 +1,53 @@
-# Product Domain And Create Workflow
+# Product Working List
 
-This slice completes `.scratch/product-management/issues/01-establish-the-product-domain-and-create-workflow.md`.
+This slice turns `/app/products` from a create-only landing page into a real working list. The page still opens with the same high-level product-management framing, but the main card now behaves like an operational table: it loads the visible product set once, keeps that list ordered newest first, and lets the user retrieve records without another round-trip to the API.
 
-The branch started with only a shell-level `/app/products` placeholder. This change turns that route into the first real Product workflow and establishes the Product seam the later product-management issues can build on.
+## Start at the list contract
 
-If you are reviewing the patch, read it in this order.
+The first change was to make the product-summary contract explicit enough for the list UI. `ProductSummary` now carries a nullable `productCategory`, and the API serializer returns that field consistently even though the current slice still treats every persisted product as uncategorized. That keeps the web list honest about the "No category" state the issue requires and gives the route test a stable shape to assert against.
 
-## 1. Shared contracts define the Product seam once
+## Move retrieval into the page
 
-Start with:
+Inside [`apps/web/src/features/products/product-management-page.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx), the page now derives a client-side working set from the loaded products query.
 
-- `packages/shared-types/src/index.ts`
-- `packages/shared-validation/src/index.ts`
+The flow is intentionally simple:
 
-This slice introduces the Product language that both apps now share:
+1. Load the visible product list and collection reference data.
+2. Sort the loaded products newest first by `createdAt`.
+3. Apply the product-name search term.
+4. Apply one selected value for each filter: lifecycle status, product status, product category, and collection.
 
-- `ProductLifecycleStatus`
-- `ProductStatus`
-- `ProductCollection`
-- `ProductSummary`
-- `ListProductsResponse`
-- `CreateProductRequest`
+The search input is now visually first and prominent, because name lookup is the primary retrieval path in the issue. The filter row stays single-select and includes the explicit `No category` and `No collection` options called out by the acceptance criteria.
 
-The important decision here is that the create path stays small without staying vague. The contract now makes the defaults explicit:
+## Compact the table surface
 
-- `Lifecycle Status` defaults to `concept`
-- `Product Status` defaults to `active`
+The table was also reshaped to match the compact-list requirement:
 
-It also establishes the durable record shape that later list and edit work can keep using:
+- The product column now groups the product name with compact badges for collection context and category state.
+- The state column combines lifecycle status and product status badges in one place.
+- The created column keeps `Created by` and `Created at` together.
+- The final column keeps the short product ID visible but subdued.
 
-- short stable `Product ID`
-- immutable `Created by`
-- immutable `Created at`
-- optional `Collection`
+This keeps the scan path short while still exposing the operational context the PRD asked for.
 
-That keeps the domain vocabulary in one place instead of letting the API and web invent separate Product models.
+## Make empty states reflect the user’s intent
 
-## 2. The API now owns real Product persistence instead of placeholder route copy
+There are now two different empty experiences:
 
-Then read:
+- If there are no products at all, the page keeps the original registration-oriented empty state.
+- If products exist but the current search and filters eliminate them, the page shows a filtered-result empty state and offers a one-click reset for the current retrieval controls.
 
-- `apps/api/database/migrations/1783341000000_create_collections_table.ts`
-- `apps/api/database/migrations/1783341000500_seed_collections_table.ts`
-- `apps/api/database/migrations/1783341001000_create_products_table.ts`
-- `apps/api/app/models/collection.ts`
-- `apps/api/app/models/product.ts`
-- `apps/api/app/modules/products/products_service.ts`
-- `apps/api/app/modules/products/controllers/products_controller.ts`
-- `apps/api/start/routes.ts`
+That distinction matters because "nothing exists yet" and "nothing matches what I asked for" are different user situations.
 
-This is the backend seam for the first Product workflow.
+## Verification
 
-The migrations add two tables:
+The main web proof lives in [`apps/web/src/routes/-products.test.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx):
 
-- `collections` as controlled reference data, prefilled with annual tags
-- `products` as the new Product register
+- create flow still works and inserts the new row immediately
+- explicit lifecycle and product-status overrides still submit correctly
+- the list renders newest first
+- search narrows by product name
+- single-select category and collection filters work, including `No category` and `No collection`
+- the filtered empty state appears and can be cleared
 
-`products_service.ts` keeps the logic intentionally small:
-
-- list products newest first
-- create a Product with persisted defaults when the request omits statuses
-- allow explicit lifecycle and product-status overrides
-- validate optional collection linkage
-- generate a short stable public Product ID in the form `P-XXXXXX`
-- serialize immutable creation metadata from the authenticated user
-
-The controller does not introduce a broad auth abstraction. It reuses the existing bearer-token flow, authenticates the request, validates the shared create payload, and returns either:
-
-- `200` for list
-- `201` for create
-- `401` for unauthenticated access
-- `422` for invalid payloads or a missing collection reference
-
-That is enough to establish the Product domain seam without dragging in edit, delete, or workflow-transition logic from later issues.
-
-## 3. `/app/products` is now a real working surface
-
-Then read:
-
-- `apps/web/src/lib/api/products.ts`
-- `apps/web/src/features/products/product-management-page.tsx`
-- `apps/web/src/routes/app.products.tsx`
-
-The route no longer renders shell placeholder copy. It now renders a real Product page with two responsibilities:
-
-- load the persisted Product register
-- create a Product from a lightweight modal
-
-The modal stays aligned with the PRD’s first-slice rule:
-
-- `Product name` is required
-- `Lifecycle Status` is editable but defaults to `Concept`
-- `Product Status` is editable but defaults to `Active`
-
-`Collection` is established in the domain and API, but it is not pushed into this lightweight modal yet. That keeps issue 01 scoped to fast registration instead of starting list/filter/reference-data UI work early.
-
-After a successful create:
-
-- the modal closes
-- the form resets to its defaults
-- the new Product is inserted at the top of the local query cache
-- the working list shows the new persisted row immediately
-
-The list itself is deliberately modest in this slice. It shows the newly established Product metadata without trying to pre-implement the full search-and-filter table from issue 02.
-
-## 4. The tests cover both the persisted seam and the route seam
-
-Then read:
-
-- `apps/api/tests/functional/products/create_products.spec.ts`
-- `apps/web/src/routes/-products.test.tsx`
-- `apps/web/src/routes/-app.test.tsx`
-
-The API test covers the persistence contract:
-
-- create with only `name` persists `concept` and `active`
-- Product IDs are short and stable in the API response
-- created metadata comes from the authenticated user
-- list results are returned newest first with the seeded collection reference data
-- lifecycle, product-status, and collection overrides persist correctly
-
-The web route test covers the user-facing create flow:
-
-- the create modal opens from `/app/products`
-- submitting only a product name sends the default statuses
-- explicit lifecycle and product-status overrides are submitted when selected
-- the new Product appears in the working list immediately after success
-
-`-app.test.tsx` also now treats `/app/products` as a live route instead of a placeholder route, which keeps the shared shell suite aligned with the current UI.
-
-## 5. Verification
-
-The checks for this slice were:
-
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -p tsconfig.json` in `packages/shared-types`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -p tsconfig.json` in `packages/shared-validation`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc --noEmit` in `apps/api`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/eslint app/modules/products app/models/collection.ts app/models/product.ts tests/functional/products/create_products.spec.ts database/migrations/1783341000000_create_collections_table.ts database/migrations/1783341000500_seed_collections_table.ts database/migrations/1783341001000_create_products_table.ts start/routes.ts --ignore-pattern 'database/schema.ts'` in `apps/api`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH CI=true node ace.js test functional` in `apps/api`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint src` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run --reporter=verbose` in `apps/web`
-
-## 6. Technical debt
-
-- The product route tests still need a few jsdom compatibility shims for the Radix Select interaction path. The assertions are passing, but the test file is carrying environment-level glue that would be better centralized if more select-heavy route tests arrive.
-- Collection reference data is seeded with a minimal annual set to establish the controlled-data seam. If the business already has a canonical collection catalog, a later slice should move those values from migration defaults into a clearer source of truth.
+On the API side, [`apps/api/tests/functional/products/create_products.spec.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/products/create_products.spec.ts) now also asserts the product-summary category field and newest-first ordering. The direct TypeScript checks passed for `apps/web`, `apps/api`, `packages/shared-types`, and `packages/shared-validation`.

@@ -45,6 +45,8 @@ export type ProductLifecycleStatus =
 
 export type ProductStatus = 'active' | 'inactive'
 
+export type ProductCategory = 'dress' | 'accessory' | 'other'
+
 export interface ProductCollection {
   id: number
   name: string
@@ -60,6 +62,7 @@ export interface ProductSummary {
   name: string
   lifecycleStatus: ProductLifecycleStatus
   productStatus: ProductStatus
+  productCategory: ProductCategory | null
   collection: ProductCollection | null
   createdAt: string
   createdBy: ProductCreatedBy
