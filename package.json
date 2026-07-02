@@ -24,6 +24,8 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:migrate": "pnpm --filter @guardiola-foundry/api exec node ace migration:run",
-    "db:status": "pnpm --filter @guardiola-foundry/api exec node ace migration:status"
+    "db:rollback": "pnpm --filter @guardiola-foundry/api exec node ace migration:rollback",
+    "db:status": "pnpm --filter @guardiola-foundry/api exec node ace migration:status",
+    "db:seed": "pnpm --filter @guardiola-foundry/api exec node ace db:seed"
   }
 }
