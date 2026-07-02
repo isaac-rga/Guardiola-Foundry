@@ -57,7 +57,7 @@ export class LoginAttemptSchema extends BaseModel {
 }
 
 export class ProductSchema extends BaseModel {
-  static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'id', 'lifecycleStatus', 'name', 'productStatus', 'publicId', 'updatedAt'] as const
+  static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
   $columns = ProductSchema.$columns
   @column()
   declare collectionId: number | null
@@ -72,9 +72,13 @@ export class ProductSchema extends BaseModel {
   @column()
   declare name: string
   @column()
+  declare productCategory: string | null
+  @column()
   declare productStatus: string
   @column()
   declare publicId: string
+  @column()
+  declare shortDescription: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }

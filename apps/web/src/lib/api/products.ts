@@ -1,12 +1,18 @@
 import {
   createProductRequestSchema,
+  getProductResponseSchema,
   listProductsResponseSchema,
+  productDetailSchema,
   productSummarySchema,
+  updateProductRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   CreateProductRequest,
+  GetProductResponse,
   ListProductsResponse,
+  ProductDetail,
   ProductSummary,
+  UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 
 import { API_BASE_URL } from './config'
@@ -48,6 +54,46 @@ export async function createProduct(
   }
 
   return productSummarySchema.parse(body)
+}
+
+export async function getProduct(token: string, productId: string): Promise<GetProductResponse> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to load product.'))
+  }
+
+  return getProductResponseSchema.parse(body)
+}
+
+export async function updateProduct(
+  token: string,
+  productId: string,
+  payload: UpdateProductRequest
+): Promise<ProductDetail> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updateProductRequestSchema.parse(payload)),
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to save product changes.'))
+  }
+
+  return productDetailSchema.parse(body)
 }
 
 function resolveApiUrl(path: string) {

@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { SearchIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -337,7 +338,13 @@ export function ProductManagementPage() {
                       <TableRow key={product.id}>
                         <TableCell className="py-4">
                           <div className="space-y-2">
-                            <p className="font-medium text-foreground">{product.name}</p>
+                            <Link
+                              to="/app/products/$productId"
+                              params={{ productId: product.id }}
+                              className="font-medium text-foreground underline-offset-4 hover:underline"
+                            >
+                              {product.name}
+                            </Link>
                             <div className="flex flex-wrap gap-2">
                               <StatusBadge
                                 label={

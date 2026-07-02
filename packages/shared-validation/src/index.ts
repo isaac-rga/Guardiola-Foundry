@@ -3,13 +3,16 @@ import type {
   CreateProductRequest,
   ChangePasswordRequest,
   CurrentSessionResponse,
+  GetProductResponse,
   HealthResponse,
   ListProductsResponse,
   LoginRequest,
   ProductCollection,
+  ProductDetail,
   ProductCreatedBy,
   ProductSummary,
   SessionUser,
+  UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
@@ -82,14 +85,42 @@ export const productSummarySchema = z.object({
   createdBy: productCreatedBySchema,
 }) satisfies z.ZodType<ProductSummary>
 
+export const productDetailSchema = productSummarySchema.extend({
+  shortDescription: z.string().nullable(),
+}) satisfies z.ZodType<ProductDetail>
+
 export const listProductsResponseSchema = z.object({
   products: z.array(productSummarySchema),
   collections: z.array(productCollectionSchema),
 }) satisfies z.ZodType<ListProductsResponse>
 
+export const getProductResponseSchema = z.object({
+  product: productDetailSchema,
+  collections: z.array(productCollectionSchema),
+}) satisfies z.ZodType<GetProductResponse>
+
 export const createProductRequestSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1, 'Product name is required.'),
   lifecycleStatus: productLifecycleStatusSchema.optional(),
   productStatus: productStatusSchema.optional(),
   collectionId: z.number().int().positive().nullable().optional(),
 }) satisfies z.ZodType<CreateProductRequest>
+
+export const updateProductRequestSchema = z.object({
+  name: z.string().trim().min(1, 'Product name is required.'),
+  shortDescription: z
+    .union([z.string(), z.null()])
+    .transform((value) => {
+      if (value === null) {
+        return null
+      }
+
+      const normalizedValue = value.trim()
+
+      return normalizedValue.length > 0 ? normalizedValue : null
+    }),
+  lifecycleStatus: productLifecycleStatusSchema,
+  productStatus: productStatusSchema,
+  productCategory: productCategorySchema.nullable(),
+  collectionId: z.number().int().positive().nullable(),
+}) satisfies z.ZodType<UpdateProductRequest>

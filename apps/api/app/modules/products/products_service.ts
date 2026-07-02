@@ -3,8 +3,11 @@ import Product from '#models/product'
 import type User from '#models/user'
 import type {
   CreateProductRequest,
+  GetProductResponse,
   ListProductsResponse,
+  ProductDetail,
   ProductSummary,
+  UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 import { randomBytes } from 'node:crypto'
 
@@ -16,15 +19,12 @@ const PRODUCT_ID_LENGTH = 6
 export async function listProducts(): Promise<ListProductsResponse> {
   const [products, collections] = await Promise.all([
     Product.query().preload('collection').preload('createdBy').orderBy('createdAt', 'desc'),
-    Collection.query().orderBy('name', 'asc'),
+    loadCollections(),
   ])
 
   return {
-    products: products.map(serializeProduct),
-    collections: collections.map((collection) => ({
-      id: collection.id,
-      name: collection.name,
-    })),
+    products: products.map(serializeProductSummary),
+    collections: collections.map(serializeCollection),
   }
 }
 
@@ -47,34 +47,111 @@ export async function createProduct(
     name: payload.name,
     lifecycleStatus: payload.lifecycleStatus ?? DEFAULT_LIFECYCLE_STATUS,
     productStatus: payload.productStatus ?? DEFAULT_PRODUCT_STATUS,
+    productCategory: null,
+    shortDescription: null,
     collectionId,
     createdByUserId: authenticatedUser.id,
   })
 
-  await product.load('collection')
-  await product.load('createdBy')
+  await preloadProductRelations(product)
 
-  return serializeProduct(product)
+  return serializeProductSummary(product)
 }
 
-function serializeProduct(product: Product): ProductSummary {
+export async function getProduct(
+  productId: string
+): Promise<GetProductResponse | 'not-found'> {
+  const [product, collections] = await Promise.all([
+    Product.query().where('publicId', productId).preload('collection').preload('createdBy').first(),
+    loadCollections(),
+  ])
+
+  if (!product) {
+    return 'not-found'
+  }
+
+  return {
+    product: serializeProductDetail(product),
+    collections: collections.map(serializeCollection),
+  }
+}
+
+export async function updateProduct(
+  productId: string,
+  payload: UpdateProductRequest
+): Promise<ProductDetail | 'collection-not-found' | 'not-found'> {
+  const product = await Product.query()
+    .where('publicId', productId)
+    .preload('collection')
+    .preload('createdBy')
+    .first()
+
+  if (!product) {
+    return 'not-found'
+  }
+
+  const collectionId = payload.collectionId ?? null
+
+  if (collectionId !== null) {
+    const collection = await Collection.find(collectionId)
+
+    if (!collection) {
+      return 'collection-not-found'
+    }
+  }
+
+  product.merge({
+    name: payload.name,
+    shortDescription: payload.shortDescription,
+    lifecycleStatus: payload.lifecycleStatus,
+    productStatus: payload.productStatus,
+    productCategory: payload.productCategory,
+    collectionId,
+  })
+  await product.save()
+  await preloadProductRelations(product)
+
+  return serializeProductDetail(product)
+}
+
+function serializeProductSummary(product: Product): ProductSummary {
   return {
     id: product.publicId,
     name: product.name,
     lifecycleStatus: product.lifecycleStatus,
     productStatus: product.productStatus,
-    productCategory: null,
+    productCategory: product.productCategory,
     collection: product.collection
-      ? {
-          id: product.collection.id,
-          name: product.collection.name,
-        }
+      ? serializeCollection(product.collection)
       : null,
     createdAt: product.createdAt.toISO()!,
     createdBy: {
       id: product.createdBy.id,
       email: product.createdBy.email,
     },
+  }
+}
+
+function serializeProductDetail(product: Product): ProductDetail {
+  return {
+    ...serializeProductSummary(product),
+    shortDescription: product.shortDescription,
+  }
+}
+
+async function preloadProductRelations(product: Product) {
+  await product.load('collection')
+  await product.load('createdBy')
+}
+
+async function loadCollections() {
+  return Collection.query().orderBy('name', 'asc')
+}
+
+function serializeCollection(collection: Collection) {
+  return {
+    id: collection.id,
+    name: collection.name,
   }
 }
 

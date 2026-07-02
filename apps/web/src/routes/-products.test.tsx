@@ -302,13 +302,256 @@ describe('products route', () => {
     expect(screen.getByText('Bianca Veil')).toBeInTheDocument()
     expect(screen.getByText('Aster Dress')).toBeInTheDocument()
   })
+
+  it('loads a product page directly, shows metadata, and saves edits only when explicitly submitted', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
+        return jsonResponse({
+          product: {
+            id: 'P-AB12CD',
+            name: 'Valencia Gown',
+            shortDescription: null,
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [
+            { id: 1, name: '2025' },
+            { id: 2, name: '2026' },
+          ],
+        })
+      }
+
+      if (url.endsWith('/products/P-AB12CD') && init?.method === 'PUT') {
+        return jsonResponse({
+          id: 'P-AB12CD',
+          name: 'Valencia Gown Revised',
+          shortDescription: 'Silk sample for fittings',
+          lifecycleStatus: 'testing',
+          productStatus: 'inactive',
+          productCategory: 'dress',
+          collection: {
+            id: 2,
+            name: '2026',
+          },
+          createdAt: '2026-07-01T18:33:00.000Z',
+          createdBy: {
+            id: 1,
+            email: 'admin@example.com',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-AB12CD')
+
+    expect(await screen.findByRole('heading', { name: 'Valencia Gown' })).toBeInTheDocument()
+    expect(screen.getByText('Product ID')).toBeInTheDocument()
+    expect(screen.getByText('Created by')).toBeInTheDocument()
+    expect(screen.getByText('Created at')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Valencia Gown')).toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText(/product name/i))
+    await user.type(screen.getByLabelText(/product name/i), 'Valencia Gown Revised')
+    await user.type(
+      screen.getByLabelText(/short product description/i),
+      'Silk sample for fittings'
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
+    await user.click(await screen.findByRole('option', { name: 'Dress' }))
+    await user.click(screen.getByRole('combobox', { name: 'Collection' }))
+    await user.click(await screen.findByRole('option', { name: '2026' }))
+    await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
+    await user.click(await screen.findByRole('option', { name: 'Testing' }))
+    await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
+    await user.click(await screen.findByRole('option', { name: 'Inactive' }))
+
+    expect(
+      fetchSpy.mock.calls.find(([, requestInit]) => requestInit?.method === 'PUT')
+    ).toBeUndefined()
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3333/products/P-AB12CD',
+        expect.objectContaining({
+          method: 'PUT',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer opaque-access-token',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            name: 'Valencia Gown Revised',
+            shortDescription: 'Silk sample for fittings',
+            lifecycleStatus: 'testing',
+            productStatus: 'inactive',
+            productCategory: 'dress',
+            collectionId: 2,
+          }),
+        })
+      )
+    })
+
+    expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
+  })
+
+  it('keeps optional fields optional, validates inline, and warns before leaving unsaved edits', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-ZX98QP') && init?.method === 'GET') {
+        return jsonResponse({
+          product: {
+            id: 'P-ZX98QP',
+            name: 'Mila Cape',
+            shortDescription: 'Initial fitting notes',
+            lifecycleStatus: 'approved',
+            productStatus: 'active',
+            productCategory: 'other',
+            collection: {
+              id: 1,
+              name: '2025',
+            },
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [{ id: 1, name: '2025' }],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-ZX98QP',
+              name: 'Mila Cape',
+              lifecycleStatus: 'approved',
+              productStatus: 'active',
+              productCategory: 'other',
+              collection: { id: 1, name: '2025' },
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+          ],
+          collections: [{ id: 1, name: '2025' }],
+        })
+      }
+
+      if (url.endsWith('/products/P-ZX98QP') && init?.method === 'PUT') {
+        return jsonResponse({
+          id: 'P-ZX98QP',
+          name: 'Mila Cape',
+          shortDescription: null,
+          lifecycleStatus: 'approved',
+          productStatus: 'active',
+          productCategory: null,
+          collection: null,
+          createdAt: '2026-07-01T18:33:00.000Z',
+          createdBy: {
+            id: 1,
+            email: 'admin@example.com',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    const { router } = renderProductsRoute('/app/products/P-ZX98QP')
+
+    expect(await screen.findByRole('heading', { name: 'Mila Cape' })).toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText(/product name/i))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByText('Product name is required.')).toBeInTheDocument()
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      'http://localhost:3333/products/P-ZX98QP',
+      expect.objectContaining({ method: 'PUT' })
+    )
+
+    await user.type(screen.getByLabelText(/product name/i), 'Mila Cape')
+    await user.clear(screen.getByLabelText(/short product description/i))
+    await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
+    await user.click(await screen.findByRole('option', { name: 'No category' }))
+    await user.click(screen.getByRole('combobox', { name: 'Collection' }))
+    await user.click(await screen.findByRole('option', { name: 'No collection' }))
+
+    await user.click(screen.getByRole('button', { name: 'Back to products' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'You have unsaved changes. Leave this product without saving?'
+    )
+    expect(router.state.location.pathname).toBe('/app/products/P-ZX98QP')
+
+    confirmSpy.mockReturnValueOnce(true)
+
+    await user.click(screen.getByRole('button', { name: 'Back to products' }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/app/products')
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+  })
 })
 
-function renderProductsRoute() {
+function renderProductsRoute(initialEntry = '/app/products') {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
-      initialEntries: ['/app/products'],
+      initialEntries: [initialEntry],
     }),
   })
   const queryClient = new QueryClient({
@@ -319,11 +562,14 @@ function renderProductsRoute() {
     },
   })
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  )
+  return {
+    router,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    ),
+  }
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit) {

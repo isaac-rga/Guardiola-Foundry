@@ -1,8 +1,16 @@
 import { extractBearerToken } from '#modules/auth/bearer_token'
 import { getCurrentSession } from '#modules/auth/auth_service'
 import User from '#models/user'
-import { createProduct, listProducts } from '#modules/products/products_service'
-import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
+import {
+  createProduct,
+  getProduct,
+  listProducts,
+  updateProduct,
+} from '#modules/products/products_service'
+import {
+  createProductRequestSchema,
+  updateProductRequestSchema,
+} from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class ProductsController {
@@ -46,6 +54,62 @@ export default class ProductsController {
     }
 
     return response.created(result)
+  }
+
+  async show({ params, request, response }: HttpContext) {
+    const authenticatedUser = await this.authenticate(request.header('authorization'))
+
+    if (!authenticatedUser) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const result = await getProduct(params.productId)
+
+    if (result === 'not-found') {
+      return response.notFound({
+        message: 'Product not found.',
+      })
+    }
+
+    return response.ok(result)
+  }
+
+  async update({ params, request, response }: HttpContext) {
+    const authenticatedUser = await this.authenticate(request.header('authorization'))
+
+    if (!authenticatedUser) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const payload = updateProductRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({
+        errors: payload.error.flatten().fieldErrors,
+      })
+    }
+
+    const result = await updateProduct(params.productId, payload.data)
+
+    if (result === 'not-found') {
+      return response.notFound({
+        message: 'Product not found.',
+      })
+    }
+
+    if (result === 'collection-not-found') {
+      return response.unprocessableEntity({
+        errors: {
+          collectionId: ['Selected collection was not found.'],
+        },
+      })
+    }
+
+    return response.ok(result)
   }
 
   private async authenticate(authorizationHeader: string | undefined) {

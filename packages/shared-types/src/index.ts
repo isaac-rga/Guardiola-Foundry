@@ -68,8 +68,17 @@ export interface ProductSummary {
   createdBy: ProductCreatedBy
 }
 
+export interface ProductDetail extends ProductSummary {
+  shortDescription: string | null
+}
+
 export interface ListProductsResponse {
   products: ProductSummary[]
+  collections: ProductCollection[]
+}
+
+export interface GetProductResponse {
+  product: ProductDetail
   collections: ProductCollection[]
 }
 
@@ -78,4 +87,13 @@ export interface CreateProductRequest {
   lifecycleStatus?: ProductLifecycleStatus
   productStatus?: ProductStatus
   collectionId?: number | null
+}
+
+export interface UpdateProductRequest {
+  name: string
+  shortDescription: string | null
+  lifecycleStatus: ProductLifecycleStatus
+  productStatus: ProductStatus
+  productCategory: ProductCategory | null
+  collectionId: number | null
 }

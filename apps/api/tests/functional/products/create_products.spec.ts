@@ -119,6 +119,116 @@ test.group('Products create flow', (group) => {
     assert.equal(listResponse.body().products[0]?.id, secondResponse.body().id)
     assert.equal(listResponse.body().products[1]?.id, firstResponse.body().id)
   })
+
+  test('loads a product directly by short id with immutable metadata and editable optional fields', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+    const collection = await Collection.findByOrFail('name', '2026')
+
+    const createResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Valencia Gown',
+        collectionId: collection.id,
+      })
+
+    createResponse.assertStatus(201)
+
+    const showResponse = await client
+      .get(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    showResponse.assertStatus(200)
+    showResponse.assertBodyContains({
+      product: {
+        id: createResponse.body().id,
+        name: 'Valencia Gown',
+        shortDescription: null,
+        lifecycleStatus: 'concept',
+        productStatus: 'active',
+        productCategory: null,
+        collection: {
+          id: collection.id,
+          name: '2026',
+        },
+        createdBy: {
+          email: 'admin@example.com',
+        },
+      },
+      collections: [{ name: '2025' }, { name: '2026' }, { name: '2027' }],
+    })
+    assert.exists(showResponse.body().product.createdAt)
+  })
+
+  test('updates editable product fields by short id, keeps optional fields nullable, and trims saved text', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const collection = await Collection.findByOrFail('name', '2025')
+
+    const createResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Mila Cape',
+      })
+
+    createResponse.assertStatus(201)
+
+    const updateResponse = await client
+      .put(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: '  Mila Cape Revised  ',
+        shortDescription: '  Silk sample for fittings  ',
+        lifecycleStatus: 'testing',
+        productStatus: 'inactive',
+        productCategory: 'dress',
+        collectionId: collection.id,
+      })
+
+    updateResponse.assertStatus(200)
+    updateResponse.assertBodyContains({
+      id: createResponse.body().id,
+      name: 'Mila Cape Revised',
+      shortDescription: 'Silk sample for fittings',
+      lifecycleStatus: 'testing',
+      productStatus: 'inactive',
+      productCategory: 'dress',
+      collection: {
+        id: collection.id,
+        name: '2025',
+      },
+      createdBy: {
+        email: 'operator@example.com',
+      },
+    })
+
+    const clearOptionalFieldsResponse = await client
+      .put(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Mila Cape Revised',
+        shortDescription: null,
+        lifecycleStatus: 'approved',
+        productStatus: 'active',
+        productCategory: null,
+        collectionId: null,
+      })
+
+    clearOptionalFieldsResponse.assertStatus(200)
+    clearOptionalFieldsResponse.assertBodyContains({
+      id: createResponse.body().id,
+      shortDescription: null,
+      lifecycleStatus: 'approved',
+      productStatus: 'active',
+      productCategory: null,
+      collection: null,
+    })
+  })
 })
 
 async function authenticateAs(client: any, role: 'admin' | 'operator') {
