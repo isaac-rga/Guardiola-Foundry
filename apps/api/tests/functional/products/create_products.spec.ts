@@ -1,13 +1,18 @@
+import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import User from '#models/user'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
+import { mkdir, readdir, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 
 const COLLECTION_NAMES = ['2025', '2026', '2027'] as const
+const PRODUCT_IMAGE_DIRECTORY = app.makePath('tmp/product-images')
 
 test.group('Products create flow', (group) => {
   group.each.setup(async () => {
     await testUtils.db('postgres_test').truncate()
+    await clearStoredProductImages()
     await Promise.all(COLLECTION_NAMES.map((name) => Collection.firstOrCreate({ name })))
   })
 
@@ -147,6 +152,7 @@ test.group('Products create flow', (group) => {
         id: createResponse.body().id,
         name: 'Valencia Gown',
         shortDescription: null,
+        image: null,
         lifecycleStatus: 'concept',
         productStatus: 'active',
         productCategory: null,
@@ -195,6 +201,7 @@ test.group('Products create flow', (group) => {
       id: createResponse.body().id,
       name: 'Mila Cape Revised',
       shortDescription: 'Silk sample for fittings',
+      image: null,
       lifecycleStatus: 'testing',
       productStatus: 'inactive',
       productCategory: 'dress',
@@ -223,10 +230,95 @@ test.group('Products create flow', (group) => {
     clearOptionalFieldsResponse.assertBodyContains({
       id: createResponse.body().id,
       shortDescription: null,
+      image: null,
       lifecycleStatus: 'approved',
       productStatus: 'active',
       productCategory: null,
       collection: null,
+    })
+  })
+
+  test('uploads one product image, persists it on reload, and removes it back to a no-image state', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    const createResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Celeste Gown',
+      })
+
+    createResponse.assertStatus(201)
+
+    const uploadResponse = await client
+      .put(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .fields({
+        name: 'Celeste Gown',
+        shortDescription: '',
+        lifecycleStatus: 'concept',
+        productStatus: 'active',
+        productCategory: '',
+        collectionId: '',
+      })
+      .file('image', tinyPngBuffer(), {
+        filename: 'celeste-gown.png',
+        contentType: 'image/png',
+      })
+
+    uploadResponse.assertStatus(200)
+    uploadResponse.assertBodyContains({
+      id: createResponse.body().id,
+      image: {
+        fileName: 'celeste-gown.png',
+      },
+    })
+
+    const persistedResponse = await client
+      .get(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    persistedResponse.assertStatus(200)
+    persistedResponse.assertBodyContains({
+      product: {
+        id: createResponse.body().id,
+        image: {
+          fileName: 'celeste-gown.png',
+        },
+      },
+    })
+
+    const removeResponse = await client
+      .put(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .fields({
+        name: 'Celeste Gown',
+        shortDescription: '',
+        lifecycleStatus: 'concept',
+        productStatus: 'active',
+        productCategory: '',
+        collectionId: '',
+        removeImage: 'true',
+      })
+
+    removeResponse.assertStatus(200)
+    removeResponse.assertBodyContains({
+      id: createResponse.body().id,
+      image: null,
+    })
+
+    const clearedResponse = await client
+      .get(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    clearedResponse.assertStatus(200)
+    clearedResponse.assertBodyContains({
+      product: {
+        id: createResponse.body().id,
+        image: null,
+      },
     })
   })
 })
@@ -251,4 +343,19 @@ async function authenticateAs(client: any, role: 'admin' | 'operator') {
   response.assertStatus(200)
 
   return response.body() as { token: string }
+}
+
+async function clearStoredProductImages() {
+  await mkdir(PRODUCT_IMAGE_DIRECTORY, { recursive: true })
+
+  const fileNames = await readdir(PRODUCT_IMAGE_DIRECTORY)
+
+  await Promise.all(fileNames.map((fileName) => unlink(join(PRODUCT_IMAGE_DIRECTORY, fileName))))
+}
+
+function tinyPngBuffer() {
+  return Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6SxZkAAAAASUVORK5CYII=',
+    'base64'
+  )
 }

@@ -327,6 +327,7 @@ describe('products route', () => {
             id: 'P-AB12CD',
             name: 'Valencia Gown',
             shortDescription: null,
+            image: null,
             lifecycleStatus: 'concept',
             productStatus: 'active',
             productCategory: null,
@@ -349,6 +350,7 @@ describe('products route', () => {
           id: 'P-AB12CD',
           name: 'Valencia Gown Revised',
           shortDescription: 'Silk sample for fittings',
+          image: null,
           lifecycleStatus: 'testing',
           productStatus: 'inactive',
           productCategory: 'dress',
@@ -399,24 +401,26 @@ describe('products route', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3333/products/P-AB12CD',
+      const requestInit = fetchSpy.mock.calls.find(
+        ([requestUrl, request]) =>
+          String(requestUrl).endsWith('/products/P-AB12CD') && request?.method === 'PUT'
+      )?.[1]
+
+      expect(requestInit).toBeDefined()
+      expect(requestInit?.headers).toEqual(
         expect.objectContaining({
-          method: 'PUT',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer opaque-access-token',
-            'Content-Type': 'application/json',
-          }),
-          body: JSON.stringify({
-            name: 'Valencia Gown Revised',
-            shortDescription: 'Silk sample for fittings',
-            lifecycleStatus: 'testing',
-            productStatus: 'inactive',
-            productCategory: 'dress',
-            collectionId: 2,
-          }),
+          Authorization: 'Bearer opaque-access-token',
         })
       )
+      expect(requestInit?.body).toBeInstanceOf(FormData)
+      expect(readFormData(requestInit?.body).entries).toEqual({
+        name: 'Valencia Gown Revised',
+        shortDescription: 'Silk sample for fittings',
+        lifecycleStatus: 'testing',
+        productStatus: 'inactive',
+        productCategory: 'dress',
+        collectionId: '2',
+      })
     })
 
     expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
@@ -448,6 +452,7 @@ describe('products route', () => {
             id: 'P-ZX98QP',
             name: 'Mila Cape',
             shortDescription: 'Initial fitting notes',
+            image: null,
             lifecycleStatus: 'approved',
             productStatus: 'active',
             productCategory: 'other',
@@ -491,6 +496,7 @@ describe('products route', () => {
           id: 'P-ZX98QP',
           name: 'Mila Cape',
           shortDescription: null,
+          image: null,
           lifecycleStatus: 'approved',
           productStatus: 'active',
           productCategory: null,
@@ -545,6 +551,127 @@ describe('products route', () => {
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
   })
+
+  it('uploads one image, shows the persisted saved state after reload, and removes it back to empty', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    let imageState: { fileName: string } | null = null
+
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-IMG001') && init?.method === 'GET') {
+        return jsonResponse({
+          product: {
+            id: 'P-IMG001',
+            name: 'Celeste Gown',
+            shortDescription: null,
+            image: imageState,
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products/P-IMG001') && init?.method === 'PUT') {
+        const { entries, imageFileName } = readFormData(init.body)
+
+        if (imageFileName) {
+          imageState = { fileName: imageFileName }
+        } else if (entries.removeImage === 'true') {
+          imageState = null
+        }
+
+        return jsonResponse({
+          id: 'P-IMG001',
+          name: 'Celeste Gown',
+          shortDescription: null,
+          image: imageState,
+          lifecycleStatus: 'concept',
+          productStatus: 'active',
+          productCategory: null,
+          collection: null,
+          createdAt: '2026-07-01T18:33:00.000Z',
+          createdBy: {
+            id: 1,
+            email: 'admin@example.com',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-IMG001')
+
+    expect(await screen.findByRole('heading', { name: 'Celeste Gown' })).toBeInTheDocument()
+    expect(screen.getByText('No product image uploaded.')).toBeInTheDocument()
+
+    await user.upload(
+      screen.getByLabelText('Upload image'),
+      new File(['image-binary'], 'celeste-gown.png', { type: 'image/png' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      const requestInit = fetchSpy.mock.calls.find(
+        ([requestUrl, request]) =>
+          String(requestUrl).endsWith('/products/P-IMG001') && request?.method === 'PUT'
+      )?.[1]
+
+      expect(requestInit?.body).toBeInstanceOf(FormData)
+      expect(readFormData(requestInit?.body).imageFileName).toBe('celeste-gown.png')
+    })
+
+    expect(await screen.findByText('Saved image: celeste-gown.png')).toBeInTheDocument()
+
+    cleanup()
+
+    renderProductsRoute('/app/products/P-IMG001')
+
+    expect(await screen.findByText('Saved image: celeste-gown.png')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Remove image' }))
+    expect(screen.getByText('Current image will be removed on save.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      const requestInit = [...fetchSpy.mock.calls]
+        .reverse()
+        .find(
+          ([requestUrl, request]) =>
+            String(requestUrl).endsWith('/products/P-IMG001') && request?.method === 'PUT'
+      )?.[1]
+
+      expect(readFormData(requestInit?.body).entries.removeImage).toBe('true')
+      expect(readFormData(requestInit?.body).imageFileName).toBeNull()
+    })
+
+    expect(await screen.findByText('No product image uploaded.')).toBeInTheDocument()
+  })
 })
 
 function renderProductsRoute(initialEntry = '/app/products') {
@@ -596,4 +723,27 @@ function seedStoredSession() {
       },
     })
   )
+}
+
+function readFormData(body: BodyInit | null | undefined) {
+  if (!(body instanceof FormData)) {
+    throw new Error('Expected request body to be FormData.')
+  }
+
+  const entries: Record<string, string> = {}
+  let imageFileName: string | null = null
+
+  body.forEach((value, key) => {
+    if (value instanceof File) {
+      if (key === 'image') {
+        imageFileName = value.name
+      }
+
+      return
+    }
+
+    entries[key] = value
+  })
+
+  return { entries, imageFileName }
 }

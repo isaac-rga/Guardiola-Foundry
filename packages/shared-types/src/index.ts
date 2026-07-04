@@ -57,6 +57,10 @@ export interface ProductCreatedBy {
   email: string
 }
 
+export interface ProductImage {
+  fileName: string
+}
+
 export interface ProductSummary {
   id: string
   name: string
@@ -70,6 +74,7 @@ export interface ProductSummary {
 
 export interface ProductDetail extends ProductSummary {
   shortDescription: string | null
+  image: ProductImage | null
 }
 
 export interface ListProductsResponse {

@@ -50,6 +50,12 @@ export default class Product extends BaseModel {
   @column({ columnName: 'created_by_user_id' })
   declare createdByUserId: number
 
+  @column({ columnName: 'product_image_file_name' })
+  declare productImageFileName: string | null
+
+  @column({ columnName: 'product_image_storage_key' })
+  declare productImageStorageKey: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

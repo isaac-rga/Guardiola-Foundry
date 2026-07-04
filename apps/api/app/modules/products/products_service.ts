@@ -1,5 +1,7 @@
+import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import Product from '#models/product'
+import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import type User from '#models/user'
 import type {
   CreateProductRequest,
@@ -9,12 +11,15 @@ import type {
   ProductSummary,
   UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { mkdir, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 
 const DEFAULT_LIFECYCLE_STATUS = 'concept'
 const DEFAULT_PRODUCT_STATUS = 'active'
 const PRODUCT_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PRODUCT_ID_LENGTH = 6
+const PRODUCT_IMAGE_DIRECTORY = app.makePath('tmp/product-images')
 
 export async function listProducts(): Promise<ListProductsResponse> {
   const [products, collections] = await Promise.all([
@@ -58,9 +63,7 @@ export async function createProduct(
   return serializeProductSummary(product)
 }
 
-export async function getProduct(
-  productId: string
-): Promise<GetProductResponse | 'not-found'> {
+export async function getProduct(productId: string): Promise<GetProductResponse | 'not-found'> {
   const [product, collections] = await Promise.all([
     Product.query().where('publicId', productId).preload('collection').preload('createdBy').first(),
     loadCollections(),
@@ -78,7 +81,11 @@ export async function getProduct(
 
 export async function updateProduct(
   productId: string,
-  payload: UpdateProductRequest
+  payload: UpdateProductRequest,
+  options?: {
+    imageFile?: MultipartFile | null
+    removeImage?: boolean
+  }
 ): Promise<ProductDetail | 'collection-not-found' | 'not-found'> {
   const product = await Product.query()
     .where('publicId', productId)
@@ -108,6 +115,13 @@ export async function updateProduct(
     productCategory: payload.productCategory,
     collectionId,
   })
+
+  if (options?.imageFile) {
+    await replaceStoredProductImage(product, options.imageFile)
+  } else if (options?.removeImage) {
+    await clearStoredProductImage(product)
+  }
+
   await product.save()
   await preloadProductRelations(product)
 
@@ -121,9 +135,7 @@ function serializeProductSummary(product: Product): ProductSummary {
     lifecycleStatus: product.lifecycleStatus,
     productStatus: product.productStatus,
     productCategory: product.productCategory,
-    collection: product.collection
-      ? serializeCollection(product.collection)
-      : null,
+    collection: product.collection ? serializeCollection(product.collection) : null,
     createdAt: product.createdAt.toISO()!,
     createdBy: {
       id: product.createdBy.id,
@@ -136,6 +148,12 @@ function serializeProductDetail(product: Product): ProductDetail {
   return {
     ...serializeProductSummary(product),
     shortDescription: product.shortDescription,
+    image:
+      product.productImageFileName && product.productImageStorageKey
+        ? {
+            fileName: product.productImageFileName,
+          }
+        : null,
   }
 }
 
@@ -172,4 +190,44 @@ function randomProductToken() {
   return Array.from(bytes, (byte) => PRODUCT_ID_ALPHABET[byte % PRODUCT_ID_ALPHABET.length]).join(
     ''
   )
+}
+
+async function replaceStoredProductImage(product: Product, imageFile: MultipartFile) {
+  const imageExtension = imageFile.extname ?? 'bin'
+  const storageKey = `${product.publicId}-${randomUUID()}.${imageExtension}`
+
+  await mkdir(PRODUCT_IMAGE_DIRECTORY, { recursive: true })
+  await imageFile.move(PRODUCT_IMAGE_DIRECTORY, {
+    name: storageKey,
+    overwrite: true,
+  })
+
+  await deleteStoredProductImage(product)
+
+  product.productImageFileName = imageFile.clientName
+  product.productImageStorageKey = storageKey
+}
+
+async function clearStoredProductImage(product: Product) {
+  await deleteStoredProductImage(product)
+  product.productImageFileName = null
+  product.productImageStorageKey = null
+}
+
+async function deleteStoredProductImage(product: Product) {
+  if (!product.productImageStorageKey) {
+    return
+  }
+
+  try {
+    await unlink(join(PRODUCT_IMAGE_DIRECTORY, product.productImageStorageKey))
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error
+    }
+  }
+}
+
+function isMissingFileError(error: unknown) {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }

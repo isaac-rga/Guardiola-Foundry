@@ -1,80 +1,72 @@
-# Product Edit Page
+# Product Image Upload And Removal
 
-This slice turns Products from a list-plus-create workflow into a real two-surface module. `/app/products` stays the working list, but each Product now has its own direct route at `/app/products/$productId`, and that page is where the first real editing workflow lives.
+This slice keeps Product image handling deliberately small and attached to the existing Product edit page. A Product can now carry one optional primary image, that image survives a reload because it is persisted with the Product record, and the same page can clear it back to a true no-image state.
 
-## Start with the route shape
+## Start with the Product contract
 
-The first important change is structural rather than visual. The old [`apps/web/src/routes/app.products.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.products.tsx) route rendered the list page directly, which meant a nested detail route would never appear. This slice converts `/app/products` into a layout route with an `Outlet`, moves the list UI into [`apps/web/src/routes/app.products.index.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.products.index.tsx), and adds [`apps/web/src/routes/app.products.$productId.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.products.$productId.tsx) for direct Product-page loading.
+The earlier Product detail contract had no way to describe image state. This slice adds a small `image` object to [`packages/shared-types/src/index.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/index.ts) and validates it in [`packages/shared-validation/src/index.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/index.ts).
 
-That route split is what makes browser refresh, deep links, and short-ID navigation work without bolting detail behavior onto the list page.
+That is intentionally narrow:
 
-## Add the missing Product contract
+- list rows still stay text-only
+- the create modal still ignores images
+- only the Product detail payload learns whether an image exists and what filename is currently saved
 
-The earlier slice only needed Product summaries for the list. The edit page needs more:
+## Persist one saved image in the API
 
-- direct lookup by short `Product ID`
-- mutable optional fields for `Product Category`, `Short product description`, and `Collection`
-- an explicit update request shape
-- immutable metadata returned with the detail payload
+The storage side starts with [`apps/api/database/migrations/1783341003000_add_product_image_fields_to_products_table.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/migrations/1783341003000_add_product_image_fields_to_products_table.ts), which adds two nullable Product columns:
 
-Those additions land in [`packages/shared-types/src/index.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/index.ts) and [`packages/shared-validation/src/index.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/index.ts). The validation rules now make `Product name` required for saves, while still allowing the optional fields to round-trip as `null`.
+- the original filename shown back to the user
+- the internal storage key used on disk
 
-## Persist the editable fields in the API
+[`apps/api/app/models/product.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/product.ts) exposes those columns, and [`apps/api/app/modules/products/products_service.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/products_service.ts) keeps the behavior simple:
 
-The backend needed real storage before the page could exist. A new migration adds nullable `product_category` and `short_description` columns to `products`, and the Product model now normalizes text at the edge so saved values stay trimmed.
+1. save uploaded files under `apps/api/tmp/product-images`
+2. replace the previous file when a new one is uploaded
+3. clear both the stored file and database fields when the user removes the image
+4. serialize the saved filename back through the Product detail response
 
-From there, the Product module grows from list/create into list/show/update:
+The Product module still does not grow a general media system. It just manages one Product-owned file at the existing Product update seam.
 
-1. `GET /products/:productId` loads one Product by short ID plus the available collection reference data.
-2. `PUT /products/:productId` saves the editable first-slice fields explicitly.
-3. The serializer now returns the real category and description values instead of hard-coded `null`s.
+## Accept multipart saves without splitting the workflow
 
-The core work lives in [`apps/api/app/modules/products/products_service.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/products_service.ts) and [`apps/api/app/modules/products/controllers/products_controller.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/controllers/products_controller.ts), with the routes wired in [`apps/api/start/routes.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/start/routes.ts).
+The important controller change is in [`apps/api/app/modules/products/controllers/products_controller.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/controllers/products_controller.ts). `PUT /products/:productId` now accepts multipart form data, validates an optional image file, normalizes the non-file fields back into the existing update schema, and passes a simple `removeImage` intent when the page is clearing the current file.
 
-## Build the explicit-save page
+That keeps the request model aligned with the existing explicit-save page instead of introducing separate upload and delete endpoints just for this slice.
 
-[`apps/web/src/features/products/product-edit-page.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx) is the main user-facing slice.
+## Keep image changes on the existing Product page
 
-The page is intentionally straightforward:
+[`apps/web/src/lib/api/products.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/products.ts) now sends Product updates as `FormData`, which lets the page carry the usual edit fields plus an optional image file in one save request.
 
-1. Load the Product directly by `Product ID`.
-2. Reset the form from the saved record.
-3. Let the user edit the agreed first-slice fields.
-4. Save only when they click `Save changes`.
-5. Warn before navigation if the form is dirty.
+[`apps/web/src/features/products/product-edit-page.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx) adds the user-facing behavior:
 
-The form keeps the editable surface and metadata separate:
+1. an upload control on the Product page
+2. a visible current-image state area that shows whether the Product has no image, a selected pending upload, a saved filename, or a pending removal
+3. `Remove image` and `Keep current image` actions that stay inside the same explicit-save flow
+4. dirty-state tracking that now treats image selection and removal the same way it treats other unsaved Product edits
 
-- editable fields: `Product name`, `Product Category`, `Short product description`, `Collection`, `Lifecycle Status`, and `Product Status`
-- low-emphasis metadata: `Product ID`, `Created by`, and `Created at`
-
-The save is explicit rather than reactive. Changing a field does nothing server-side until submit. After success, the page resets to the saved state, updates the cached list row, and shows lightweight confirmation feedback.
-
-## Keep the list as the entry point
-
-The list page still owns the working set, but each Product name is now a direct link into the dedicated Product page. That is the smallest change that turns the table into a real navigation surface without redesigning the list again in the same diff.
+The result is still the same Product page workflow: edit fields, decide what should happen to the image, and persist everything only when `Save changes` is clicked.
 
 ## Verification
 
-The focused web proof is in [`apps/web/src/routes/-products.test.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx):
+The focused API regression lives in [`apps/api/tests/functional/products/create_products.spec.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/products/create_products.spec.ts). It proves:
 
-- list/create behavior from the earlier slice still works
-- the Product page loads directly by short ID
-- metadata is visible
-- edits are not persisted until explicit save
-- inline validation blocks empty `Product name`
-- optional fields can be cleared back to `null`
-- leaving with unsaved changes triggers a warning
+- a Product image can be uploaded through the Product update route
+- saved image state is returned again on a follow-up load
+- remove-to-empty clears the Product back to `image: null`
 
-The focused API proof is in [`apps/api/tests/functional/products/create_products.spec.ts`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/products/create_products.spec.ts):
+The focused web regression lives in [`apps/web/src/routes/-products.test.tsx`](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx). It proves:
 
-- short-ID detail loading returns immutable metadata and optional fields
-- update persists the editable fields by short ID
-- text is trimmed on save
-- optional fields can be cleared back to `null`
+- Product saves now submit multipart data
+- the edit page shows saved image state after upload
+- a reload still shows the persisted saved filename
+- removing the image returns the page to the empty state
 
 Verification run for this slice:
 
-- `node .../vitest.mjs run src/routes/-products.test.tsx`
+- `pnpm build` in `packages/shared-types`
+- `pnpm build` in `packages/shared-validation`
 - `node ace.js test functional --files tests/functional/products/create_products.spec.ts`
-- direct TypeScript checks for `apps/web`, `apps/api`, `packages/shared-types`, and `packages/shared-validation`
+- `node node_modules/vitest/vitest.mjs run src/routes/-products.test.tsx`
+- `pnpm typecheck` in `apps/api`
+- `pnpm typecheck` in `apps/web`

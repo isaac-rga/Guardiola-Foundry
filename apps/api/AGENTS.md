@@ -1,14 +1,16 @@
 # Repository Guidelines
 
+This document extends the root AGENTS.md. Only app-specific conventions are documented here.
+
 ## Backend Structure
 
 This directory is the AdonisJS 7 API application. Organize business code by domain under `app/modules/<domain>/`; for example, the health endpoint uses `app/modules/health/controllers/health_controller.ts`. Register HTTP routes in `start/routes.ts` and lazy-load controllers through the `#modules/*` import alias. Keep middleware in `app/middleware/`, exception handling in `app/exceptions/`, framework settings in `config/`, and boot-time wiring in `start/`.
 
-Place Lucid migrations in `database/migrations/`. API tests belong in `tests/unit/`, `tests/functional/`, or `tests/browser/` according to scope. Shared request and response contracts should come from `@guardiola-foundry/shared-types`; do not duplicate them locally.
+Place Lucid migrations in `database/migrations/`. API tests belong in `tests/unit/`, `tests/functional/`, or `tests/browser/` according to scope.
 
 ## Development Commands
 
-Use Node.js 24+ and pnpm 11+. From `apps/api`:
+From `apps/api`:
 
 - `pnpm dev`: start AdonisJS with hot module replacement.
 - `pnpm test`: run all configured Japa suites.
@@ -21,18 +23,25 @@ Database lifecycle scripts live at the monorepo root: use `pnpm db:up`, `pnpm db
 
 ## Coding Conventions
 
-Use TypeScript, ES modules, two-space indentation, LF endings, single quotes, and no semicolons. ESLint extends `@adonisjs/eslint-config/app`; Prettier uses `@adonisjs/prettier-config`. Use snake_case filenames for AdonisJS classes (`health_controller.ts`), PascalCase class names, and camelCase methods and variables. Prefer configured aliases such as `#modules/*`, `#middleware/*`, and `#database/*` over deep relative imports.
+ESLint extends `@adonisjs/eslint-config/app`; Prettier uses `@adonisjs/prettier-config`. Use snake_case filenames for AdonisJS classes (`health_controller.ts`), PascalCase class names, and camelCase methods and variables. Prefer configured aliases such as `#modules/*`, `#middleware/*`, and `#database/*` over deep relative imports.
 
 Keep controllers focused on HTTP concerns. Put domain behavior in the corresponding module as it grows, without introducing abstractions before multiple callers require them.
 
 ## Testing Guidelines
 
-Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Add a focused regression test for every behavior change. Run the targeted suite while developing and complete `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before submission.
+Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Run the targeted suite while developing.
 
-## Reference Docs
+## Framework Documentation
 
-Use `@context7 /adonisjs/v7-docs` before guessing framework behavior. Navigate it by section:
+Before implementing or modifying framework-specific code, consult the appropriate documentation source instead of relying on memory.
 
+### Primary documentation sources
+
+- AdonisJS Framework: `@context7 /adonisjs/v7-docs`
+- Lucid ORM: `@context7 /adonisjs/lucid.adonisjs.com`
+- Japa Testing: `@context7 /websites/japa_dev`
+
+### Additional AdonisJS documentation sections
 - `start/`: orientation docs such as installation, folder structure, configuration, deployment, and upgrade notes.
 - `guides/basics/`: routing, controllers, middleware, validation, request/response, sessions, uploads, and exception handling.
 - `guides/auth/`: access tokens, session/basic auth guards, authorization, and verifying user credentials.
@@ -44,8 +53,8 @@ Use `@context7 /adonisjs/v7-docs` before guessing framework behavior. Navigate i
 - `guides/digging_deeper/`: cache, queues, mail, locks, health checks, logger, and observability.
 - `reference/`: framework reference for `adonisrc`, application APIs, commands, exceptions, helpers, and config files under `reference/config/`.
 
-## Commits, Pull Requests, and Configuration
+Use the specialized documentation as the primary reference when working with Lucid or Japa. Use the AdonisJS documentation for framework integration and application architecture.
 
-Use concise Conventional Commit subjects, such as `feat: add supplier endpoint` or `fix: reject invalid invoice totals`. Pull requests must describe API contract changes, verification performed, migrations, and new environment variables. Link relevant issues or specifications.
+## Configuration
 
-Copy `.env.example` to `.env` for local development. Never commit `.env`, secrets, database credentials, or generated `APP_KEY` values; document every new variable in `.env.example`.
+Copy `.env.example` to `.env` for local development. Document every new API environment variable in `.env.example`.

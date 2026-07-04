@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { getProduct, updateProduct } from '@/lib/api/products'
+import { getProduct, updateProduct, type UpdateProductInput } from '@/lib/api/products'
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   ListProductsResponse,
@@ -76,6 +76,9 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const queryClient = useQueryClient()
   const { session } = useAppShell()
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
+  const [removeImage, setRemoveImage] = useState(false)
+  const [imageInputKey, setImageInputKey] = useState(0)
   const form = useForm<UpdateProductRequest>({
     resolver: zodResolver(updateProductRequestSchema),
     defaultValues: defaultFormValues,
@@ -87,6 +90,8 @@ export function ProductEditPage({ productId }: { productId: string }) {
 
   const product = productQuery.data?.product ?? null
   const collections = productQuery.data?.collections ?? []
+  const hasPendingImageChanges = selectedImageFile !== null || removeImage
+  const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
 
   useEffect(() => {
     if (!product) {
@@ -94,21 +99,24 @@ export function ProductEditPage({ productId }: { productId: string }) {
     }
 
     form.reset(toFormValues(product))
+    setSelectedImageFile(null)
+    setRemoveImage(false)
+    setImageInputKey((currentValue) => currentValue + 1)
   }, [form, product])
 
   useEffect(() => {
-    if (form.formState.isDirty) {
+    if (hasPendingChanges) {
       setSaveMessage(null)
     }
-  }, [form.formState.isDirty])
+  }, [hasPendingChanges])
 
   useBlocker({
-    shouldBlockFn: () => form.formState.isDirty && !window.confirm(unsavedChangesMessage),
-    enableBeforeUnload: () => form.formState.isDirty,
+    shouldBlockFn: () => hasPendingChanges && !window.confirm(unsavedChangesMessage),
+    enableBeforeUnload: () => hasPendingChanges,
   })
 
   const updateProductMutation = useMutation({
-    mutationFn: (payload: UpdateProductRequest) => updateProduct(session.token, productId, payload),
+    mutationFn: (payload: UpdateProductInput) => updateProduct(session.token, productId, payload),
     onSuccess: (updatedProduct) => {
       queryClient.setQueryData(['products', productId], (currentData: typeof productQuery.data) => {
         if (!currentData) {
@@ -133,12 +141,19 @@ export function ProductEditPage({ productId }: { productId: string }) {
         }
       })
       form.reset(toFormValues(updatedProduct))
+      setSelectedImageFile(null)
+      setRemoveImage(false)
+      setImageInputKey((currentValue) => currentValue + 1)
       setSaveMessage('Changes saved.')
     },
   })
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await updateProductMutation.mutateAsync(values)
+    await updateProductMutation.mutateAsync({
+      ...values,
+      imageFile: selectedImageFile,
+      removeImage,
+    })
   })
 
   if (productQuery.isLoading) {
@@ -170,7 +185,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
             <Button
               type="submit"
               form="product-edit-form"
-              disabled={updateProductMutation.isPending || !form.formState.isDirty}
+              disabled={updateProductMutation.isPending || !hasPendingChanges}
             >
               {updateProductMutation.isPending ? 'Saving changes…' : 'Save changes'}
             </Button>
@@ -283,6 +298,88 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       </FormItem>
                     )}
                   />
+
+                  <div className="space-y-4 rounded-[1.5rem] border border-border/70 bg-muted/10 p-4 lg:col-span-2">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">Product image</p>
+                      <p className="text-sm text-muted-foreground">
+                        Keep image handling light in this first slice: upload one primary image on the Product page, or remove it to return to a true no-image state.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground" htmlFor="product-image">
+                        Upload image
+                      </label>
+                      <Input
+                        key={imageInputKey}
+                        accept="image/png,image/jpeg,image/webp"
+                        className="rounded-xl"
+                        id="product-image"
+                        type="file"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0] ?? null
+
+                          setSelectedImageFile(nextFile)
+                          setRemoveImage(false)
+                        }}
+                      />
+                    </div>
+
+                    <div className="space-y-2 rounded-xl border border-dashed border-border/70 bg-background/80 p-4">
+                      <p className="text-sm font-medium text-foreground">Current image state</p>
+                      {selectedImageFile ? (
+                        <p className="text-sm text-foreground">
+                          Selected to upload on save: {selectedImageFile.name}
+                        </p>
+                      ) : removeImage ? (
+                        <p className="text-sm text-muted-foreground">Current image will be removed on save.</p>
+                      ) : product.image ? (
+                        <p className="text-sm text-foreground">Saved image: {product.image.fileName}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No product image uploaded.</p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedImageFile ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedImageFile(null)
+                            setImageInputKey((currentValue) => currentValue + 1)
+                          }}
+                        >
+                          Clear selected image
+                        </Button>
+                      ) : null}
+
+                      {product.image && !removeImage && !selectedImageFile ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedImageFile(null)
+                            setRemoveImage(true)
+                            setImageInputKey((currentValue) => currentValue + 1)
+                          }}
+                        >
+                          Remove image
+                        </Button>
+                      ) : null}
+
+                      {removeImage ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setRemoveImage(false)}
+                        >
+                          Keep current image
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid gap-5 border-t border-border/70 pt-6 lg:grid-cols-2">

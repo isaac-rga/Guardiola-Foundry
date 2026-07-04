@@ -17,6 +17,11 @@ import type {
 
 import { API_BASE_URL } from './config'
 
+export type UpdateProductInput = UpdateProductRequest & {
+  imageFile?: File | null
+  removeImage?: boolean
+}
+
 export async function listProducts(token: string): Promise<ListProductsResponse> {
   const response = await fetch(resolveApiUrl('/products'), {
     method: 'GET',
@@ -76,15 +81,32 @@ export async function getProduct(token: string, productId: string): Promise<GetP
 export async function updateProduct(
   token: string,
   productId: string,
-  payload: UpdateProductRequest
+  payload: UpdateProductInput
 ): Promise<ProductDetail> {
+  const parsedPayload = updateProductRequestSchema.parse(payload)
+  const formData = new FormData()
+
+  formData.set('name', parsedPayload.name)
+  formData.set('shortDescription', parsedPayload.shortDescription ?? '')
+  formData.set('lifecycleStatus', parsedPayload.lifecycleStatus)
+  formData.set('productStatus', parsedPayload.productStatus)
+  formData.set('productCategory', parsedPayload.productCategory ?? '')
+  formData.set('collectionId', parsedPayload.collectionId === null ? '' : `${parsedPayload.collectionId}`)
+
+  if (payload.removeImage) {
+    formData.set('removeImage', 'true')
+  }
+
+  if (payload.imageFile) {
+    formData.set('image', payload.imageFile)
+  }
+
   const response = await fetch(resolveApiUrl(`/products/${productId}`), {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(updateProductRequestSchema.parse(payload)),
+    body: formData,
   })
 
   const body = await response.json()

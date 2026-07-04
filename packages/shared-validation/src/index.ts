@@ -9,6 +9,7 @@ import type {
   LoginRequest,
   ProductCollection,
   ProductDetail,
+  ProductImage,
   ProductCreatedBy,
   ProductSummary,
   SessionUser,
@@ -74,6 +75,10 @@ export const productCreatedBySchema = z.object({
   email: z.string().email(),
 }) satisfies z.ZodType<ProductCreatedBy>
 
+export const productImageSchema = z.object({
+  fileName: z.string().min(1),
+}) satisfies z.ZodType<ProductImage>
+
 export const productSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -87,6 +92,7 @@ export const productSummarySchema = z.object({
 
 export const productDetailSchema = productSummarySchema.extend({
   shortDescription: z.string().nullable(),
+  image: productImageSchema.nullable(),
 }) satisfies z.ZodType<ProductDetail>
 
 export const listProductsResponseSchema = z.object({

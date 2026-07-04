@@ -12,6 +12,7 @@ import {
   updateProductRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
+import type { MultipartFile } from '@adonisjs/core/bodyparser'
 
 export default class ProductsController {
   async index({ request, response }: HttpContext) {
@@ -85,7 +86,20 @@ export default class ProductsController {
       })
     }
 
-    const payload = updateProductRequestSchema.safeParse(request.body())
+    const imageFile = request.file('image', {
+      size: '5mb',
+      extnames: ['jpg', 'jpeg', 'png', 'webp'],
+    })
+
+    if (imageFile?.hasErrors) {
+      return response.unprocessableEntity({
+        errors: {
+          image: imageFile.errors.map((error) => error.message),
+        },
+      })
+    }
+
+    const payload = updateProductRequestSchema.safeParse(this.normalizeUpdatePayload(request))
 
     if (!payload.success) {
       return response.unprocessableEntity({
@@ -93,7 +107,10 @@ export default class ProductsController {
       })
     }
 
-    const result = await updateProduct(params.productId, payload.data)
+    const result = await updateProduct(params.productId, payload.data, {
+      imageFile,
+      removeImage: this.shouldRemoveImage(request, imageFile),
+    })
 
     if (result === 'not-found') {
       return response.notFound({
@@ -126,5 +143,31 @@ export default class ProductsController {
     }
 
     return User.find(session.user.id)
+  }
+
+  private normalizeUpdatePayload(request: HttpContext['request']) {
+    const body = request.all()
+
+    return {
+      name: body.name,
+      shortDescription: body.shortDescription ?? null,
+      lifecycleStatus: body.lifecycleStatus,
+      productStatus: body.productStatus,
+      productCategory: body.productCategory ?? null,
+      collectionId:
+        body.collectionId === null || body.collectionId === undefined || body.collectionId === ''
+          ? null
+          : Number(body.collectionId),
+    }
+  }
+
+  private shouldRemoveImage(request: HttpContext['request'], imageFile: MultipartFile | null) {
+    if (imageFile) {
+      return false
+    }
+
+    const body = request.all()
+
+    return body.removeImage === true || body.removeImage === 'true'
   }
 }
