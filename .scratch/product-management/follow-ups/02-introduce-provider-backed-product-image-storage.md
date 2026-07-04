@@ -6,7 +6,7 @@ Status: ready-for-agent
 
 - [Product Management PRD](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-management/PRD.md)
 - [04 - Add Product image upload and removal](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-management/issues/04-add-product-image-upload-and-removal.md)
-- [01 - Add Product image preview on the edit page](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-image-follow-ups/issues/01-add-product-image-preview-on-the-edit-page.md)
+- [01 - Add Product image preview on the edit page](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-management/follow-ups/issues/01-add-product-image-preview-on-the-edit-page.md)
 
 ## What to build
 
