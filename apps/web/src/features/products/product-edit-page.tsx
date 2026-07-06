@@ -18,7 +18,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { getProduct, updateProduct, type UpdateProductInput } from '@/lib/api/products'
+import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
+import { getProduct, listProducts, updateProduct, type UpdateProductInput } from '@/lib/api/products'
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   ListProductsResponse,
@@ -86,6 +87,10 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const productQuery = useQuery({
     queryKey: ['products', productId],
     queryFn: () => getProduct(session.token, productId),
+  })
+  const productsQuery = useQuery({
+    queryKey: productsQueryKey,
+    queryFn: () => listProducts(session.token),
   })
 
   const product = productQuery.data?.product ?? null
@@ -155,6 +160,11 @@ export function ProductEditPage({ productId }: { productId: string }) {
       removeImage,
     })
   })
+  const nameValue = form.watch('name')
+  const duplicateNameMatch = findDuplicateProductName(productsQuery.data?.products ?? [], nameValue, {
+    excludeProductId: productId,
+  })
+  const isSaving = updateProductMutation.isPending
 
   if (productQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading product…</p>
@@ -179,15 +189,20 @@ export function ProductEditPage({ productId }: { productId: string }) {
         description="Edit the saved product record directly, keep immutable registration context visible, and commit changes only when you explicitly save them."
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => void navigate({ to: '/app/products' })}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => void navigate({ to: '/app/products' })}
+            >
               Back to products
             </Button>
             <Button
               type="submit"
               form="product-edit-form"
-              disabled={updateProductMutation.isPending || !hasPendingChanges}
+              disabled={isSaving || !hasPendingChanges}
             >
-              {updateProductMutation.isPending ? 'Saving changes…' : 'Save changes'}
+              {isSaving ? 'Saving changes…' : 'Save changes'}
             </Button>
           </div>
         }
@@ -212,8 +227,14 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem className="lg:col-span-2">
                         <FormLabel>Product name</FormLabel>
                         <FormControl>
-                          <Input {...field} className="h-11 rounded-xl" />
+                          <Input {...field} className="h-11 rounded-xl" disabled={isSaving} />
                         </FormControl>
+                        {duplicateNameMatch ? (
+                          <p className="text-sm text-amber-700" role="status">
+                            Active product {duplicateNameMatch.name} already uses this name. You
+                            can still save this product.
+                          </p>
+                        ) : null}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -226,6 +247,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Product Category</FormLabel>
                         <Select
+                          disabled={isSaving}
                           value={field.value ?? 'none'}
                           onValueChange={(value) =>
                             field.onChange(value === 'none' ? null : (value as ProductCategory))
@@ -257,6 +279,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Collection</FormLabel>
                         <Select
+                          disabled={isSaving}
                           value={field.value === null ? 'none' : `${field.value}`}
                           onValueChange={(value) =>
                             field.onChange(value === 'none' ? null : Number(value))
@@ -290,6 +313,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <FormControl>
                           <Textarea
                             className="min-h-28 rounded-xl"
+                            disabled={isSaving}
                             value={field.value ?? ''}
                             onChange={(event) => field.onChange(event.target.value)}
                           />
@@ -315,6 +339,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         key={imageInputKey}
                         accept="image/png,image/jpeg,image/webp"
                         className="rounded-xl"
+                        disabled={isSaving}
                         id="product-image"
                         type="file"
                         onChange={(event) => {
@@ -346,6 +371,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="outline"
+                          disabled={isSaving}
                           onClick={() => {
                             setSelectedImageFile(null)
                             setImageInputKey((currentValue) => currentValue + 1)
@@ -359,6 +385,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="outline"
+                          disabled={isSaving}
                           onClick={() => {
                             setSelectedImageFile(null)
                             setRemoveImage(true)
@@ -373,6 +400,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="ghost"
+                          disabled={isSaving}
                           onClick={() => setRemoveImage(false)}
                         >
                           Keep current image
@@ -390,6 +418,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Lifecycle Status</FormLabel>
                         <Select
+                          disabled={isSaving}
                           value={field.value}
                           onValueChange={(value) => field.onChange(value as ProductLifecycleStatus)}
                         >
@@ -418,6 +447,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Product Status</FormLabel>
                         <Select
+                          disabled={isSaving}
                           value={field.value}
                           onValueChange={(value) => field.onChange(value as ProductStatus)}
                         >
@@ -448,6 +478,12 @@ export function ProductEditPage({ productId }: { productId: string }) {
                     {updateProductMutation.error instanceof Error
                       ? updateProductMutation.error.message
                       : 'Unable to save product changes.'}
+                  </p>
+                ) : null}
+
+                {isSaving ? (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Saving product changes…
                   </p>
                 ) : null}
 

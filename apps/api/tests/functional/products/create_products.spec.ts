@@ -125,6 +125,49 @@ test.group('Products create flow', (group) => {
     assert.equal(listResponse.body().products[1]?.id, firstResponse.body().id)
   })
 
+  test('allows duplicate product names after trimmed and case-insensitive normalization', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    const firstResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Valencia Gown',
+      })
+
+    firstResponse.assertStatus(201)
+
+    const secondResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: '  valencia gown  ',
+      })
+
+    secondResponse.assertStatus(201)
+    secondResponse.assertBodyContains({
+      name: 'valencia gown',
+      lifecycleStatus: 'concept',
+      productStatus: 'active',
+    })
+
+    const listResponse = await client
+      .get('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    listResponse.assertStatus(200)
+    const productNames = listResponse.body().products.map((product: { name: string }) => product.name)
+
+    assert.includeMembers(productNames, ['valencia gown', 'Valencia Gown'])
+    assert.isAtLeast(
+      productNames.filter((name: string) => name.toLocaleLowerCase() === 'valencia gown').length,
+      2
+    )
+  })
+
   test('loads a product directly by short id with immutable metadata and editable optional fields', async ({
     assert,
     client,

@@ -35,6 +35,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import { createProduct, listProducts } from '@/lib/api/products'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
@@ -95,6 +96,7 @@ export function ProductManagementPage() {
     'all' | ProductCategory | 'none'
   >('all')
   const [collectionFilter, setCollectionFilter] = useState<'all' | 'none' | `${number}`>('all')
+  const [createFeedbackMessage, setCreateFeedbackMessage] = useState<string | null>(null)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const form = useForm<CreateProductRequest>({
     resolver: zodResolver(createProductRequestSchema),
@@ -122,6 +124,7 @@ export function ProductManagementPage() {
       })
 
       resetCreateForm()
+      setCreateFeedbackMessage(`Created ${createdProduct.name}.`)
       setSubmissionError(null)
       setIsCreateDialogOpen(false)
     },
@@ -131,12 +134,16 @@ export function ProductManagementPage() {
   })
 
   const onSubmit = form.handleSubmit(async (values) => {
+    setCreateFeedbackMessage(null)
     setSubmissionError(null)
     await createProductMutation.mutateAsync(values)
   })
 
   const products = [...(productsQuery.data?.products ?? [])].sort(compareProductsByNewestFirst)
   const collections = productsQuery.data?.collections ?? []
+  const createNameValue = form.watch('name')
+  const createNameDuplicate = findDuplicateProductName(products, createNameValue)
+  const isCreatePending = createProductMutation.isPending
   const normalizedSearchValue = searchValue.trim().toLocaleLowerCase()
   const hasActiveFilters =
     normalizedSearchValue.length > 0 ||
@@ -199,6 +206,15 @@ export function ProductManagementPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {createFeedbackMessage ? (
+            <p
+              className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700"
+              role="status"
+            >
+              {createFeedbackMessage}
+            </p>
+          ) : null}
+
           {productsQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading products…</p>
           ) : null}
@@ -426,8 +442,14 @@ export function ProductManagementPage() {
                   <FormItem>
                     <FormLabel>Product name</FormLabel>
                     <FormControl>
-                      <Input {...field} className="h-11 rounded-xl" autoFocus />
+                      <Input {...field} className="h-11 rounded-xl" autoFocus disabled={isCreatePending} />
                     </FormControl>
+                    {createNameDuplicate ? (
+                      <p className="text-sm text-amber-700" role="status">
+                        Active product {createNameDuplicate.name} already uses this name. You can
+                        still create another record.
+                      </p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -441,6 +463,7 @@ export function ProductManagementPage() {
                     <FormItem>
                       <FormLabel>Lifecycle Status</FormLabel>
                       <Select
+                        disabled={isCreatePending}
                         value={field.value}
                         onValueChange={(value) => field.onChange(value as ProductLifecycleStatus)}
                       >
@@ -469,6 +492,7 @@ export function ProductManagementPage() {
                     <FormItem>
                       <FormLabel>Product Status</FormLabel>
                       <Select
+                        disabled={isCreatePending}
                         value={field.value}
                         onValueChange={(value) => field.onChange(value as ProductStatus)}
                       >
@@ -500,16 +524,23 @@ export function ProductManagementPage() {
                 </p>
               ) : null}
 
+              {isCreatePending ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  Creating product…
+                </p>
+              ) : null}
+
               <DialogFooter>
                 <Button
                   type="button"
                   variant="outline"
+                  disabled={isCreatePending}
                   onClick={() => handleCreateDialogChange(false)}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={createProductMutation.isPending}>
-                  {createProductMutation.isPending ? 'Creating product…' : 'Create product'}
+                <Button type="submit" disabled={isCreatePending}>
+                  {isCreatePending ? 'Creating product…' : 'Create product'}
                 </Button>
               </DialogFooter>
             </form>
@@ -520,6 +551,10 @@ export function ProductManagementPage() {
   )
 
   function handleCreateDialogChange(open: boolean) {
+    if (isCreatePending) {
+      return
+    }
+
     setIsCreateDialogOpen(open)
 
     if (!open) {

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -32,6 +32,7 @@ describe('products route', () => {
 
   it('creates a product with default statuses and shows it immediately in the list', async () => {
     const user = userEvent.setup()
+    let resolveCreateRequest!: (value: Response) => void
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
 
@@ -60,22 +61,9 @@ describe('products route', () => {
       }
 
       if (url.endsWith('/products') && init?.method === 'POST') {
-        return jsonResponse(
-          {
-            id: 'P-AB12CD',
-            name: 'Valencia Gown',
-            lifecycleStatus: 'concept',
-            productStatus: 'active',
-            productCategory: null,
-            collection: null,
-            createdAt: '2026-07-01T18:33:00.000Z',
-            createdBy: {
-              id: 1,
-              email: 'admin@example.com',
-            },
-          },
-          { status: 201 }
-        )
+        return await new Promise<Response>((resolve) => {
+          resolveCreateRequest = resolve
+        })
       }
 
       throw new Error(`Unexpected request: ${url}`)
@@ -89,8 +77,33 @@ describe('products route', () => {
     expect(await screen.findByText('No products registered yet.')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Create product' }))
-    await user.type(screen.getByLabelText(/product name/i), 'Valencia Gown')
+    const createDialog = screen.getByRole('dialog')
+    await user.type(within(createDialog).getByLabelText('Product name'), 'Valencia Gown')
     await user.click(screen.getByRole('button', { name: /^Create product$/i }))
+
+    expect(screen.getByRole('button', { name: 'Creating product…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(within(createDialog).getByLabelText('Product name')).toBeDisabled()
+    expect(within(createDialog).getByRole('status')).toHaveTextContent('Creating product…')
+
+    resolveCreateRequest(
+      jsonResponse(
+        {
+          id: 'P-AB12CD',
+          name: 'Valencia Gown',
+          lifecycleStatus: 'concept',
+          productStatus: 'active',
+          productCategory: null,
+          collection: null,
+          createdAt: '2026-07-01T18:33:00.000Z',
+          createdBy: {
+            id: 1,
+            email: 'admin@example.com',
+          },
+        },
+        { status: 201 }
+      )
+    )
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
@@ -110,9 +123,106 @@ describe('products route', () => {
       )
     })
 
+    expect(await screen.findByText('Created Valencia Gown.')).toBeInTheDocument()
     expect(await screen.findByText('Valencia Gown')).toBeInTheDocument()
     expect(screen.getByText('P-AB12CD')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows a live duplicate-name warning in create without blocking submission', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-EXIST1',
+              name: 'Valencia Gown',
+              lifecycleStatus: 'concept',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+          ],
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            id: 'P-NEW123',
+            name: 'valencia gown',
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-02T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          { status: 201 }
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute()
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Create product' }))
+    const createDialog = screen.getByRole('dialog')
+    await user.type(within(createDialog).getByLabelText('Product name'), '  valencia gown  ')
+
+    expect(
+      screen.getByText(
+        'Active product Valencia Gown already uses this name. You can still create another record.'
+      )
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Create product$/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3333/products',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'valencia gown',
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+          }),
+        })
+      )
+    })
+
+    expect(await screen.findByText('Created valencia gown.')).toBeInTheDocument()
   })
 
   it('submits explicit lifecycle and product status overrides from the modal', async () => {
@@ -305,6 +415,7 @@ describe('products route', () => {
 
   it('loads a product page directly, shows metadata, and saves edits only when explicitly submitted', async () => {
     const user = userEvent.setup()
+    let resolveSaveRequest!: (value: Response) => void
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
 
@@ -345,24 +456,33 @@ describe('products route', () => {
         })
       }
 
-      if (url.endsWith('/products/P-AB12CD') && init?.method === 'PUT') {
+      if (url.endsWith('/products') && init?.method === 'GET') {
         return jsonResponse({
-          id: 'P-AB12CD',
-          name: 'Valencia Gown Revised',
-          shortDescription: 'Silk sample for fittings',
-          image: null,
-          lifecycleStatus: 'testing',
-          productStatus: 'inactive',
-          productCategory: 'dress',
-          collection: {
-            id: 2,
-            name: '2026',
-          },
-          createdAt: '2026-07-01T18:33:00.000Z',
-          createdBy: {
-            id: 1,
-            email: 'admin@example.com',
-          },
+          products: [
+            {
+              id: 'P-AB12CD',
+              name: 'Valencia Gown',
+              lifecycleStatus: 'concept',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+          ],
+          collections: [
+            { id: 1, name: '2025' },
+            { id: 2, name: '2026' },
+          ],
+        })
+      }
+
+      if (url.endsWith('/products/P-AB12CD') && init?.method === 'PUT') {
+        return await new Promise<Response>((resolve) => {
+          resolveSaveRequest = resolve
         })
       }
 
@@ -400,6 +520,32 @@ describe('products route', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
+    expect(screen.getByRole('button', { name: 'Saving changes…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Back to products' })).toBeDisabled()
+    expect(screen.getByLabelText(/product name/i)).toBeDisabled()
+    expect(screen.getByText('Saving product changes…')).toBeInTheDocument()
+
+    resolveSaveRequest(
+      jsonResponse({
+        id: 'P-AB12CD',
+        name: 'Valencia Gown Revised',
+        shortDescription: 'Silk sample for fittings',
+        image: null,
+        lifecycleStatus: 'testing',
+        productStatus: 'inactive',
+        productCategory: 'dress',
+        collection: {
+          id: 2,
+          name: '2026',
+        },
+        createdAt: '2026-07-01T18:33:00.000Z',
+        createdBy: {
+          id: 1,
+          email: 'admin@example.com',
+        },
+      })
+    )
+
     await waitFor(() => {
       const requestInit = fetchSpy.mock.calls.find(
         ([requestUrl, request]) =>
@@ -421,6 +567,130 @@ describe('products route', () => {
         productCategory: 'dress',
         collectionId: '2',
       })
+    })
+
+    expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
+  })
+
+  it('shows a live duplicate-name warning on edit without blocking save', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-EDIT01') && init?.method === 'GET') {
+        return jsonResponse({
+          product: {
+            id: 'P-EDIT01',
+            name: 'Mila Cape',
+            shortDescription: null,
+            image: null,
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-EDIT01',
+              name: 'Mila Cape',
+              lifecycleStatus: 'concept',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+            {
+              id: 'P-OTHER1',
+              name: 'Valencia Gown',
+              lifecycleStatus: 'testing',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-02T18:33:00.000Z',
+              createdBy: {
+                id: 2,
+                email: 'operator@example.com',
+              },
+            },
+          ],
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products/P-EDIT01') && init?.method === 'PUT') {
+        return jsonResponse({
+          id: 'P-EDIT01',
+          name: ' valencia gown ',
+          shortDescription: null,
+          image: null,
+          lifecycleStatus: 'concept',
+          productStatus: 'active',
+          productCategory: null,
+          collection: null,
+          createdAt: '2026-07-01T18:33:00.000Z',
+          createdBy: {
+            id: 1,
+            email: 'admin@example.com',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-EDIT01')
+
+    expect(await screen.findByRole('heading', { name: 'Mila Cape' })).toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText(/product name/i))
+    await user.type(screen.getByLabelText(/product name/i), ' valencia gown ')
+
+    expect(
+      screen.getByText(
+        'Active product Valencia Gown already uses this name. You can still save this product.'
+      )
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      const requestInit = fetchSpy.mock.calls.find(
+        ([requestUrl, request]) =>
+          String(requestUrl).endsWith('/products/P-EDIT01') && request?.method === 'PUT'
+      )?.[1]
+
+      expect(requestInit?.body).toBeInstanceOf(FormData)
+      expect(readFormData(requestInit?.body).entries.name).toBe('valencia gown')
     })
 
     expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
