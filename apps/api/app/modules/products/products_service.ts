@@ -128,6 +128,19 @@ export async function updateProduct(
   return serializeProductDetail(product)
 }
 
+export async function softDeleteProduct(productId: string): Promise<'not-found' | 'deleted'> {
+  const product = await Product.query().where('publicId', productId).first()
+
+  if (!product) {
+    return 'not-found'
+  }
+
+  product.productStatus = 'inactive'
+  await product.softDelete()
+
+  return 'deleted'
+}
+
 function serializeProductSummary(product: Product): ProductSummary {
   return {
     id: product.publicId,
@@ -176,7 +189,7 @@ function serializeCollection(collection: Collection) {
 async function generateProductId() {
   while (true) {
     const candidate = `P-${randomProductToken()}`
-    const existingProduct = await Product.findBy('publicId', candidate)
+    const existingProduct = await Product.queryWithDeleted().where('publicId', candidate).first()
 
     if (!existingProduct) {
       return candidate

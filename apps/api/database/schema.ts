@@ -57,7 +57,7 @@ export class LoginAttemptSchema extends BaseModel {
 }
 
 export class ProductSchema extends BaseModel {
-  static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productImageFileName', 'productImageStorageKey', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
+  static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'deletedAt', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productImageFileName', 'productImageStorageKey', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
   $columns = ProductSchema.$columns
   @column()
   declare collectionId: number | null
@@ -65,6 +65,8 @@ export class ProductSchema extends BaseModel {
   declare createdAt: DateTime
   @column()
   declare createdByUserId: number
+  @column.dateTime()
+  declare deletedAt: DateTime | null
   @column({ isPrimary: true })
   declare id: number
   @column()

@@ -85,7 +85,13 @@ const defaultFormValues: CreateProductRequest = {
   productStatus: 'active',
 }
 
-export function ProductManagementPage() {
+export function ProductManagementPage({
+  deletedProductName,
+  onDismissDeletedFeedback,
+}: {
+  deletedProductName?: string
+  onDismissDeletedFeedback?: () => void
+}) {
   const queryClient = useQueryClient()
   const { session } = useAppShell()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -206,6 +212,20 @@ export function ProductManagementPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {deletedProductName ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3"
+              role="status"
+            >
+              <p className="text-sm text-emerald-700">Deleted {deletedProductName}.</p>
+              {onDismissDeletedFeedback ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onDismissDeletedFeedback}>
+                  Dismiss
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
           {createFeedbackMessage ? (
             <p
               className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700"
@@ -357,6 +377,7 @@ export function ProductManagementPage() {
                             <Link
                               to="/app/products/$productId"
                               params={{ productId: product.id }}
+                              search={{ deletedProductName: undefined }}
                               className="font-medium text-foreground underline-offset-4 hover:underline"
                             >
                               {product.name}

@@ -1,5 +1,7 @@
 import Collection from '#models/collection'
+import { SoftDelete } from '#mixins/soft_delete'
 import User from '#models/user'
+import { compose } from '@adonisjs/core/helpers'
 import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -9,7 +11,7 @@ import type {
   ProductStatus,
 } from '@guardiola-foundry/shared-types'
 
-export default class Product extends BaseModel {
+export default class Product extends compose(BaseModel, SoftDelete) {
   @column({ isPrimary: true })
   declare id: number
 

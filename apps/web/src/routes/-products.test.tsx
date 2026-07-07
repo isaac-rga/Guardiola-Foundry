@@ -696,6 +696,107 @@ describe('products route', () => {
     expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
   })
 
+  it('confirms delete on the product page, removes the product, and redirects with list feedback', async () => {
+    const user = userEvent.setup()
+    let isDeleted = false
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
+        return jsonResponse({
+          product: {
+            id: 'P-AB12CD',
+            name: 'Valencia Gown',
+            shortDescription: null,
+            image: null,
+            lifecycleStatus: 'concept',
+            productStatus: 'active',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: isDeleted
+            ? []
+            : [
+                {
+                  id: 'P-AB12CD',
+                  name: 'Valencia Gown',
+                  lifecycleStatus: 'concept',
+                  productStatus: 'active',
+                  productCategory: null,
+                  collection: null,
+                  createdAt: '2026-07-01T18:33:00.000Z',
+                  createdBy: {
+                    id: 1,
+                    email: 'admin@example.com',
+                  },
+                },
+              ],
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products/P-AB12CD') && init?.method === 'DELETE') {
+        isDeleted = true
+        return new Response(null, { status: 204 })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-AB12CD')
+
+    expect(await screen.findByRole('heading', { name: 'Valencia Gown' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Delete Valencia Gown? This removes it from normal product views.'
+    )
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3333/products/P-AB12CD',
+        expect.objectContaining({
+          method: 'DELETE',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer opaque-access-token',
+          }),
+        })
+      )
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(await screen.findByText('Deleted Valencia Gown.')).toBeInTheDocument()
+    expect(screen.queryByText('Stable short ID')).not.toBeInTheDocument()
+  })
+
   it('keeps optional fields optional, validates inline, and warns before leaving unsaved edits', async () => {
     const user = userEvent.setup()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)

@@ -118,6 +118,25 @@ export async function updateProduct(
   return productDetailSchema.parse(body)
 }
 
+export async function deleteProduct(token: string, productId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.status === 204) {
+    return
+  }
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to delete product.'))
+  }
+}
+
 function resolveApiUrl(path: string) {
   if (!API_BASE_URL) {
     return path

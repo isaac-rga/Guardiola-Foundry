@@ -19,7 +19,13 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
-import { getProduct, listProducts, updateProduct, type UpdateProductInput } from '@/lib/api/products'
+import {
+  deleteProduct,
+  getProduct,
+  listProducts,
+  updateProduct,
+  type UpdateProductInput,
+} from '@/lib/api/products'
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   ListProductsResponse,
@@ -80,6 +86,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [removeImage, setRemoveImage] = useState(false)
   const [imageInputKey, setImageInputKey] = useState(0)
+  const [isNavigatingAfterDelete, setIsNavigatingAfterDelete] = useState(false)
   const form = useForm<UpdateProductRequest>({
     resolver: zodResolver(updateProductRequestSchema),
     defaultValues: defaultFormValues,
@@ -116,7 +123,8 @@ export function ProductEditPage({ productId }: { productId: string }) {
   }, [hasPendingChanges])
 
   useBlocker({
-    shouldBlockFn: () => hasPendingChanges && !window.confirm(unsavedChangesMessage),
+    shouldBlockFn: () =>
+      !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage),
     enableBeforeUnload: () => hasPendingChanges,
   })
 
@@ -160,11 +168,40 @@ export function ProductEditPage({ productId }: { productId: string }) {
       removeImage,
     })
   })
+  const deleteProductMutation = useMutation({
+    mutationFn: () => deleteProduct(session.token, productId),
+    onSuccess: async () => {
+      if (!product) {
+        return
+      }
+
+      queryClient.removeQueries({ queryKey: ['products', productId] })
+      queryClient.setQueryData<ListProductsResponse>(productsQueryKey, (currentData) => {
+        if (!currentData) {
+          return currentData
+        }
+
+        return {
+          ...currentData,
+          products: currentData.products.filter((currentProduct) => currentProduct.id !== productId),
+        }
+      })
+      setIsNavigatingAfterDelete(true)
+      await navigate({
+        to: '/app/products',
+        search: {
+          deletedProductName: product.name,
+        },
+      })
+    },
+  })
   const nameValue = form.watch('name')
   const duplicateNameMatch = findDuplicateProductName(productsQuery.data?.products ?? [], nameValue, {
     excludeProductId: productId,
   })
   const isSaving = updateProductMutation.isPending
+  const isDeleting = deleteProductMutation.isPending
+  const isMutating = isSaving || isDeleting
 
   if (productQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading product…</p>
@@ -191,16 +228,37 @@ export function ProductEditPage({ productId }: { productId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
+              variant="destructive"
+              disabled={isMutating}
+              onClick={() => {
+                if (!window.confirm(`Delete ${product.name}? This removes it from normal product views.`)) {
+                  return
+                }
+
+                void deleteProductMutation.mutateAsync()
+              }}
+            >
+              {isDeleting ? 'Deleting product…' : 'Delete'}
+            </Button>
+            <Button
+              type="button"
               variant="outline"
-              disabled={isSaving}
-              onClick={() => void navigate({ to: '/app/products' })}
+              disabled={isMutating}
+              onClick={() =>
+                void navigate({
+                  to: '/app/products',
+                  search: {
+                    deletedProductName: undefined,
+                  },
+                })
+              }
             >
               Back to products
             </Button>
             <Button
               type="submit"
               form="product-edit-form"
-              disabled={isSaving || !hasPendingChanges}
+              disabled={isMutating || !hasPendingChanges}
             >
               {isSaving ? 'Saving changes…' : 'Save changes'}
             </Button>
@@ -227,7 +285,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem className="lg:col-span-2">
                         <FormLabel>Product name</FormLabel>
                         <FormControl>
-                          <Input {...field} className="h-11 rounded-xl" disabled={isSaving} />
+                          <Input {...field} className="h-11 rounded-xl" disabled={isMutating} />
                         </FormControl>
                         {duplicateNameMatch ? (
                           <p className="text-sm text-amber-700" role="status">
@@ -247,7 +305,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Product Category</FormLabel>
                         <Select
-                          disabled={isSaving}
+                          disabled={isMutating}
                           value={field.value ?? 'none'}
                           onValueChange={(value) =>
                             field.onChange(value === 'none' ? null : (value as ProductCategory))
@@ -279,7 +337,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Collection</FormLabel>
                         <Select
-                          disabled={isSaving}
+                          disabled={isMutating}
                           value={field.value === null ? 'none' : `${field.value}`}
                           onValueChange={(value) =>
                             field.onChange(value === 'none' ? null : Number(value))
@@ -313,7 +371,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <FormControl>
                           <Textarea
                             className="min-h-28 rounded-xl"
-                            disabled={isSaving}
+                            disabled={isMutating}
                             value={field.value ?? ''}
                             onChange={(event) => field.onChange(event.target.value)}
                           />
@@ -339,7 +397,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         key={imageInputKey}
                         accept="image/png,image/jpeg,image/webp"
                         className="rounded-xl"
-                        disabled={isSaving}
+                        disabled={isMutating}
                         id="product-image"
                         type="file"
                         onChange={(event) => {
@@ -371,7 +429,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="outline"
-                          disabled={isSaving}
+                          disabled={isMutating}
                           onClick={() => {
                             setSelectedImageFile(null)
                             setImageInputKey((currentValue) => currentValue + 1)
@@ -385,7 +443,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="outline"
-                          disabled={isSaving}
+                          disabled={isMutating}
                           onClick={() => {
                             setSelectedImageFile(null)
                             setRemoveImage(true)
@@ -400,7 +458,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                         <Button
                           type="button"
                           variant="ghost"
-                          disabled={isSaving}
+                          disabled={isMutating}
                           onClick={() => setRemoveImage(false)}
                         >
                           Keep current image
@@ -418,7 +476,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Lifecycle Status</FormLabel>
                         <Select
-                          disabled={isSaving}
+                          disabled={isMutating}
                           value={field.value}
                           onValueChange={(value) => field.onChange(value as ProductLifecycleStatus)}
                         >
@@ -447,7 +505,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
                       <FormItem>
                         <FormLabel>Product Status</FormLabel>
                         <Select
-                          disabled={isSaving}
+                          disabled={isMutating}
                           value={field.value}
                           onValueChange={(value) => field.onChange(value as ProductStatus)}
                         >
@@ -484,6 +542,12 @@ export function ProductEditPage({ productId }: { productId: string }) {
                 {isSaving ? (
                   <p className="text-sm text-muted-foreground" role="status">
                     Saving product changes…
+                  </p>
+                ) : null}
+
+                {isDeleting ? (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Deleting product…
                   </p>
                 ) : null}
 

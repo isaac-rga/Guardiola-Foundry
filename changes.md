@@ -1,64 +1,90 @@
-# Duplicate-name warnings and mutation feedback
+# Product soft delete and hidden-by-default behavior
 
-This slice finishes the warning-only duplicate-name behavior for Product create and edit, and it makes the existing Product mutations feel more explicit while they are running and after they complete.
+This slice completes issue 07 by adding a real Product delete flow, implementing it as soft delete in the API, and making deleted Products disappear from the normal working list by default.
 
-## Start with the shared duplicate-name rule
+## Start at the persistence layer
 
-The new helper in [apps/web/src/features/products/utils/product-name-warning.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/utils/product-name-warning.ts) defines the matching rule once for the web app:
+The backend now records deletion instead of removing Product rows outright.
 
-- trim only the edges of the entered name
-- compare case-insensitively
-- optionally exclude the current Product when editing
+[apps/api/database/migrations/1783389321000_add_product_soft_delete_to_products_table.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/migrations/1783389321000_add_product_soft_delete_to_products_table.ts) adds a nullable `deleted_at` timestamp.
 
-That keeps the create modal and the Product page aligned instead of letting each screen drift into slightly different warning semantics.
+From there, the delete behavior is implemented natively in Lucid instead of through a third-party addon:
 
-## Show the warning where the user is already working
+- [apps/api/app/mixins/soft_delete.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/mixins/soft_delete.ts) defines a small reusable soft-delete mixin
+- [apps/api/app/models/product.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/product.ts) composes that mixin into `Product`
 
-[apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx) now watches the create-form name field against the already loaded Product list. When the user types a matching active Product name, the modal shows a warning under `Product name`, but the submit path stays open.
+That gives the Product module a recoverable delete marker without introducing hard delete behavior anywhere in the user workflow.
 
-The same rule now powers [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx). The edit page loads the Product list query alongside the detail query, ignores the current Product ID, and shows the same live warning while the user types.
+## Follow the Product visibility rule through the model
 
-The important behavior here is intentionally narrow:
+[apps/api/app/mixins/soft_delete.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/mixins/soft_delete.ts) is where the hidden-by-default behavior now lives.
 
-- warnings are informative only
-- neither create nor save is blocked
-- existing saved-name trimming still comes from the request schema and model layer
+The important changes are:
 
-## Make create and save feel explicit while requests are running
+- the mixin registers Lucid `beforeFind` and `beforeFetch` hooks that automatically add `whereNull('deleted_at')` to ordinary Product reads
+- `Product` gets `softDelete()` and `restore()` instance methods, so the delete state change belongs to the model instead of being repeated in services
+- [apps/api/app/modules/products/products_service.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/products_service.ts) can now use normal Product queries for list, show, update, and delete
 
-This issue also tightens feedback around the Product mutations that already exist.
+This keeps the behavior aligned with the issue wording: delete is stronger than ordinary inactivity, but it is still recoverable in the data model.
 
-On the create modal:
+There is one explicit escape hatch: `queryWithDeleted()`. The Product service uses it only where deleted rows still matter internally, such as checking generated short IDs against the full table. The API regression test verifies the persisted soft-delete state directly against the `products` table so the default model hook stays intact.
 
-- the name input, selects, and cancel action disable while the request is pending
-- the dialog shows visible pending copy during creation
-- the list shows a lightweight success confirmation after the modal closes
+## Wire the delete endpoint
 
-On the Product edit page:
+[apps/api/app/modules/products/controllers/products_controller.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/products/controllers/products_controller.ts) now exposes a `destroy` action, and [apps/api/start/routes.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/start/routes.ts) registers `DELETE /products/:productId`.
 
-- save and back actions disable while save is in flight
-- editable fields and image controls disable during the request
-- the page shows visible pending copy during save
-- the existing lightweight success confirmation remains visible after completion
+The controller keeps the existing pattern for auth and not-found handling:
 
-That keeps the workflow explicit without introducing toasts or new mutation endpoints.
+- unauthorized requests still get `401`
+- deleting an unknown or already deleted Product returns `404`
+- a successful delete returns `204 No Content`
 
-## Verify the behavior at the accepted seams
+## Walk the user flow from the Product page back to the list
 
-[apps/web/src/routes/-products.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx) now covers the user-visible route behavior for this slice:
+The delete workflow starts on the Product page in [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx).
 
-1. create shows disabled pending state and success feedback
-2. create warns on duplicate names without blocking submission
-3. edit shows disabled pending state and success feedback
-4. edit warns on duplicate names without blocking save
+What changed there:
 
-[apps/api/tests/functional/products/create_products.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/products/create_products.spec.ts) adds the backend regression that proves duplicate Product names are still accepted after trimmed, case-insensitive normalization.
+- the header now includes a confirmation-based `Delete` action
+- delete calls the new `DELETE` API through [apps/web/src/lib/api/products.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/products.ts)
+- while delete is in flight, the page disables the same controls that already disable during save
+- after success, the cached Product list removes the deleted row and navigation returns the user to `/app/products`
+
+The redirect carries lightweight confirmation feedback through route search state. That is wired in:
+
+- [apps/web/src/routes/app.products.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.products.tsx)
+- [apps/web/src/routes/app.products.index.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.products.index.tsx)
+- [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx)
+
+The list page now reads an optional `deletedProductName` search param, shows `Deleted <name>.`, and lets the user dismiss that message without disturbing the rest of the list state.
+
+## End at the regression seams
+
+Two focused tests prove the accepted behavior at the agreed boundaries.
+
+[apps/api/tests/functional/products/create_products.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/products/create_products.spec.ts) now verifies that deleting a Product:
+
+- keeps the row in the database
+- forces `Product Status = Inactive`
+- stamps `deletedAt`
+- removes the Product from the default list response
+
+[apps/web/src/routes/-products.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx) now verifies the user-visible route behavior:
+
+1. the Product page asks for confirmation before delete
+2. the page issues `DELETE /products/:productId`
+3. the user returns to the Product list after success
+4. the list shows the delete confirmation and no longer shows the deleted Product
 
 Verification run for this slice:
 
-- `node node_modules/vitest/vitest.mjs run src/routes/-products.test.tsx` in `apps/web`
+- `./node_modules/.bin/tsc -b --pretty false` in `apps/web`
+- `./node_modules/.bin/tsc -b --pretty false` in `apps/api`
+- `./node_modules/.bin/vitest run src/routes/-products.test.tsx` in `apps/web`
+- `./node_modules/.bin/vitest run` in `apps/web`
 - `node ace.js test functional --files tests/functional/products/create_products.spec.ts` in `apps/api`
+- `node ace.js test` in `apps/api`
 
-Typecheck note:
+Scope note:
 
-- `pnpm typecheck` in `apps/web` and `apps/api` attempted to recreate workspace `node_modules` and then stalled on blocked registry access in this environment, so I did not get a clean typecheck result from those scripts.
+- deleted Products currently resolve as normal not found in the direct Product route; the dedicated deleted-record page state and restore workflow remain for issues 08 and 09.

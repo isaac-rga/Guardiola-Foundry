@@ -1,6 +1,7 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import User from '#models/user'
+import db from '@adonisjs/lucid/services/db'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 import { mkdir, readdir, unlink } from 'node:fs/promises'
@@ -363,6 +364,48 @@ test.group('Products create flow', (group) => {
         image: null,
       },
     })
+  })
+
+  test('soft deletes a product, forces it inactive, and hides it from the default list', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    const createResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Valencia Gown',
+        productStatus: 'active',
+      })
+
+    createResponse.assertStatus(201)
+
+    const deleteResponse = await client
+      .delete(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteResponse.assertStatus(204)
+
+    const deletedProduct = await db
+      .from('products')
+      .select(['product_status', 'deleted_at'])
+      .where('public_id', createResponse.body().id)
+      .firstOrFail()
+
+    assert.equal(deletedProduct.product_status, 'inactive')
+    assert.isNotNull(deletedProduct.deleted_at)
+
+    const listResponse = await client
+      .get('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    listResponse.assertStatus(200)
+    assert.notInclude(
+      listResponse.body().products.map((product: { id: string }) => product.id),
+      createResponse.body().id
+    )
   })
 })
 

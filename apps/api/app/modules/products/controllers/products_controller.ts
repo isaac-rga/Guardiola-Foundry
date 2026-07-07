@@ -5,6 +5,7 @@ import {
   createProduct,
   getProduct,
   listProducts,
+  softDeleteProduct,
   updateProduct,
 } from '#modules/products/products_service'
 import {
@@ -127,6 +128,26 @@ export default class ProductsController {
     }
 
     return response.ok(result)
+  }
+
+  async destroy({ params, request, response }: HttpContext) {
+    const authenticatedUser = await this.authenticate(request.header('authorization'))
+
+    if (!authenticatedUser) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    const result = await softDeleteProduct(params.productId)
+
+    if (result === 'not-found') {
+      return response.notFound({
+        message: 'Product not found.',
+      })
+    }
+
+    return response.noContent()
   }
 
   private async authenticate(authorizationHeader: string | undefined) {
