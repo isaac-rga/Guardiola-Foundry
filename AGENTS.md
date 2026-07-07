@@ -35,10 +35,6 @@ See `docs/architecture/shared-types-and-validation.md` for the canonical rules.
 
 API functional tests use Japa and follow `*.spec.ts`; web tests use Vitest, jsdom, and Testing Library with colocated `*.test.tsx` files. No coverage threshold is configured, so add focused regression tests for changed behavior and assert user-visible outcomes or HTTP contracts. Run `pnpm test` before submitting.
 
-## Commit & Pull Request Guidelines
-
-The current history uses Conventional Commit-style subjects, for example `chore: initialize ERP monorepo`. Continue with concise prefixes such as `feat:`, `fix:`, `test:`, or `chore:`. Pull requests should explain the change and verification performed, link relevant issues/specifications, call out migrations or environment changes, and include screenshots for visible UI changes. Ensure all four CI commands pass.
-
 ## Security & Configuration
 
 Copy each app's `.env.example` to its local environment file. Never commit secrets or generated `APP_KEY` values; document new variables in the corresponding example file.
@@ -49,19 +45,13 @@ Copy each app's `.env.example` to its local environment file. Never commit secre
 
 Issues for this repo are tracked as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
 
-### Triage labels
-
-The repo uses the default five triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
-
 ### Domain docs
 
 This repo uses a multi-context domain-doc layout with a root `CONTEXT-MAP.md` that points to per-context `CONTEXT.md` files. See `docs/agents/domain.md`.
 
 ## Documentation Guidelines
 
-Documentation exists to preserve information that cannot be inferred from the code itself. Assume future contributors will often be AI agents.
-
-### Write comments only when they add knowledge
+Documentation exists to preserve information that cannot be inferred from the code itself. Assume future contributors will often be AI agents. Write comments only when they add knowledge.
 
 Prefer comments that explain:
 
@@ -74,43 +64,4 @@ Prefer comments that explain:
 - Technical debt with removal criteria.
 - Workarounds and their reason.
 - Important side effects.
-
-Avoid comments that simply describe what the code already says.
-
-#### Good
-
-```ts
-// Orders cannot return to Draft after production starts.
-```
-
-```ts
-// Denormalized for read performance.
-// Reads outnumber writes by roughly 200:1.
-```
-
-```ts
-// Do not merge these queries.
-// PostgreSQL generates a significantly worse execution plan.
-```
-
-```ts
-// TECH-DEBT:
-// Remove after Product V2 migration replaces the legacy validator.
-```
-
-#### Bad
-
-```ts
-// Increment the counter.
-counter++
-```
-
-```ts
-// Returns all products.
-function getProducts() {}
-```
-
-### Rule of thumb
-
-If removing the comment loses important knowledge that cannot be reconstructed from the code, keep it.
-If the comment only translates the code into English, delete it.
+- Avoid comments that simply describe what the code already says.
