@@ -24,6 +24,7 @@
     "#generated/*": "./.adonisjs/server/*.js",
     "#events/*": "./app/events/*.js",
     "#middleware/*": "./app/middleware/*.js",
+    "#mixins/*": "./app/mixins/*.js",
     "#validators/*": "./app/validators/*.js",
     "#providers/*": "./providers/*.js",
     "#policies/*": "./app/policies/*.js",

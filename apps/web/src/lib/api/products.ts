@@ -1,0 +1,209 @@
+import {
+  createProductRequestSchema,
+  getProductResponseSchema,
+  listProductsResponseSchema,
+  productDetailSchema,
+  productSummarySchema,
+  updateProductRequestSchema,
+} from '@guardiola-foundry/shared-validation'
+import type {
+  CreateProductRequest,
+  GetProductResponse,
+  ListProductsResponse,
+  ProductDetail,
+  ProductSummary,
+  UpdateProductRequest,
+} from '@guardiola-foundry/shared-types'
+
+import { API_BASE_URL } from './config'
+
+export type UpdateProductInput = UpdateProductRequest & {
+  imageFile?: File | null
+  removeImage?: boolean
+}
+
+export async function listProducts(
+  token: string,
+  options?: {
+    includeDeleted?: boolean
+  }
+): Promise<ListProductsResponse> {
+  const url = new URL(resolveApiUrl('/products'), window.location.origin)
+
+  if (options?.includeDeleted) {
+    url.searchParams.set('includeDeleted', 'true')
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to load products.'))
+  }
+
+  return listProductsResponseSchema.parse(body)
+}
+
+export async function createProduct(
+  token: string,
+  payload: CreateProductRequest
+): Promise<ProductSummary> {
+  const response = await fetch(resolveApiUrl('/products'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(createProductRequestSchema.parse(payload)),
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to create product.'))
+  }
+
+  return productSummarySchema.parse(body)
+}
+
+export async function getProduct(token: string, productId: string): Promise<GetProductResponse> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to load product.'))
+  }
+
+  return getProductResponseSchema.parse(body)
+}
+
+export async function updateProduct(
+  token: string,
+  productId: string,
+  payload: UpdateProductInput
+): Promise<ProductDetail> {
+  const parsedPayload = updateProductRequestSchema.parse(payload)
+  const formData = new FormData()
+
+  formData.set('name', parsedPayload.name)
+  formData.set('shortDescription', parsedPayload.shortDescription ?? '')
+  formData.set('lifecycleStatus', parsedPayload.lifecycleStatus)
+  formData.set('productStatus', parsedPayload.productStatus)
+  formData.set('productCategory', parsedPayload.productCategory ?? '')
+  formData.set('collectionId', parsedPayload.collectionId === null ? '' : `${parsedPayload.collectionId}`)
+
+  if (payload.removeImage) {
+    formData.set('removeImage', 'true')
+  }
+
+  if (payload.imageFile) {
+    formData.set('image', payload.imageFile)
+  }
+
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to save product changes.'))
+  }
+
+  return productDetailSchema.parse(body)
+}
+
+export async function deleteProduct(token: string, productId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}`), {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.status === 204) {
+    return
+  }
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to delete product.'))
+  }
+}
+
+export async function restoreProduct(token: string, productId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/restore`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.status === 204) {
+    return
+  }
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to restore product.'))
+  }
+}
+
+function resolveApiUrl(path: string) {
+  if (!API_BASE_URL) {
+    return path
+  }
+
+  return new URL(path.replace(/^\//, ''), ensureTrailingSlash(API_BASE_URL)).toString()
+}
+
+function ensureTrailingSlash(url: string) {
+  return url.endsWith('/') ? url : `${url}/`
+}
+
+function getErrorMessage(body: unknown, fallbackMessage: string) {
+  if (
+    typeof body === 'object' &&
+    body !== null &&
+    'message' in body &&
+    typeof body.message === 'string'
+  ) {
+    return body.message
+  }
+
+  if (
+    typeof body === 'object' &&
+    body !== null &&
+    'errors' in body &&
+    typeof body.errors === 'object' &&
+    body.errors !== null
+  ) {
+    const firstFieldError = Object.values(body.errors).find(
+      (value): value is string[] => Array.isArray(value) && typeof value[0] === 'string'
+    )
+
+    if (firstFieldError?.[0]) {
+      return firstFieldError[0]
+    }
+  }
+
+  return fallbackMessage
+}

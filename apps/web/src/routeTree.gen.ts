@@ -18,6 +18,8 @@ import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppBillsOfMaterialsRouteImport } from './routes/app.bills-of-materials'
+import { Route as AppProductsIndexRouteImport } from './routes/app.products.index'
+import { Route as AppProductsProductIdRouteImport } from './routes/app.products.$productId'
 
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
@@ -64,6 +66,16 @@ const AppBillsOfMaterialsRoute = AppBillsOfMaterialsRouteImport.update({
   path: '/bills-of-materials',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProductsIndexRoute = AppProductsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppProductsRoute,
+} as any)
+const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
+  id: '/$productId',
+  path: '/$productId',
+  getParentRoute: () => AppProductsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -72,9 +84,11 @@ export interface FileRoutesByFullPath {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/products': typeof AppProductsRoute
+  '/app/products': typeof AppProductsRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/products/': typeof AppProductsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -82,9 +96,10 @@ export interface FileRoutesByTo {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/products': typeof AppProductsRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app': typeof AppIndexRoute
+  '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/products': typeof AppProductsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -94,9 +109,11 @@ export interface FileRoutesById {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/products': typeof AppProductsRoute
+  '/app/products': typeof AppProductsRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
+  '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/products/': typeof AppProductsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -110,6 +127,8 @@ export interface FileRouteTypes {
     | '/app/products'
     | '/app/user-settings'
     | '/app/'
+    | '/app/products/$productId'
+    | '/app/products/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -117,9 +136,10 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
-    | '/app/products'
     | '/app/user-settings'
     | '/app'
+    | '/app/products/$productId'
+    | '/app/products'
   id:
     | '__root__'
     | '/'
@@ -131,6 +151,8 @@ export interface FileRouteTypes {
     | '/app/products'
     | '/app/user-settings'
     | '/app/'
+    | '/app/products/$productId'
+    | '/app/products/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -204,14 +226,42 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsOfMaterialsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/products/': {
+      id: '/app/products/'
+      path: '/'
+      fullPath: '/app/products/'
+      preLoaderRoute: typeof AppProductsIndexRouteImport
+      parentRoute: typeof AppProductsRoute
+    }
+    '/app/products/$productId': {
+      id: '/app/products/$productId'
+      path: '/$productId'
+      fullPath: '/app/products/$productId'
+      preLoaderRoute: typeof AppProductsProductIdRouteImport
+      parentRoute: typeof AppProductsRoute
+    }
   }
 }
+
+interface AppProductsRouteChildren {
+  AppProductsProductIdRoute: typeof AppProductsProductIdRoute
+  AppProductsIndexRoute: typeof AppProductsIndexRoute
+}
+
+const AppProductsRouteChildren: AppProductsRouteChildren = {
+  AppProductsProductIdRoute: AppProductsProductIdRoute,
+  AppProductsIndexRoute: AppProductsIndexRoute,
+}
+
+const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(
+  AppProductsRouteChildren,
+)
 
 interface AppRouteChildren {
   AppBillsOfMaterialsRoute: typeof AppBillsOfMaterialsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
-  AppProductsRoute: typeof AppProductsRoute
+  AppProductsRoute: typeof AppProductsRouteWithChildren
   AppUserSettingsRoute: typeof AppUserSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -220,7 +270,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBillsOfMaterialsRoute: AppBillsOfMaterialsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppMaterialsRoute: AppMaterialsRoute,
-  AppProductsRoute: AppProductsRoute,
+  AppProductsRoute: AppProductsRouteWithChildren,
   AppUserSettingsRoute: AppUserSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }

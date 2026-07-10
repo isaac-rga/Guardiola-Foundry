@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -18,7 +19,7 @@ describe('authenticated app shell routes', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const router = createTestRouter('/app')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(
       await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })
@@ -33,7 +34,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(
       await screen.findByRole('heading', { name: 'Home' })
@@ -50,16 +51,16 @@ describe('authenticated app shell routes', () => {
     expect(screen.getByRole('button', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('renders route-specific page identity and shared placeholder content for child routes', async () => {
+  it('renders route-specific page identity and the live products workspace inside the shell', async () => {
     seedStoredSession()
     mockCurrentSession()
 
     const router = createTestRouter('/app/products')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Work in progress…' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create product' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
       'aria-current',
       'page'
@@ -75,7 +76,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     await screen.findByRole('heading', { name: 'Home' })
 
@@ -108,7 +109,7 @@ describe('authenticated app shell routes', () => {
     seedStoredSession()
     mockCurrentSession()
 
-    const firstRender = render(<RouterProvider router={createTestRouter('/app')} />)
+    const firstRender = renderWithProviders(createTestRouter('/app'))
 
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
 
@@ -120,7 +121,7 @@ describe('authenticated app shell routes', () => {
 
     mockCurrentSession()
 
-    const secondRender = render(<RouterProvider router={createTestRouter('/app/products')} />)
+    const secondRender = renderWithProviders(createTestRouter('/app/products'))
 
     expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
     expect(getDesktopSidebar(secondRender.container)).toHaveAttribute('data-state', 'collapsed')
@@ -132,7 +133,7 @@ describe('authenticated app shell routes', () => {
     seedStoredSession()
     mockCurrentSession()
 
-    const { container } = render(<RouterProvider router={createTestRouter('/app')} />)
+    const { container } = renderWithProviders(createTestRouter('/app'))
 
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
 
@@ -154,7 +155,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeInTheDocument()
 
@@ -179,7 +180,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app/user-settings')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(await screen.findByText('Account details')).toBeInTheDocument()
     expect(screen.getByText('Email')).toBeInTheDocument()
@@ -222,7 +223,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(
       await screen.findByRole('heading', { name: 'Home' })
@@ -265,7 +266,7 @@ describe('authenticated app shell routes', () => {
 
     const router = createTestRouter('/app/inventory')
 
-    render(<RouterProvider router={router} />)
+    renderWithProviders(router)
 
     expect(await screen.findByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
 
@@ -296,6 +297,22 @@ function createTestRouter(initialEntry: string) {
   })
 }
 
+function renderWithProviders(router: ReturnType<typeof createTestRouter>) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  )
+}
+
 function seedStoredSession() {
   localStorage.setItem(
     AUTH_SESSION_STORAGE_KEY,
@@ -314,7 +331,34 @@ function seedStoredSession() {
 }
 
 function mockCurrentSession() {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(currentSessionResponse())
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+
+    if (url.endsWith('/auth/me')) {
+      return currentSessionResponse()
+    }
+
+    if (url.endsWith('/products') && init?.method === 'GET') {
+      return new Response(
+        JSON.stringify({
+          products: [],
+          collections: [
+            { id: 1, name: '2025' },
+            { id: 2, name: '2026' },
+            { id: 3, name: '2027' },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    }
+
+    return currentSessionResponse()
+  })
 }
 
 function currentSessionResponse() {

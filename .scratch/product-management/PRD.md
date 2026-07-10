@@ -49,31 +49,28 @@ Introduce a Product Management module rooted in the existing authenticated `Prod
 35. As an `Admin`, I want deleted Products hidden by default unless I opt in, so that my normal starting view is still the active working list.
 36. As a `User`, I want the first list to load in full and filter client-side, so that the first slice stays technically simple.
 37. As a `User`, I want the default list order to show newest Products first, so that recently registered records stay easiest to revisit.
-38. As a `User`, I want the list to preserve my current filters and practical position when I return from editing, so that I can continue working through several Products efficiently.
-39. As a `User`, I want an empty state when nothing matches the current filters, so that I understand the result and can either clear filters or create a Product.
-40. As a `User`, I want to change `Product Status` between `Active` and `Inactive` directly from the list, so that light operational state changes do not require opening the Product page.
-41. As a `User`, I want `Inactive` Products to remain editable, so that they can still be corrected or reactivated later.
-42. As a `User`, I want `Delete` to remove a Product from normal working views, so that mistaken or disposable records can be retired beyond ordinary inactivity.
-43. As a `User`, I want delete to be confirmation-based, so that a destructive action is not triggered accidentally.
-44. As a `User`, I want `Delete` available only on the Product edit page, so that the list remains focused on scanning and lightweight state change.
-45. As a maintainer, I want delete implemented as soft delete rather than hard delete, so that records can be recovered later.
-46. As an `Admin`, I want a `Restore` action for soft-deleted Products, so that recoverable delete is actually operationally useful.
-47. As an `Admin`, I want restore available from the deleted Product page, so that deleted-record recovery stays in the deeper workflow surface.
-48. As an `Admin`, I want deleted Products to become editable only after restore, so that recovery and normal editing are kept distinct.
-49. As an `Admin`, I want restored Products to come back with their previous lifecycle status preserved but `Product Status = Inactive`, so that recovery is safe by default.
-50. As a non-admin `User`, I want direct access to a deleted Product to show a removed-record message, so that I understand why it is unavailable and that an admin is required for recovery.
-51. As a `User`, I want direct access to a nonexistent Product ID to show a normal not-found error, so that missing data and deleted data remain distinguishable.
-52. As a `User`, I want immutable metadata such as `Product ID`, `Created by`, and `Created at` visible on the Product page, so that I can reference the record accurately.
-53. As a `User`, I want the internal Product ID to stay visually discreet, so that it is available when needed without dominating the page.
-54. As a `User`, I want `Product ID` to be system-generated and stable, so that routing and record operations do not depend on mutable names.
-55. As a `User`, I want the edit page to survive direct navigation and browser refresh, so that the Product page behaves like a real operational route.
-56. As a `User`, I want explicit save behavior on the Product page, so that I know when changes become persisted.
-57. As a `User`, I want a warning before leaving the Product page with unsaved changes, so that explicit save does not create accidental data loss.
-58. As a `User`, I want an explicit cancel/back path from the Product page, so that I can abandon edits intentionally.
-59. As a `User`, I want form validation errors inline, so that I can correct them where they occur.
-60. As a `User`, I want lightweight success feedback after create, save, delete, restore, and status changes, so that the module feels reliable without interrupting me.
-61. As a `User`, I want controls that mutate Product state to disable while requests are in flight and show loading feedback, so that accidental double submission is avoided.
-62. As a future implementer, I want Product records to acknowledge multiple Bills of Materials without managing them yet in this slice, so that Product CRUD can ship without becoming a nested BOM editor.
+38. As a `User`, I want an empty state when nothing matches the current filters, so that I understand the result and can either clear filters or create a Product.
+39. As a `User`, I want `Delete` to remove a Product from normal working views, so that mistaken or disposable records can be retired beyond ordinary inactivity.
+40. As a `User`, I want delete to be confirmation-based, so that a destructive action is not triggered accidentally.
+41. As a `User`, I want `Delete` available only on the Product edit page, so that the list remains focused on scanning and lightweight state change.
+42. As a maintainer, I want delete implemented as soft delete rather than hard delete, so that records can be recovered later.
+43. As an `Admin`, I want a `Restore` action for soft-deleted Products, so that recoverable delete is actually operationally useful.
+44. As an `Admin`, I want restore available from the deleted Product page, so that deleted-record recovery stays in the deeper workflow surface.
+45. As an `Admin`, I want deleted Products to become editable only after restore, so that recovery and normal editing are kept distinct.
+46. As an `Admin`, I want restored Products to come back with their previous lifecycle status preserved but `Product Status = Inactive`, so that recovery is safe by default.
+47. As a non-admin `User`, I want direct access to a deleted Product to show a removed-record message, so that I understand why it is unavailable and that an admin is required for recovery.
+48. As a `User`, I want direct access to a nonexistent Product ID to show a normal not-found error, so that missing data and deleted data remain distinguishable.
+49. As a `User`, I want immutable metadata such as `Product ID`, `Created by`, and `Created at` visible on the Product page, so that I can reference the record accurately.
+50. As a `User`, I want the internal Product ID to stay visually discreet, so that it is available when needed without dominating the page.
+51. As a `User`, I want `Product ID` to be system-generated and stable, so that routing and record operations do not depend on mutable names.
+52. As a `User`, I want the edit page to survive direct navigation and browser refresh, so that the Product page behaves like a real operational route.
+53. As a `User`, I want explicit save behavior on the Product page, so that I know when changes become persisted.
+54. As a `User`, I want a warning before leaving the Product page with unsaved changes, so that explicit save does not create accidental data loss.
+55. As a `User`, I want an explicit cancel/back path from the Product page, so that I can abandon edits intentionally.
+56. As a `User`, I want form validation errors inline, so that I can correct them where they occur.
+57. As a `User`, I want lightweight success feedback after create, save, delete, restore, and status changes, so that the module feels reliable without interrupting me.
+58. As a `User`, I want controls that mutate Product state to disable while requests are in flight and show loading feedback, so that accidental double submission is avoided.
+59. As a future implementer, I want Product records to acknowledge multiple Bills of Materials without managing them yet in this slice, so that Product CRUD can ship without becoming a nested BOM editor.
 
 ## Implementation Decisions
 
@@ -87,10 +84,9 @@ Introduce a Product Management module rooted in the existing authenticated `Prod
 - The search input should be visually prominent and appear before the filters.
 - Filters are single-select only in the first slice.
 - The first-slice filters are `Lifecycle Status`, `Product Status`, `Product Category`, and `Collection`, plus an admin-only filter to include deleted Products.
-- Filter state remains local page state rather than URL state, but should be preserved when the user opens a Product and returns to the list.
 - The list remains text-only. It does not include image thumbnails in the first slice.
 - The list row is the primary navigation path into the Product page.
-- The row actions surface is intentionally small in the first slice and includes only `Active`/`Inactive` state changes.
+- The row actions surface is intentionally small in the first slice.
 - `Delete` does not appear in row actions. It is available only from the Product page.
 - Product creation happens in a modal launched from the list page.
 - The create modal contains only `Product name`, `Lifecycle Status`, and `Product Status`.
@@ -150,7 +146,7 @@ Introduce a Product Management module rooted in the existing authenticated `Prod
 
 - Good tests for this slice should verify user-visible behavior: list rendering, search and filter behavior, create-modal flow, Product page editing, duplicate-name warnings, state changes, soft delete, restore, access rules, and direct URL behavior.
 - The highest preferred seams are the Product API HTTP boundary and the web route boundary around `/app/products` and the Product edit route.
-- Web tests should favor route-level behavior over implementation-detail assertions. They should verify navigation from the list to the Product page, preserved working-list context on return, inline validation, pending states, success feedback, and deleted/not-found access messages.
+- Web tests should favor route-level behavior over implementation-detail assertions. They should verify navigation from the list to the Product page, inline validation, pending states, success feedback, and deleted/not-found access messages.
 - API tests should verify persisted CRUD behavior, allowed enums, soft-delete visibility rules, restore behavior, immutable creation metadata, short ID lookup, and role-based access around deleted records.
 - Duplicate-name warning tests should verify the agreed semantics: warning only, case-insensitive matching, trimmed-edge normalization, and ignoring deleted records.
 - Product-list tests should verify the prominent name search, single-select filters, `No collection` and `No category` filtering, newest-first ordering, and the admin-only deleted-record filter behavior.

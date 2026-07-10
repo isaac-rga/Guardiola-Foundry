@@ -1,51 +1,83 @@
 # Repository Guidelines
 
-## Backend Structure
+This document extends the root AGENTS.md. Only app-specific conventions are documented here.
+This is an AdonisJS 7 API application.
 
-This directory is the AdonisJS 7 API application. Organize business code by domain under `app/modules/<domain>/`; for example, the health endpoint uses `app/modules/health/controllers/health_controller.ts`. Register HTTP routes in `start/routes.ts` and lazy-load controllers through the `#modules/*` import alias. Keep middleware in `app/middleware/`, exception handling in `app/exceptions/`, framework settings in `config/`, and boot-time wiring in `start/`.
+## Architectural & Folder Blueprint
+You must strictly isolate business logic using a Vertical Slice Architecture. Never cross-contaminate domains without explicit instruction.
 
-Place Lucid migrations in `database/migrations/`. API tests belong in `tests/unit/`, `tests/functional/`, or `tests/browser/` according to scope. Shared request and response contracts should come from `@guardiola-foundry/shared-types`; do not duplicate them locally.
+```text
+apps/api/
+├── app/
+│   ├── modules/<domain>     # CORE DOMAIN AREA (Vertical Slices) e.g., "products", "materials"
+│   │   ├── controllers/     # e.g., health_controller.ts
+│   │   ├── models/          # Domain specific models (Lucid)
+│   │   └── services/        # Domain business logic
+│   ├── middleware/          # Global/Shared HTTP middleware
+│   ├── mixins/              # Global/Shared mixins
+│   └── exceptions/          # Global exception handlers
+├── config/                   # Framework settings only
+├── database/migrations/     # Lucid migrations only
+├── start/                   # Boot-time wiring & HTTP routing
+│   ├── routes.ts            # Lazy-load using #modules/* alias
+│   └── kernel.ts
+└─── tests/                  # Japa test suites
+    ├── functional/          # API Endpoint testing
+    └── unit/                # Isolated business logic testing
+```
+
+## Coding Conventions & Guardrails
+Failure to follow these rules will result in broken imports and linting errors.
+
+### Naming Conventions
+- **Filenames:** `snake_case` strictly for AdonisJS classes (e.g., `health_controller.ts`, `user_repository.ts`).
+- **Class Names:** `PascalCase` (e.g., `HealthController`).
+- **Methods & Variables:** `camelCase` (e.g., `getHealthStatus()`).
+
+### Controller vs. Domain Isolation
+- **Controllers** are purely HTTP orchestrators. They handle requests, status codes, and responses.
+- **Domain Logic** must live inside `app/modules/<domain>/`.
+- **YAGNI Rule:** Do not abstract or create interfaces/repositories unless multiple callers explicitly require them. Keep code concrete.
+
+### Other conventions
+- ESLint extends `@adonisjs/eslint-config/app`;
+- Prettier uses `@adonisjs/prettier-config`.
+- Prefer configured aliases such as `#modules/*`, `#middleware/*`, and `#database/*` over deep relative imports.
+
+## Testing Guidelines
+
+Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Run the targeted suite while developing.
+
+## Framework Documentation & Tactical Alignment
+CRITICAL: This project runs on **AdonisJS v7**. Do not use deprecated v5/v6 syntax (e.g., old routing decorators or custom dotenv loaders).
+
+### 1. Primary Context Commands
+When implementing or modifying code, you MUST fetch exact syntax using these specific context providers:
+- Framework Core: `@context7 /adonisjs/v7-docs`
+- Database & Models: `@context7 /adonisjs/lucid.adonisjs.com`
+- Testing & Assertions: `@context7 /websites/japa_dev`
+
+### 2. Context Ingestion Mapping
+Do not browse randomly. Use specific subpaths directly based on the architectural layer you are touching:
+- **Routing/Controllers/Validation:** Map to `@context7 /adonisjs/v7-docs/guides/basics/`
+- **Authentication/Guards:** Map to `@context7 /adonisjs/v7-docs/guides/auth/`
+- **Database/Migrations/Lucid:** Map to `@context7 /adonisjs/v7-docs/guides/database/` or Lucid primary source.
+- **Test Doubles/API Tests:** Map to `@context7 /adonisjs/v7-docs/guides/testing/` or Japa primary source.
+- **Inversion of Control (IoC)/Dependency Injection:** Map to `@context7 /adonisjs/v7-docs/guides/concepts/`
+
+### 3. Verification Protocol (Definition of Done)
+Before marking any task as complete, you must explicitly output a confirmation in your thought process:
+"Verified implementation against [Source Path] to ensure compliance with AdonisJS v7 end-to-end type safety standards."
+
+## Security & Configuration
+Copy each app's `.env.example` to its local environment file. Never commit secrets or generated `APP_KEY` values; document new variables in the corresponding example file.
 
 ## Development Commands
 
-Use Node.js 24+ and pnpm 11+. From `apps/api`:
+From `apps/api`:
 
-- `pnpm dev`: start AdonisJS with hot module replacement.
 - `pnpm test`: run all configured Japa suites.
 - `pnpm lint`: check API TypeScript with ESLint.
 - `pnpm typecheck`: run strict TypeScript checks without emitting files.
 - `pnpm build`: compile the production application into `build/`.
 - `node ace <command>`: run AdonisJS CLI tasks directly.
-
-Database lifecycle scripts live at the monorepo root: use `pnpm db:up`, `pnpm db:status`, and `pnpm db:migrate` there.
-
-## Coding Conventions
-
-Use TypeScript, ES modules, two-space indentation, LF endings, single quotes, and no semicolons. ESLint extends `@adonisjs/eslint-config/app`; Prettier uses `@adonisjs/prettier-config`. Use snake_case filenames for AdonisJS classes (`health_controller.ts`), PascalCase class names, and camelCase methods and variables. Prefer configured aliases such as `#modules/*`, `#middleware/*`, and `#database/*` over deep relative imports.
-
-Keep controllers focused on HTTP concerns. Put domain behavior in the corresponding module as it grows, without introducing abstractions before multiple callers require them.
-
-## Testing Guidelines
-
-Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Add a focused regression test for every behavior change. Run the targeted suite while developing and complete `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before submission.
-
-## Reference Docs
-
-Use `@context7 /adonisjs/v7-docs` before guessing framework behavior. Navigate it by section:
-
-- `start/`: orientation docs such as installation, folder structure, configuration, deployment, and upgrade notes.
-- `guides/basics/`: routing, controllers, middleware, validation, request/response, sessions, uploads, and exception handling.
-- `guides/auth/`: access tokens, session/basic auth guards, authorization, and verifying user credentials.
-- `guides/database/`: Lucid and Redis.
-- `guides/security/`: hashing, encryption, CORS, and rate limiting.
-- `guides/testing/`: API tests, database assertions, browser tests, test doubles, and test-state reset.
-- `guides/concepts/`: application lifecycle, dependency injection, container services, service providers, and scaffolding.
-- `guides/ace/`: `node ace` commands, custom commands, flags, prompts, and REPL usage.
-- `guides/digging_deeper/`: cache, queues, mail, locks, health checks, logger, and observability.
-- `reference/`: framework reference for `adonisrc`, application APIs, commands, exceptions, helpers, and config files under `reference/config/`.
-
-## Commits, Pull Requests, and Configuration
-
-Use concise Conventional Commit subjects, such as `feat: add supplier endpoint` or `fix: reject invalid invoice totals`. Pull requests must describe API contract changes, verification performed, migrations, and new environment variables. Link relevant issues or specifications.
-
-Copy `.env.example` to `.env` for local development. Never commit `.env`, secrets, database credentials, or generated `APP_KEY` values; document every new variable in `.env.example`.

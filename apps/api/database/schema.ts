@@ -26,6 +26,19 @@ export class AccessTokenSchema extends BaseModel {
   declare userId: number
 }
 
+export class CollectionSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
+  $columns = CollectionSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare name: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class LoginAttemptSchema extends BaseModel {
   static $columns = ['createdAt', 'email', 'failureCount', 'id', 'lockedUntil', 'updatedAt'] as const
   $columns = LoginAttemptSchema.$columns
@@ -39,6 +52,39 @@ export class LoginAttemptSchema extends BaseModel {
   declare id: number
   @column.dateTime()
   declare lockedUntil: DateTime | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class ProductSchema extends BaseModel {
+  static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'deletedAt', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productImageFileName', 'productImageStorageKey', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
+  $columns = ProductSchema.$columns
+  @column()
+  declare collectionId: number | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdByUserId: number
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare lifecycleStatus: string
+  @column()
+  declare name: string
+  @column()
+  declare productCategory: string | null
+  @column()
+  declare productImageFileName: string | null
+  @column()
+  declare productImageStorageKey: string | null
+  @column()
+  declare productStatus: string
+  @column()
+  declare publicId: string
+  @column()
+  declare shortDescription: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }

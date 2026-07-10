@@ -1,10 +1,20 @@
 import type {
   AuthSessionResponse,
   ChangePasswordRequest,
+  CreateProductRequest,
   CurrentSessionResponse,
+  DeletedProductDetail,
+  GetProductResponse,
   HealthResponse,
+  ListProductsResponse,
   LoginRequest,
+  ProductCollection,
+  ProductDetail,
+  ProductImage,
+  ProductCreatedBy,
+  ProductSummary,
   SessionUser,
+  UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
@@ -41,3 +51,95 @@ export const currentSessionResponseSchema = z.object({
   expiresAt: z.string().datetime({ offset: true }),
   user: sessionUserSchema,
 }) satisfies z.ZodType<CurrentSessionResponse>
+
+export const productLifecycleStatusSchema = z.enum([
+  'concept',
+  'fabric-trim-selection',
+  'design-and-prototyping',
+  'testing',
+  'approved',
+  'on-documentation',
+  'finished',
+])
+
+export const productStatusSchema = z.enum(['active', 'inactive'])
+
+export const productCategorySchema = z.enum(['dress', 'accessory', 'other'])
+
+export const productCollectionSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string().min(1),
+}) satisfies z.ZodType<ProductCollection>
+
+export const productCreatedBySchema = z.object({
+  id: z.number().int().positive(),
+  email: z.string().email(),
+}) satisfies z.ZodType<ProductCreatedBy>
+
+export const productImageSchema = z.object({
+  fileName: z.string().min(1),
+}) satisfies z.ZodType<ProductImage>
+
+export const productSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  lifecycleStatus: productLifecycleStatusSchema,
+  productStatus: productStatusSchema,
+  deletedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  productCategory: productCategorySchema.nullable(),
+  collection: productCollectionSchema.nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  createdBy: productCreatedBySchema,
+}) satisfies z.ZodType<ProductSummary>
+
+export const productDetailSchema = productSummarySchema.extend({
+  shortDescription: z.string().nullable(),
+  image: productImageSchema.nullable(),
+}) satisfies z.ZodType<ProductDetail>
+
+export const deletedProductDetailSchema = productDetailSchema.extend({
+  deletedAt: z.string().datetime({ offset: true }),
+}) satisfies z.ZodType<DeletedProductDetail>
+
+export const listProductsResponseSchema = z.object({
+  products: z.array(productSummarySchema),
+  collections: z.array(productCollectionSchema),
+}) satisfies z.ZodType<ListProductsResponse>
+
+export const getProductResponseSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('active'),
+    product: productDetailSchema,
+    collections: z.array(productCollectionSchema),
+  }),
+  z.object({
+    state: z.literal('deleted'),
+    product: deletedProductDetailSchema,
+  }),
+]) satisfies z.ZodType<GetProductResponse>
+
+export const createProductRequestSchema = z.object({
+  name: z.string().trim().min(1, 'Product name is required.'),
+  lifecycleStatus: productLifecycleStatusSchema.optional(),
+  productStatus: productStatusSchema.optional(),
+  collectionId: z.number().int().positive().nullable().optional(),
+}) satisfies z.ZodType<CreateProductRequest>
+
+export const updateProductRequestSchema = z.object({
+  name: z.string().trim().min(1, 'Product name is required.'),
+  shortDescription: z
+    .union([z.string(), z.null()])
+    .transform((value) => {
+      if (value === null) {
+        return null
+      }
+
+      const normalizedValue = value.trim()
+
+      return normalizedValue.length > 0 ? normalizedValue : null
+    }),
+  lifecycleStatus: productLifecycleStatusSchema,
+  productStatus: productStatusSchema,
+  productCategory: productCategorySchema.nullable(),
+  collectionId: z.number().int().positive().nullable(),
+}) satisfies z.ZodType<UpdateProductRequest>

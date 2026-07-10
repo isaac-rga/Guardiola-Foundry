@@ -1,120 +1,77 @@
-# Bottom Account Menu And Shell-Level Logout
+# Tighten the Product list row layout for density and scannability
 
-This slice completes `.scratch/authenticated-app-shell/issues/04-add-bottom-account-menu-and-shell-level-logout.md`.
+This slice still targets the existing `/app/products` surface, but it now includes one small shared UI cleanup as well: the products card has been stripped down to a cleaner body-only container, and the shared page header no longer carries eyebrow or badge chrome.
 
-The shared shell was already in place on this branch. What this issue finishes is the account-control path at the bottom of that shell: the menu now behaves like a real shell action surface instead of a mostly-correct dropdown.
+The Product workflows, filters, ordering, and navigation are unchanged. The work here is presentational only.
 
-If you are reviewing the patch, read it in this order.
+## Start at the Product list row
 
-## 1. The shell-level auth actions still live at the `/app` layout seam
+The main list change lives in [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx).
 
-Start with:
+The visible row now reads across six columns:
 
-- `apps/web/src/routes/app.tsx`
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+- `Product`: Product name
+- `Collection`: collection badge
+- `Category`: category badge
+- `Status`: deleted and Product Status badges
+- `Lifecycle`: Lifecycle Status badge
+- `Created`: creator and created date
 
-`/app` is still the protected layout route, and it still owns the current-session actions for password change and logout.
+The `Record` column remains hidden from the Product list.
 
-That seam matters for this issue because `Log Out` is supposed to work from any authenticated page. The route layout remains the one place that can guarantee that behavior without re-implementing sign-out logic in each child route.
+That means the list now favors row-level scanning across explicit columns instead of stacking supporting metadata under the Product name.
 
-## 2. The bottom account trigger still shows identity inline, but the menu is now controlled explicitly
+## Then look at the cleaner card shell
 
-Stay in:
+The products list card in [product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx) no longer renders the `Product registrations` header block.
 
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+Previously, the card started with:
 
-The trigger still follows the contract from the PRD:
+- a `CardTitle`
+- a `CardDescription`
 
-- the fallback avatar uses the first letter of the authenticated email address
-- the expanded sidebar shows email plus a human-readable role
-- the collapsed rail keeps only the avatar control
+That content was visually redundant with the page-level context above it. The card now opens directly into status messages, filters, and the table content for a cleaner, less framed look.
 
-The important change in this slice is that `AccountMenu` now owns an explicit `menuOpen` state through Radix's controlled dropdown API.
+## Follow the shared `PageHeader` refactor
 
-Before this change, the dropdown was relying on default menu behavior. That worked for some cases, but it broke down once `Log Out` needed custom asynchronous handling. The old logout handler prevented the menu's default select behavior, which meant the menu could stay open while sign-out was in flight.
+The shared header cleanup lives in [apps/web/src/components/app/page-header.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/components/app/page-header.tsx).
 
-After this change, item selection closes the menu intentionally before any follow-up action continues.
+`PageHeader` now accepts only:
 
-## 3. `User Settings` and `Log Out` now follow the same shell-action rule
+- `title`
+- `description`
+- optional `action`
+- optional `className`
 
-Still in:
+It no longer supports:
 
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
+- `eyebrow`
+- `badges`
 
-The account popover still has the same two action groups:
+That change simplified the component markup and removed an extra decorative layer from page tops. The affected call sites were updated in:
 
-- `User Settings`
-- `Log Out`
+- [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx)
+- [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx)
+- [apps/web/src/features/app-shell/workspace-pages.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/app-shell/workspace-pages.tsx)
 
-What changed is the behavior contract around those actions.
+## End at the focused regression coverage
 
-`User Settings` now uses the shell's route action directly instead of delegating to a nested link. That keeps the menu behavior and the route behavior in one place:
+The route-level verification remains in [apps/web/src/routes/-products.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx).
 
-- close the account menu
-- dismiss the mobile sheet if it is open
-- navigate to `/app/user-settings`
+The Products route test still covers ordering, search, and filters. For this slice, it continues to assert the visible row contract:
 
-`Log Out` now follows the same pattern:
+- `Collection` and `Category` are separate table headers
+- `Status` and `Lifecycle` are separate table headers
+- `Record` is not a visible column header
+- Product IDs and `Stable short ID` do not render in the list row
 
-- close the account menu first
-- dismiss the mobile sheet if it is open
-- call the existing shell-level sign-out handler
+## Verification
 
-This keeps the implementation small and makes the menu behavior predictable even when the underlying action is asynchronous.
+Verification run for this slice:
 
-## 4. Collapsed and mobile menus now use the compact popover width the PRD asked for
+- `pnpm --dir apps/web test -- src/routes/-products.test.tsx`
+- `pnpm --dir apps/web typecheck`
 
-Still in:
+## Scope note
 
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx`
-
-The menu width now depends on shell state:
-
-- expanded desktop keeps matching the trigger width
-- collapsed desktop uses a compact fixed width
-- mobile also uses the compact fixed width
-
-That fixes an important shell-detail bug. In the collapsed rail, the trigger becomes an avatar-sized button. Reusing the trigger width there made the popover collapse down toward the trigger size, which is not the intended account-menu presentation.
-
-The shell now checks the sidebar state and only uses trigger-width sizing when the desktop sidebar is actually expanded.
-
-## 5. The regression coverage stays at the route seam
-
-Then read:
-
-- `apps/web/src/routes/-app.test.tsx`
-
-The existing shell route suite already covered authenticated rendering, navigation, and a basic logout path. This slice adds a tighter regression around the account-menu contract:
-
-- open the menu from an authenticated child route
-- select `Log Out`
-- verify the menu disappears immediately
-- then let the logout request resolve and verify redirect to `/sign-in`
-
-That test matters because it proves the menu closes before the asynchronous sign-out completes, which is the user-visible behavior this issue was missing.
-
-## 6. What did not change
-
-This patch does not change:
-
-- the `/app` route structure
-- main navigation ordering or active-state rules
-- the password-change flow
-- session-storage clearing behavior
-- the logout API contract
-
-That is deliberate. The issue asked for the bottom account menu and reliable shell-level logout behavior, not another shell architecture pass.
-
-## 7. Verification
-
-The checks for this slice were:
-
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/vitest run src/routes/-app.test.tsx --reporter=verbose` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/oxlint src` in `apps/web`
-- `env PATH=$HOME/.nvm/versions/node/v24.17.0/bin:$PATH ./node_modules/.bin/tsc -b --pretty false` in `apps/web`
-
-I will also run the broader test pass at the end of the implementation flow, per the repo guidance and the `implement` skill.
-
-## 8. Technical debt
-
-- The account menu still keeps trigger rendering, width policy, and action wiring in one component. That is fine at this size, but if more account actions arrive later, the menu-action wiring could be extracted into a small shell-local helper to keep the component from accumulating branching UI behavior.
+This slice only adjusts the Product list presentation and simplifies the shared page-header chrome. It does not change Product data shape, list filtering behavior, route behavior, or introduce a new UI abstraction.
