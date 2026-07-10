@@ -22,9 +22,13 @@ const PRODUCT_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PRODUCT_ID_LENGTH = 6
 const PRODUCT_IMAGE_DIRECTORY = app.makePath('tmp/product-images')
 
-export async function listProducts(): Promise<ListProductsResponse> {
+export async function listProducts(options?: {
+  includeDeleted?: boolean
+}): Promise<ListProductsResponse> {
+  const productsQuery = options?.includeDeleted ? Product.queryWithDeleted() : Product.query()
+
   const [products, collections] = await Promise.all([
-    Product.query().preload('collection').preload('createdBy').orderBy('createdAt', 'desc'),
+    productsQuery.preload('collection').preload('createdBy').orderBy('createdAt', 'desc'),
     loadCollections(),
   ])
 
@@ -153,12 +157,27 @@ export async function softDeleteProduct(productId: string): Promise<'not-found' 
   return 'deleted'
 }
 
+export async function restoreProduct(productId: string): Promise<'not-found' | 'restored'> {
+  const product = await Product.queryWithDeleted().where('publicId', productId).first()
+
+  if (!product || !product.deletedAt) {
+    return 'not-found'
+  }
+
+  await product.restore()
+  product.productStatus = 'inactive'
+  await product.save()
+
+  return 'restored'
+}
+
 function serializeProductSummary(product: Product): ProductSummary {
   return {
     id: product.publicId,
     name: product.name,
     lifecycleStatus: product.lifecycleStatus,
     productStatus: product.productStatus,
+    deletedAt: product.deletedAt?.toISO() ?? null,
     productCategory: product.productCategory,
     collection: product.collection ? serializeCollection(product.collection) : null,
     createdAt: product.createdAt.toISO()!,

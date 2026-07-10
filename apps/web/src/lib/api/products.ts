@@ -22,8 +22,19 @@ export type UpdateProductInput = UpdateProductRequest & {
   removeImage?: boolean
 }
 
-export async function listProducts(token: string): Promise<ListProductsResponse> {
-  const response = await fetch(resolveApiUrl('/products'), {
+export async function listProducts(
+  token: string,
+  options?: {
+    includeDeleted?: boolean
+  }
+): Promise<ListProductsResponse> {
+  const url = new URL(resolveApiUrl('/products'), window.location.origin)
+
+  if (options?.includeDeleted) {
+    url.searchParams.set('includeDeleted', 'true')
+  }
+
+  const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -134,6 +145,25 @@ export async function deleteProduct(token: string, productId: string): Promise<v
 
   if (!response.ok) {
     throw new Error(getErrorMessage(body, 'Unable to delete product.'))
+  }
+}
+
+export async function restoreProduct(token: string, productId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/restore`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.status === 204) {
+    return
+  }
+
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(body, 'Unable to restore product.'))
   }
 }
 

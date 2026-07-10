@@ -280,7 +280,8 @@ describe('products route', () => {
 
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'Create product' }))
-      await user.type(screen.getByLabelText(/product name/i), 'Mila Cape')
+      const createDialog = screen.getByRole('dialog')
+      await user.type(within(createDialog).getByLabelText('Product name'), 'Mila Cape')
       await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
       await user.click(await screen.findByRole('option', { name: 'Testing' }))
       await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
@@ -379,14 +380,15 @@ describe('products route', () => {
     renderProductsRoute()
 
     expect(await screen.findByPlaceholderText('Search products by name')).toBeInTheDocument()
-    expect(screen.getByText('Collection 2025')).toBeInTheDocument()
-    expect(screen.getByText('No collection')).toBeInTheDocument()
-    expect(screen.getByText('No category')).toBeInTheDocument()
+    expect(await screen.findByText('Bianca Veil')).toBeInTheDocument()
+    expect(screen.getByText('Celeste Sketch')).toBeInTheDocument()
+    expect(screen.getByText('Aster Dress')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
-    const allRows = screen.getAllByRole('row')
-    expect(allRows[1]).toHaveTextContent('Bianca Veil')
-    expect(allRows[2]).toHaveTextContent('Celeste Sketch')
-    expect(allRows[3]).toHaveTextContent('Aster Dress')
+    const pageText = screen.getByRole('main')
+    expect(pageText).toHaveTextContent('No collection')
+    expect(pageText).toHaveTextContent('No category')
+    expect(pageText).toHaveTextContent('2025')
 
     await user.type(screen.getByPlaceholderText('Search products by name'), 'celeste')
 
@@ -857,13 +859,237 @@ describe('products route', () => {
     expect(screen.getByText('Deleted product')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'This Product has been removed from normal views. Recovery behavior will be added in a later slice.'
+        'This Product has been removed from normal views. Restore it to return the record to editable mode with Product Status set to Inactive.'
       )
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument()
     expect(screen.getByText('Archived after approval.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/product name/i)).not.toBeInTheDocument()
+  })
+
+  it('lets admins opt into deleted Products from the list and hides that control from operators', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        if (url.searchParams.get('includeDeleted') === 'true') {
+          return jsonResponse({
+            products: [
+              {
+                id: 'P-DEL101',
+                name: 'Archived Lace',
+                lifecycleStatus: 'approved',
+                productStatus: 'inactive',
+                deletedAt: '2026-07-08T18:33:00.000Z',
+                productCategory: null,
+                collection: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+                createdBy: {
+                  id: 1,
+                  email: 'admin@example.com',
+                },
+              },
+            ],
+            collections: [],
+          })
+        }
+
+        return jsonResponse({
+          products: [],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute()
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Include deleted' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3333/products?includeDeleted=true',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer opaque-access-token',
+          }),
+        })
+      )
+    })
+
+    expect(await screen.findByText('Archived Lace')).toBeInTheDocument()
+
+    cleanup()
+    vi.restoreAllMocks()
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 2,
+            email: 'operator@example.com',
+            role: 'operator',
+            active: true,
+          },
+        })
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({
+          products: [],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession({
+      user: {
+        id: 2,
+        email: 'operator@example.com',
+        role: 'operator',
+        active: true,
+      },
+    })
+
+    renderProductsRoute()
+
+    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Include deleted' })).not.toBeInTheDocument()
+  })
+
+  it('restores a deleted Product for admins and returns the page to editable mode', async () => {
+    const user = userEvent.setup()
+    let isDeleted = true
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.pathname === '/products/P-DEL777' && init?.method === 'GET') {
+        if (isDeleted) {
+          return jsonResponse({
+            state: 'deleted',
+            product: {
+              id: 'P-DEL777',
+              name: 'Recoverable Sample',
+              shortDescription: 'Ready to recover.',
+              image: null,
+              lifecycleStatus: 'approved',
+              productStatus: 'inactive',
+              productCategory: null,
+              collection: null,
+              deletedAt: '2026-07-08T18:33:00.000Z',
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+          })
+        }
+
+        return jsonResponse({
+          state: 'active',
+          product: {
+            id: 'P-DEL777',
+            name: 'Recoverable Sample',
+            shortDescription: 'Ready to recover.',
+            image: null,
+            lifecycleStatus: 'approved',
+            productStatus: 'inactive',
+            productCategory: null,
+            collection: null,
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+          collections: [],
+        })
+      }
+
+      if (url.pathname === '/products/P-DEL777/restore' && init?.method === 'POST') {
+        isDeleted = false
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-DEL777',
+              name: 'Recoverable Sample',
+              lifecycleStatus: 'approved',
+              productStatus: 'inactive',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+          ],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-DEL777')
+
+    expect(await screen.findByRole('heading', { name: 'Recoverable Sample' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Restore' }))
+
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Recoverable Sample')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Ready to recover.')).toBeInTheDocument()
   })
 
   it('shows the removed-record recovery message to non-admin users', async () => {

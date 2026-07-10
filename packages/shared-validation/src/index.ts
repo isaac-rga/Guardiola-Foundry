@@ -85,6 +85,7 @@ export const productSummarySchema = z.object({
   name: z.string().min(1),
   lifecycleStatus: productLifecycleStatusSchema,
   productStatus: productStatusSchema,
+  deletedAt: z.string().datetime({ offset: true }).nullable().optional(),
   productCategory: productCategorySchema.nullable(),
   collection: productCollectionSchema.nullable(),
   createdAt: z.string().datetime({ offset: true }),

@@ -35,6 +35,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { productListQueryKey } from '@/features/products/query-keys'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import { createProduct, listProducts } from '@/lib/api/products'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
@@ -46,8 +47,6 @@ import type {
   ProductStatus,
   ProductSummary,
 } from '@guardiola-foundry/shared-types'
-
-const productsQueryKey = ['products']
 
 const lifecycleStatusOptions: Array<{
   label: string
@@ -102,15 +101,19 @@ export function ProductManagementPage({
     'all' | ProductCategory | 'none'
   >('all')
   const [collectionFilter, setCollectionFilter] = useState<'all' | 'none' | `${number}`>('all')
+  const [includeDeletedFilter, setIncludeDeletedFilter] = useState(false)
   const [createFeedbackMessage, setCreateFeedbackMessage] = useState<string | null>(null)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
+  const isAdmin = session.user.role === 'admin'
+  const effectiveIncludeDeleted = isAdmin && includeDeletedFilter
+  const productsQueryKey = productListQueryKey(effectiveIncludeDeleted)
   const form = useForm<CreateProductRequest>({
     resolver: zodResolver(createProductRequestSchema),
     defaultValues: defaultFormValues,
   })
   const productsQuery = useQuery({
     queryKey: productsQueryKey,
-    queryFn: () => listProducts(session.token),
+    queryFn: () => listProducts(session.token, { includeDeleted: effectiveIncludeDeleted }),
   })
   const createProductMutation = useMutation({
     mutationFn: (payload: CreateProductRequest) => createProduct(session.token, payload),
@@ -156,7 +159,8 @@ export function ProductManagementPage({
     lifecycleFilter !== 'all' ||
     productStatusFilter !== 'all' ||
     productCategoryFilter !== 'all' ||
-    collectionFilter !== 'all'
+    collectionFilter !== 'all' ||
+    effectiveIncludeDeleted
   const filteredProducts = products.filter((product) => {
     const matchesSearch =
       normalizedSearchValue.length === 0 ||
@@ -250,16 +254,7 @@ export function ProductManagementPage({
             </p>
           ) : null}
 
-          {!productsQuery.isLoading && !productsQuery.isError && products.length === 0 ? (
-            <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">No products registered yet.</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Start with a product name and let the workflow default to Concept and Active.
-              </p>
-            </div>
-          ) : null}
-
-          {products.length > 0 ? (
+          {products.length > 0 || isAdmin ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
                 <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
@@ -335,6 +330,18 @@ export function ProductManagementPage({
                       })),
                     ]}
                   />
+
+                  {isAdmin ? (
+                    <Button
+                      type="button"
+                      variant={effectiveIncludeDeleted ? 'secondary' : 'outline'}
+                      size="sm"
+                      aria-pressed={effectiveIncludeDeleted}
+                      onClick={() => setIncludeDeletedFilter((currentValue) => !currentValue)}
+                    >
+                      {effectiveIncludeDeleted ? 'Including deleted' : 'Include deleted'}
+                    </Button>
+                  ) : null}
                 </div>
 
                 {hasActiveFilters ? (
@@ -350,7 +357,14 @@ export function ProductManagementPage({
                 ) : null}
               </div>
 
-              {filteredProducts.length === 0 ? (
+              {products.length === 0 ? (
+                <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
+                  <p className="text-sm font-medium text-foreground">No products registered yet.</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Start with a product name and let the workflow default to Concept and Active.
+                  </p>
+                </div>
+              ) : filteredProducts.length === 0 ? (
                 <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
                   <p className="text-sm font-medium text-foreground">
                     No products match the current search and filters.
@@ -404,6 +418,9 @@ export function ProductManagementPage({
                               <p className="text-[0.65rem] font-medium tracking-[0.16em] text-muted-foreground uppercase">
                                 Status
                               </p>
+                              {product.deletedAt ? (
+                                <StatusBadge label="Deleted" tone="warning" />
+                              ) : null}
                               <StatusBadge
                                 label={toProductStatusLabel(product.productStatus)}
                                 tone={product.productStatus === 'active' ? 'success' : 'muted'}
@@ -440,6 +457,13 @@ export function ProductManagementPage({
                   </TableBody>
                 </Table>
               )}
+            </div>
+          ) : !productsQuery.isLoading && !productsQuery.isError ? (
+            <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">No products registered yet.</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Start with a product name and let the workflow default to Concept and Active.
+              </p>
             </div>
           ) : null}
         </CardContent>
@@ -594,6 +618,7 @@ export function ProductManagementPage({
     setProductStatusFilter('all')
     setProductCategoryFilter('all')
     setCollectionFilter('all')
+    setIncludeDeletedFilter(false)
   }
 }
 

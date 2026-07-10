@@ -18,11 +18,13 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { productDetailQueryKey, productListQueryKey } from '@/features/products/query-keys'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import {
   deleteProduct,
   getProduct,
   listProducts,
+  restoreProduct,
   updateProduct,
   type UpdateProductInput,
 } from '@/lib/api/products'
@@ -37,7 +39,6 @@ import type {
   UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 
-const productsQueryKey = ['products']
 const unsavedChangesMessage = 'You have unsaved changes. Leave this product without saving?'
 
 const lifecycleStatusOptions: Array<{
@@ -88,16 +89,18 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const [removeImage, setRemoveImage] = useState(false)
   const [imageInputKey, setImageInputKey] = useState(0)
   const [isNavigatingAfterDelete, setIsNavigatingAfterDelete] = useState(false)
+  const productQueryKey = productDetailQueryKey(productId)
+  const defaultProductsQueryKey = productListQueryKey(false)
   const form = useForm<UpdateProductRequest>({
     resolver: zodResolver(updateProductRequestSchema),
     defaultValues: defaultFormValues,
   })
   const productQuery = useQuery({
-    queryKey: ['products', productId],
+    queryKey: productQueryKey,
     queryFn: () => getProduct(session.token, productId),
   })
   const productsQuery = useQuery({
-    queryKey: productsQueryKey,
+    queryKey: defaultProductsQueryKey,
     queryFn: () => listProducts(session.token),
   })
 
@@ -133,7 +136,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const updateProductMutation = useMutation({
     mutationFn: (payload: UpdateProductInput) => updateProduct(session.token, productId, payload),
     onSuccess: (updatedProduct) => {
-      queryClient.setQueryData(['products', productId], (currentData: typeof productQuery.data) => {
+      queryClient.setQueryData(productQueryKey, (currentData: typeof productQuery.data) => {
         if (!currentData) {
           return currentData
         }
@@ -143,18 +146,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
           product: updatedProduct,
         }
       })
-      queryClient.setQueryData<ListProductsResponse>(productsQueryKey, (currentData) => {
-        if (!currentData) {
-          return currentData
-        }
-
-        return {
-          ...currentData,
-          products: currentData.products.map((currentProduct) =>
-            currentProduct.id === updatedProduct.id ? toProductSummary(updatedProduct) : currentProduct
-          ),
-        }
-      })
+      updateProductInListCaches(queryClient, updatedProduct)
       form.reset(toFormValues(updatedProduct))
       setSelectedImageFile(null)
       setRemoveImage(false)
@@ -170,6 +162,17 @@ export function ProductEditPage({ productId }: { productId: string }) {
       removeImage,
     })
   })
+  const restoreProductMutation = useMutation({
+    mutationFn: () => restoreProduct(session.token, productId),
+    onSuccess: async () => {
+      setSaveMessage('Product restored. Review the record and save any follow-up changes when ready.')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: productQueryKey }),
+        queryClient.invalidateQueries({ queryKey: productListQueryKey(false) }),
+        queryClient.invalidateQueries({ queryKey: productListQueryKey(true) }),
+      ])
+    },
+  })
   const deleteProductMutation = useMutation({
     mutationFn: () => deleteProduct(session.token, productId),
     onSuccess: async () => {
@@ -177,8 +180,8 @@ export function ProductEditPage({ productId }: { productId: string }) {
         return
       }
 
-      queryClient.removeQueries({ queryKey: ['products', productId] })
-      queryClient.setQueryData<ListProductsResponse>(productsQueryKey, (currentData) => {
+      queryClient.removeQueries({ queryKey: productQueryKey })
+      queryClient.setQueryData<ListProductsResponse>(defaultProductsQueryKey, (currentData) => {
         if (!currentData) {
           return currentData
         }
@@ -189,6 +192,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
         }
       })
       setIsNavigatingAfterDelete(true)
+      await queryClient.invalidateQueries({ queryKey: productListQueryKey(true) })
       await navigate({
         to: '/app/products',
         search: {
@@ -202,8 +206,9 @@ export function ProductEditPage({ productId }: { productId: string }) {
     excludeProductId: productId,
   })
   const isSaving = updateProductMutation.isPending
+  const isRestoring = restoreProductMutation.isPending
   const isDeleting = deleteProductMutation.isPending
-  const isMutating = isSaving || isDeleting
+  const isMutating = isSaving || isRestoring || isDeleting
 
   if (productQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading product…</p>
@@ -214,6 +219,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
       <DeletedProductPage
         product={deletedProduct}
         isAdmin={session.user.role === 'admin'}
+        isRestoring={isRestoring}
         onBackToProducts={() =>
           navigate({
             to: '/app/products',
@@ -222,6 +228,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
             },
           })
         }
+        onRestore={() => void restoreProductMutation.mutateAsync()}
       />
     )
   }
@@ -603,11 +610,15 @@ export function ProductEditPage({ productId }: { productId: string }) {
 
 function DeletedProductPage({
   isAdmin,
+  isRestoring,
   onBackToProducts,
+  onRestore,
   product,
 }: {
   isAdmin: boolean
+  isRestoring: boolean
   onBackToProducts: () => void
+  onRestore: () => void
   product: DeletedProductDetail
 }) {
   return (
@@ -615,11 +626,18 @@ function DeletedProductPage({
       <PageHeader
         eyebrow="Product workspace"
         title={product.name}
-        description="This Product has been removed from normal product views. It stays visible here as read-only until recovery tools are added."
+        description="This Product has been removed from normal product views. It stays read-only until an admin restores it."
         action={
-          <Button type="button" variant="outline" onClick={onBackToProducts}>
-            Back to products
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin ? (
+              <Button type="button" disabled={isRestoring} onClick={onRestore}>
+                {isRestoring ? 'Restoring product…' : 'Restore'}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" disabled={isRestoring} onClick={onBackToProducts}>
+              Back to products
+            </Button>
+          </div>
         }
       />
 
@@ -637,7 +655,7 @@ function DeletedProductPage({
               role="status"
             >
               {isAdmin
-                ? 'This Product has been removed from normal views. Recovery behavior will be added in a later slice.'
+                ? 'This Product has been removed from normal views. Restore it to return the record to editable mode with Product Status set to Inactive.'
                 : 'This Product has been removed from normal views. An admin is required for recovery.'}
             </p>
 
@@ -712,10 +730,31 @@ function toProductSummary(product: ProductDetail): ListProductsResponse['product
     name: product.name,
     lifecycleStatus: product.lifecycleStatus,
     productStatus: product.productStatus,
+    deletedAt: product.deletedAt,
     productCategory: product.productCategory,
     collection: product.collection,
     createdAt: product.createdAt,
     createdBy: product.createdBy,
+  }
+}
+
+function updateProductInListCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updatedProduct: ProductDetail
+) {
+  for (const includeDeleted of [false, true]) {
+    queryClient.setQueryData<ListProductsResponse>(productListQueryKey(includeDeleted), (currentData) => {
+      if (!currentData) {
+        return currentData
+      }
+
+      return {
+        ...currentData,
+        products: currentData.products.map((currentProduct) =>
+          currentProduct.id === updatedProduct.id ? toProductSummary(updatedProduct) : currentProduct
+        ),
+      }
+    })
   }
 }
 

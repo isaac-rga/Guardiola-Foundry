@@ -66,6 +66,7 @@ export interface ProductSummary {
   name: string
   lifecycleStatus: ProductLifecycleStatus
   productStatus: ProductStatus
+  deletedAt?: string | null
   productCategory: ProductCategory | null
   collection: ProductCollection | null
   createdAt: string

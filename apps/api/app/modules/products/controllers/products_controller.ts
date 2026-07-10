@@ -5,6 +5,7 @@ import {
   createProduct,
   getProduct,
   listProducts,
+  restoreProduct,
   softDeleteProduct,
   updateProduct,
 } from '#modules/products/products_service'
@@ -25,7 +26,13 @@ export default class ProductsController {
       })
     }
 
-    return response.ok(await listProducts())
+    return response.ok(
+      await listProducts({
+        includeDeleted:
+          authenticatedUser.role === 'admin' &&
+          this.shouldIncludeDeleted(request.input('includeDeleted')),
+      })
+    )
   }
 
   async store({ request, response }: HttpContext) {
@@ -150,6 +157,32 @@ export default class ProductsController {
     return response.noContent()
   }
 
+  async restore({ params, request, response }: HttpContext) {
+    const authenticatedUser = await this.authenticate(request.header('authorization'))
+
+    if (!authenticatedUser) {
+      return response.unauthorized({
+        message: 'Unauthorized',
+      })
+    }
+
+    if (authenticatedUser.role !== 'admin') {
+      return response.forbidden({
+        message: 'Only admins can restore deleted Products.',
+      })
+    }
+
+    const result = await restoreProduct(params.productId)
+
+    if (result === 'not-found') {
+      return response.notFound({
+        message: 'Product not found.',
+      })
+    }
+
+    return response.noContent()
+  }
+
   private async authenticate(authorizationHeader: string | undefined) {
     const token = extractBearerToken(authorizationHeader)
 
@@ -190,5 +223,9 @@ export default class ProductsController {
     const body = request.all()
 
     return body.removeImage === true || body.removeImage === 'true'
+  }
+
+  private shouldIncludeDeleted(includeDeleted: unknown) {
+    return includeDeleted === true || includeDeleted === 'true'
   }
 }
