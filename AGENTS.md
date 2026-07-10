@@ -26,12 +26,7 @@ See `docs/architecture/shared-types-and-validation.md` for the canonical rules.
 - Do not create single-implementation interfaces. If there is no meaningful polymorphism, use a concrete class or function.
 - Do not add hexagonal or DDD overhead for generic tables, simple workflows, or thin data pipelines.
 - Do not collapse complex calculations, multiple external integrations, or stateful business flows into a single oversized controller or service.
-
-### Decision Behavior
-
-- Treat `docs/adr/architecture-policy.md` as the source of truth for codebase-specific architecture policy and thresholds.
-- If an issue is ambiguous, default to the smallest design that preserves future extension points without speculative abstraction.
-- If the requested change conflicts with the current architecture policy, surface the conflict explicitly before widening scope.
+- Before making any architectural decision or introducing a new design seam, read `docs/adr/architecture-policy.md` and follow it as the source of truth for codebase-specific architecture policy and thresholds.
 
 ## Build, Test, and Development Commands
 Use Node.js 24+ and the pnpm version pinned in `package.json`.
