@@ -125,7 +125,7 @@ describe('products route', () => {
 
     expect(await screen.findByText('Created Valencia Gown.')).toBeInTheDocument()
     expect(await screen.findByText('Valencia Gown')).toBeInTheDocument()
-    expect(screen.getByText('P-AB12CD')).toBeInTheDocument()
+    expect(screen.queryByText('P-AB12CD')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -389,6 +389,25 @@ describe('products route', () => {
     expect(pageText).toHaveTextContent('No collection')
     expect(pageText).toHaveTextContent('No category')
     expect(pageText).toHaveTextContent('2025')
+
+    const newestProductRow = screen.getByRole('link', { name: 'Bianca Veil' }).closest('tr')
+
+    expect(newestProductRow).not.toBeNull()
+    const newestProductRowContent = within(newestProductRow as HTMLTableRowElement)
+
+    expect(newestProductRowContent.getByText('No collection')).toBeInTheDocument()
+    expect(newestProductRowContent.getByText('Accessory')).toBeInTheDocument()
+    expect(newestProductRowContent.getByText('Inactive')).toBeInTheDocument()
+    expect(newestProductRowContent.getByText('Testing')).toBeInTheDocument()
+    expect(newestProductRowContent.getByText('operator@example.com')).toBeInTheDocument()
+    expect(newestProductRowContent.getByText('Jul 1, 2026')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Collection' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Category' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Lifecycle' })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Record' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Stable short ID')).not.toBeInTheDocument()
+    expect(screen.queryByText('P-NEWEST')).not.toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('Search products by name'), 'celeste')
 

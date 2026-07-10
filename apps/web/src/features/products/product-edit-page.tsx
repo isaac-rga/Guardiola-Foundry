@@ -247,7 +247,6 @@ export function ProductEditPage({ productId }: { productId: string }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Product workspace"
         title={product.name}
         description="Edit the saved product record directly, keep immutable registration context visible, and commit changes only when you explicitly save them."
         action={
@@ -624,7 +623,6 @@ function DeletedProductPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Product workspace"
         title={product.name}
         description="This Product has been removed from normal product views. It stays read-only until an admin restores it."
         action={

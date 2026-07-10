@@ -8,7 +8,7 @@ import { useForm } from 'react-hook-form'
 import { PageHeader } from '@/components/app/page-header'
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -194,13 +194,8 @@ export function ProductManagementPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Product lifecycle"
         title="Products"
         description="Work from the full visible product set, find records quickly by name, and keep lifecycle and registration context compact in one operational list."
-        badges={[
-          { label: 'Newest first', variant: 'secondary' },
-          { label: 'Client-side filters live', variant: 'outline' },
-        ]}
         action={
           <Button onClick={() => setIsCreateDialogOpen(true)} type="button">
             Create product
@@ -209,12 +204,6 @@ export function ProductManagementPage({
       />
 
       <Card className="rounded-[1.75rem]">
-        <CardHeader>
-          <CardTitle>Product registrations</CardTitle>
-          <CardDescription>
-            Search by product name first, then narrow the loaded working set with single-select filters for state, category, and collection.
-          </CardDescription>
-        </CardHeader>
         <CardContent className="space-y-4">
           {deletedProductName ? (
             <div
@@ -378,78 +367,64 @@ export function ProductManagementPage({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
-                      <TableHead>State</TableHead>
+                      <TableHead>Collection</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Lifecycle</TableHead>
                       <TableHead>Created</TableHead>
-                      <TableHead>Record</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredProducts.map((product) => (
                       <TableRow key={product.id}>
-                        <TableCell className="py-4">
-                          <div className="space-y-2">
-                            <Link
-                              to="/app/products/$productId"
-                              params={{ productId: product.id }}
-                              search={{ deletedProductName: undefined }}
-                              className="font-medium text-foreground underline-offset-4 hover:underline"
-                            >
-                              {product.name}
-                            </Link>
-                            <div className="flex flex-wrap gap-2">
-                              <StatusBadge
-                                label={
-                                  product.collection
-                                    ? `Collection ${product.collection.name}`
-                                    : 'No collection'
-                                }
-                                tone="muted"
-                              />
-                              <StatusBadge
-                                label={toProductCategoryLabel(product.productCategory)}
-                                tone="muted"
-                              />
-                            </div>
+                        <TableCell className="py-3 align-top whitespace-normal">
+                          <Link
+                            to="/app/products/$productId"
+                            params={{ productId: product.id }}
+                            search={{ deletedProductName: undefined }}
+                            className="block text-sm font-medium leading-5 text-foreground underline-offset-4 hover:underline"
+                          >
+                            {product.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="py-3 align-top whitespace-normal">
+                          <StatusBadge
+                            label={
+                              product.collection
+                                ? `Collection ${product.collection.name}`
+                                : 'No collection'
+                            }
+                            tone="muted"
+                          />
+                        </TableCell>
+                        <TableCell className="py-3 align-top whitespace-normal">
+                          <StatusBadge
+                            label={toProductCategoryLabel(product.productCategory)}
+                            tone="muted"
+                          />
+                        </TableCell>
+                        <TableCell className="py-3 align-top whitespace-normal">
+                          <div className="flex flex-wrap gap-1.5">
+                            {product.deletedAt ? (
+                              <StatusBadge label="Deleted" tone="warning" />
+                            ) : null}
+                            <StatusBadge
+                              label={toProductStatusLabel(product.productStatus)}
+                              tone={product.productStatus === 'active' ? 'success' : 'muted'}
+                            />
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[0.65rem] font-medium tracking-[0.16em] text-muted-foreground uppercase">
-                                Status
-                              </p>
-                              {product.deletedAt ? (
-                                <StatusBadge label="Deleted" tone="warning" />
-                              ) : null}
-                              <StatusBadge
-                                label={toProductStatusLabel(product.productStatus)}
-                                tone={product.productStatus === 'active' ? 'success' : 'muted'}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-[0.65rem] font-medium tracking-[0.16em] text-muted-foreground uppercase">
-                                Lifecycle
-                              </p>
-                              <StatusBadge label={toLifecycleStatusLabel(product.lifecycleStatus)} />
-                            </div>
+                        <TableCell className="py-3 align-top whitespace-normal">
+                          <div className="flex flex-wrap gap-1.5">
+                            <StatusBadge label={toLifecycleStatusLabel(product.lifecycleStatus)} />
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-3 align-top whitespace-normal">
                           <div className="space-y-1">
-                            <p className="text-sm font-medium text-foreground">
+                            <p className="text-sm font-medium leading-5 text-foreground">
                               {product.createdBy.email}
                             </p>
-                            <p className="text-sm text-muted-foreground">
-                              {formatCreatedAt(product.createdAt)}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <p className="font-mono text-xs tracking-[0.12em] text-muted-foreground uppercase">
-                              {product.id}
-                            </p>
-                            <p className="text-xs text-muted-foreground">Stable short ID</p>
+                            <p className="text-sm text-muted-foreground">{formatCreatedAt(product.createdAt)}</p>
                           </div>
                         </TableCell>
                       </TableRow>

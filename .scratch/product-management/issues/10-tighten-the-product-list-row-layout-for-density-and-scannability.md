@@ -1,6 +1,6 @@
 # Tighten the Product list row layout for density and scannability
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -19,3 +19,15 @@ Refine the `/app/products` table row layout so the list is denser and easier to 
 ## Blocked by
 
 - [02 - Ship the Product working list with search and filters](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-management/issues/02-ship-the-product-working-list-with-search-and-filters.md)
+
+## Completion note
+
+Shipped the product-list density pass entirely inside the existing `/app/products` table surface.
+
+The list still shows the same Product data, filters, ordering, and row navigation, but each row now uses tighter spacing and a more compact vertical rhythm so the full row is easier to scan.
+
+The correction to this slice was to keep the original information structure inside each cell while tightening the row layout. Product rows still retain their explicit `Status` and `Lifecycle` labels, the created-by and created-at pairing, and the `Stable short ID` helper text for the record identifier. The density improvement now comes from reduced spacing and better row-level alignment instead of from removing those cues.
+
+Focused web coverage was extended in the route-level Products test so the compact row still has to render the same user-visible facts for a Product: collection/category badges, state badges, creator email, created date, and Product ID.
+
+Follow-up work: none required for this slice.
