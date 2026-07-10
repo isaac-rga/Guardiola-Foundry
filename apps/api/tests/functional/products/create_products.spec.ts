@@ -160,7 +160,9 @@ test.group('Products create flow', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
 
     listResponse.assertStatus(200)
-    const productNames = listResponse.body().products.map((product: { name: string }) => product.name)
+    const productNames = listResponse
+      .body()
+      .products.map((product: { name: string }) => product.name)
 
     assert.includeMembers(productNames, ['valencia gown', 'Valencia Gown'])
     assert.isAtLeast(
@@ -406,6 +408,50 @@ test.group('Products create flow', (group) => {
       listResponse.body().products.map((product: { id: string }) => product.id),
       createResponse.body().id
     )
+  })
+
+  test('returns a deleted Product state for deleted records and 404 for nonexistent Product IDs', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    const createResponse = await client
+      .post('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Retired Sample',
+      })
+
+    createResponse.assertStatus(201)
+
+    const deleteResponse = await client
+      .delete(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteResponse.assertStatus(204)
+
+    const deletedResponse = await client
+      .get(`/products/${createResponse.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deletedResponse.assertStatus(200)
+    deletedResponse.assertBodyContains({
+      state: 'deleted',
+      product: {
+        id: createResponse.body().id,
+        name: 'Retired Sample',
+        productStatus: 'inactive',
+      },
+    })
+
+    const missingResponse = await client
+      .get('/products/P-MISSING')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    missingResponse.assertStatus(404)
+    missingResponse.assertBodyContains({
+      message: 'Product not found.',
+    })
   })
 })
 

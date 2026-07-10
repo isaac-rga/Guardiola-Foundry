@@ -77,15 +77,25 @@ export interface ProductDetail extends ProductSummary {
   image: ProductImage | null
 }
 
+export interface DeletedProductDetail extends ProductDetail {
+  deletedAt: string
+}
+
 export interface ListProductsResponse {
   products: ProductSummary[]
   collections: ProductCollection[]
 }
 
-export interface GetProductResponse {
-  product: ProductDetail
-  collections: ProductCollection[]
-}
+export type GetProductResponse =
+  | {
+      state: 'active'
+      product: ProductDetail
+      collections: ProductCollection[]
+    }
+  | {
+      state: 'deleted'
+      product: DeletedProductDetail
+    }
 
 export interface CreateProductRequest {
   name: string

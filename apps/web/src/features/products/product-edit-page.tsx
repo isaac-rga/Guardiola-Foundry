@@ -28,6 +28,7 @@ import {
 } from '@/lib/api/products'
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
+  DeletedProductDetail,
   ListProductsResponse,
   ProductCategory,
   ProductDetail,
@@ -100,8 +101,9 @@ export function ProductEditPage({ productId }: { productId: string }) {
     queryFn: () => listProducts(session.token),
   })
 
-  const product = productQuery.data?.product ?? null
-  const collections = productQuery.data?.collections ?? []
+  const product = productQuery.data?.state === 'active' ? productQuery.data.product : null
+  const deletedProduct = productQuery.data?.state === 'deleted' ? productQuery.data.product : null
+  const collections = productQuery.data?.state === 'active' ? productQuery.data.collections : []
   const hasPendingImageChanges = selectedImageFile !== null || removeImage
   const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
 
@@ -205,6 +207,23 @@ export function ProductEditPage({ productId }: { productId: string }) {
 
   if (productQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading product…</p>
+  }
+
+  if (deletedProduct) {
+    return (
+      <DeletedProductPage
+        product={deletedProduct}
+        isAdmin={session.user.role === 'admin'}
+        onBackToProducts={() =>
+          navigate({
+            to: '/app/products',
+            search: {
+              deletedProductName: undefined,
+            },
+          })
+        }
+      />
+    )
   }
 
   if (productQuery.isError || !product) {
@@ -582,6 +601,81 @@ export function ProductEditPage({ productId }: { productId: string }) {
   )
 }
 
+function DeletedProductPage({
+  isAdmin,
+  onBackToProducts,
+  product,
+}: {
+  isAdmin: boolean
+  onBackToProducts: () => void
+  product: DeletedProductDetail
+}) {
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Product workspace"
+        title={product.name}
+        description="This Product has been removed from normal product views. It stays visible here as read-only until recovery tools are added."
+        action={
+          <Button type="button" variant="outline" onClick={onBackToProducts}>
+            Back to products
+          </Button>
+        }
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <Card className="rounded-[1.75rem]">
+          <CardHeader>
+            <CardTitle>Deleted product</CardTitle>
+            <CardDescription>
+              This record is preserved for recovery, but this page is read-only in the current slice.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p
+              className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-900"
+              role="status"
+            >
+              {isAdmin
+                ? 'This Product has been removed from normal views. Recovery behavior will be added in a later slice.'
+                : 'This Product has been removed from normal views. An admin is required for recovery.'}
+            </p>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <MetadataItem label="Product name" value={product.name} />
+              <MetadataItem label="Product status" value={product.productStatus} />
+              <MetadataItem label="Lifecycle status" value={product.lifecycleStatus} />
+              <MetadataItem label="Deleted at" value={formatDeletedAt(product.deletedAt)} />
+              <MetadataItem
+                label="Short description"
+                value={product.shortDescription ?? 'No short description saved.'}
+              />
+              <MetadataItem
+                label="Current image state"
+                value={product.image ? product.image.fileName : 'No product image uploaded.'}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[1.75rem]">
+          <CardHeader>
+            <CardTitle>Record metadata</CardTitle>
+            <CardDescription>
+              Immutable registration context stays visible even after the Product leaves normal working views.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 text-sm">
+            <MetadataItem label="Product ID" value={product.id} mono />
+            <MetadataItem label="Created by" value={product.createdBy.email} />
+            <MetadataItem label="Created at" value={formatCreatedAt(product.createdAt)} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function MetadataItem({
   label,
   mono = false,
@@ -631,4 +725,12 @@ function formatCreatedAt(createdAt: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(createdAt))
+}
+
+function formatDeletedAt(deletedAt: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(deletedAt))
 }

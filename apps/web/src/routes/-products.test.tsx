@@ -434,6 +434,7 @@ describe('products route', () => {
 
       if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
         return jsonResponse({
+          state: 'active',
           product: {
             id: 'P-AB12CD',
             name: 'Valencia Gown',
@@ -592,6 +593,7 @@ describe('products route', () => {
 
       if (url.endsWith('/products/P-EDIT01') && init?.method === 'GET') {
         return jsonResponse({
+          state: 'active',
           product: {
             id: 'P-EDIT01',
             name: 'Mila Cape',
@@ -718,6 +720,7 @@ describe('products route', () => {
 
       if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
         return jsonResponse({
+          state: 'active',
           product: {
             id: 'P-AB12CD',
             name: 'Valencia Gown',
@@ -797,6 +800,184 @@ describe('products route', () => {
     expect(screen.queryByText('Stable short ID')).not.toBeInTheDocument()
   })
 
+  it('renders a read-only deleted Product page state for admins', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-DEL001') && init?.method === 'GET') {
+        return jsonResponse({
+          state: 'deleted',
+          product: {
+            id: 'P-DEL001',
+            name: 'Retired Sample',
+            shortDescription: 'Archived after approval.',
+            image: null,
+            lifecycleStatus: 'approved',
+            productStatus: 'inactive',
+            productCategory: 'other',
+            collection: null,
+            deletedAt: '2026-07-08T18:33:00.000Z',
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-DEL001')
+
+    expect(await screen.findByRole('heading', { name: 'Retired Sample' })).toBeInTheDocument()
+    expect(screen.getByText('Deleted product')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This Product has been removed from normal views. Recovery behavior will be added in a later slice.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText('Archived after approval.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/product name/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the removed-record recovery message to non-admin users', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 2,
+            email: 'operator@example.com',
+            role: 'operator',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-DEL002') && init?.method === 'GET') {
+        return jsonResponse({
+          state: 'deleted',
+          product: {
+            id: 'P-DEL002',
+            name: 'Hidden Archive',
+            shortDescription: null,
+            image: null,
+            lifecycleStatus: 'testing',
+            productStatus: 'inactive',
+            productCategory: null,
+            collection: null,
+            deletedAt: '2026-07-08T18:33:00.000Z',
+            createdAt: '2026-07-01T18:33:00.000Z',
+            createdBy: {
+              id: 1,
+              email: 'admin@example.com',
+            },
+          },
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession({
+      user: {
+        id: 2,
+        email: 'operator@example.com',
+        role: 'operator',
+        active: true,
+      },
+    })
+
+    renderProductsRoute('/app/products/P-DEL002')
+
+    expect(await screen.findByRole('heading', { name: 'Hidden Archive' })).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This Product has been removed from normal views. An admin is required for recovery.'
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the normal not-found path for Product IDs that do not exist', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-MISSING') && init?.method === 'GET') {
+        return jsonResponse(
+          {
+            message: 'Product not found.',
+          },
+          { status: 404 }
+        )
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderProductsRoute('/app/products/P-MISSING')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Product not found.')
+    expect(screen.queryByText('Deleted product')).not.toBeInTheDocument()
+  })
+
   it('keeps optional fields optional, validates inline, and warns before leaving unsaved edits', async () => {
     const user = userEvent.setup()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
@@ -819,6 +1000,7 @@ describe('products route', () => {
 
       if (url.endsWith('/products/P-ZX98QP') && init?.method === 'GET') {
         return jsonResponse({
+          state: 'active',
           product: {
             id: 'P-ZX98QP',
             name: 'Mila Cape',
@@ -946,6 +1128,7 @@ describe('products route', () => {
 
       if (url.endsWith('/products/P-IMG001') && init?.method === 'GET') {
         return jsonResponse({
+          state: 'active',
           product: {
             id: 'P-IMG001',
             name: 'Celeste Gown',
@@ -1079,14 +1262,26 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   })
 }
 
-function seedStoredSession() {
+function seedStoredSession(
+  overrides?: Partial<{
+    token: string
+    tokenType: 'Bearer'
+    expiresAt: string
+    user: {
+      id: number
+      email: string
+      role: 'admin' | 'operator'
+      active: boolean
+    }
+  }>
+) {
   localStorage.setItem(
     AUTH_SESSION_STORAGE_KEY,
     JSON.stringify({
-      token: 'opaque-access-token',
-      tokenType: 'Bearer',
-      expiresAt: '2026-07-28T18:33:00.000Z',
-      user: {
+      token: overrides?.token ?? 'opaque-access-token',
+      tokenType: overrides?.tokenType ?? 'Bearer',
+      expiresAt: overrides?.expiresAt ?? '2026-07-28T18:33:00.000Z',
+      user: overrides?.user ?? {
         id: 1,
         email: 'admin@example.com',
         role: 'admin',

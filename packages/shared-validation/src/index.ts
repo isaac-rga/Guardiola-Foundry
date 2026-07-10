@@ -1,8 +1,9 @@
 import type {
   AuthSessionResponse,
-  CreateProductRequest,
   ChangePasswordRequest,
+  CreateProductRequest,
   CurrentSessionResponse,
+  DeletedProductDetail,
   GetProductResponse,
   HealthResponse,
   ListProductsResponse,
@@ -95,15 +96,26 @@ export const productDetailSchema = productSummarySchema.extend({
   image: productImageSchema.nullable(),
 }) satisfies z.ZodType<ProductDetail>
 
+export const deletedProductDetailSchema = productDetailSchema.extend({
+  deletedAt: z.string().datetime({ offset: true }),
+}) satisfies z.ZodType<DeletedProductDetail>
+
 export const listProductsResponseSchema = z.object({
   products: z.array(productSummarySchema),
   collections: z.array(productCollectionSchema),
 }) satisfies z.ZodType<ListProductsResponse>
 
-export const getProductResponseSchema = z.object({
-  product: productDetailSchema,
-  collections: z.array(productCollectionSchema),
-}) satisfies z.ZodType<GetProductResponse>
+export const getProductResponseSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('active'),
+    product: productDetailSchema,
+    collections: z.array(productCollectionSchema),
+  }),
+  z.object({
+    state: z.literal('deleted'),
+    product: deletedProductDetailSchema,
+  }),
+]) satisfies z.ZodType<GetProductResponse>
 
 export const createProductRequestSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required.'),

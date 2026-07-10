@@ -3,6 +3,8 @@ import type { NormalizeConstructor } from '@adonisjs/core/types/helpers'
 import { BaseModel, beforeFetch, beforeFind, column } from '@adonisjs/lucid/orm'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 
+const includeDeletedQueryFlag = '__includeDeleted'
+
 export const SoftDelete = <T extends NormalizeConstructor<typeof BaseModel>>(Base: T) => {
   class SoftDeleteModel extends Base {
     @column.dateTime({ columnName: 'deleted_at' })
@@ -10,18 +12,37 @@ export const SoftDelete = <T extends NormalizeConstructor<typeof BaseModel>>(Bas
 
     @beforeFind()
     static ignoreDeletedFind(query: ModelQueryBuilderContract<typeof SoftDeleteModel>) {
+      if (
+        (query as ModelQueryBuilderContract<typeof SoftDeleteModel> & Record<string, boolean>)[
+          includeDeletedQueryFlag
+        ]
+      ) {
+        return
+      }
+
       query.whereNull('deleted_at')
     }
 
     @beforeFetch()
     static ignoreDeletedFetch(query: ModelQueryBuilderContract<typeof SoftDeleteModel>) {
+      if (
+        (query as ModelQueryBuilderContract<typeof SoftDeleteModel> & Record<string, boolean>)[
+          includeDeletedQueryFlag
+        ]
+      ) {
+        return
+      }
+
       query.whereNull('deleted_at')
     }
 
     static queryWithDeleted<Model extends typeof SoftDeleteModel>(
       this: Model
     ): ModelQueryBuilderContract<Model> {
-      return this.query().pojo() as ModelQueryBuilderContract<Model>
+      const query = this.query() as ModelQueryBuilderContract<Model> & Record<string, boolean>
+      query[includeDeletedQueryFlag] = true
+
+      return query
     }
 
     async softDelete() {

@@ -5,6 +5,7 @@ import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import type User from '#models/user'
 import type {
   CreateProductRequest,
+  DeletedProductDetail,
   GetProductResponse,
   ListProductsResponse,
   ProductDetail,
@@ -64,16 +65,27 @@ export async function createProduct(
 }
 
 export async function getProduct(productId: string): Promise<GetProductResponse | 'not-found'> {
-  const [product, collections] = await Promise.all([
-    Product.query().where('publicId', productId).preload('collection').preload('createdBy').first(),
-    loadCollections(),
-  ])
+  const product = await Product.queryWithDeleted()
+    .where('publicId', productId)
+    .preload('collection')
+    .preload('createdBy')
+    .first()
 
   if (!product) {
     return 'not-found'
   }
 
+  if (product.deletedAt) {
+    return {
+      state: 'deleted',
+      product: serializeDeletedProductDetail(product),
+    }
+  }
+
+  const collections = await loadCollections()
+
   return {
+    state: 'active',
     product: serializeProductDetail(product),
     collections: collections.map(serializeCollection),
   }
@@ -167,6 +179,17 @@ function serializeProductDetail(product: Product): ProductDetail {
             fileName: product.productImageFileName,
           }
         : null,
+  }
+}
+
+function serializeDeletedProductDetail(product: Product): DeletedProductDetail {
+  if (!product.deletedAt) {
+    throw new Error('Deleted product detail requires deletedAt.')
+  }
+
+  return {
+    ...serializeProductDetail(product),
+    deletedAt: product.deletedAt.toISO()!,
   }
 }
 
