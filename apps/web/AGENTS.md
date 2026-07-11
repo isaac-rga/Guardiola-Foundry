@@ -16,12 +16,14 @@ apps/web/
    ├─ assets/
    ├─ routes/                 # Thin file-based routes
    ├─ features/               # Domain screens and feature behavior
+   │  └─ <domain>/
+   │     └─ api/              # Feature-specific endpoints and server state
    ├─ components/
    │  ├─ app/                 # Shared app-level components
    │  ├─ layout/              # Reserved layout area; currently unused
    │  └─ ui/                  # shadcn/ui primitives
    ├─ lib/                    # Infrastructure and shared technical helpers
-   │  ├─ api/                 # API calls
+   │  ├─ api/                 # Shared transport helpers only
    │  ├─ auth/                # Auth management
    │  └─ utils/               # Generic helpers like cn(), etc.
    └─ hooks/                  # Shared UI hook
@@ -30,11 +32,17 @@ apps/web/
 Keep route files thin and render domain screens from `src/features/<domain>/`.
 Do not edit generated output such as `apps/web/src/routeTree.gen.ts`, `dist/`, or `build/`.
 
+## Feature API Modules
 
+Feature-specific endpoint adapters and TanStack Query server-state modules belong under `src/features/<domain>/api/`. Keep endpoint adapters close to the feature they serve, and place feature cache updates, invalidation rules, query keys, and mutation hooks in the same API area.
+
+Use `src/lib/api/` only for shared transport helpers that are not owned by a single feature, such as base URL resolution or common error parsing.
+
+Screens should call feature-local hooks such as `useProductList`, `useProductDetail`, `useCreateProduct`, `useUpdateProduct`, `useDeleteProduct`, and `useRestoreProduct` rather than constructing fetch calls, query keys, or cache updates inline. Prefer endpoint-shaped names when the hook maps directly to an API action. Keep visual list projection rules, labels, filters, and sorting in separate feature modules unless they are part of server-state synchronization.
 
 ## React and TypeScript Conventions
 
-Keep components small and behavior-focused. Put server state in TanStack Query, not ad hoc effects. Use React Hook Form with shared Zod schemas for forms. Keep route loaders, search validation, and navigation concerns in route files; place domain rendering and interactions in feature modules.
+Keep components small and behavior-focused. Put server state in feature-local TanStack Query modules, not ad hoc effects or presentation components. Use React Hook Form with shared Zod schemas for forms. Keep route loaders, search validation, and navigation concerns in route files; place domain rendering and interactions in feature modules.
 
 ## UI Guidelines
 

@@ -14,6 +14,30 @@ The API uses ESLint; the web and shared packages use Oxlint.
 React components PascalCase, and functions or variables camelCase.
 Prefer the web `@/` alias and API import aliases over deep relative imports.
 
+### General DRY & Architecture Standards
+
+You must enforce a healthy DRY (Don't Repeat Yourself) strategy. DRY is not just about avoiding duplicate lines of code; it is about ensuring every piece of system knowledge has a single, authoritative home. Follow these rules to keep our architecture clean and maintainable.
+
+#### 1. Abstract Knowledge, Not Just Syntax
+* **Rule:** Only abstract code if it represents the exact same business rule or system knowledge.
+* **Instruction:** If two different features happen to use similar-looking logic today, but they could change for different reasons tomorrow, **do not abstract them**. Duplication is cheaper than the wrong abstraction.
+
+#### 2. Isolate Cross-Cutting Concerns
+* **Rule:** Do not scatter systemic logic (like Authentication, Logging, Error Handling, or Caching) across individual business files or controllers.
+* **Instruction:** Handle these behaviors at the architectural boundaries using structural patterns. Use HTTP Middleware, Interceptors, Decorators, or Aspect-Oriented Programming (AOP) to keep core business logic clean.
+
+#### 3. Share Data Behaviors via Composition
+* **Rule:** Do not duplicate database filters, state manipulation, or universal data traits across multiple models or tables.
+* **Instruction:** Use composition over inheritance. Utilize ORM Mixins, Plugins, or Traits to inject shared behaviors (like Soft Delete, Multi-Tenancy filtering, or Automatic Audit Logs) into data models.
+
+#### 4. Separate Data Fetching from UI Layout
+* **Rule:** Never embed raw API calls, data fetching states, or cache mutations directly inside UI presentation components.
+* **Instruction:** Isolate data syncing into a dedicated state management or data-fetching layer (e.g., Custom Hooks, Repositories, or Services). Presentation components should only receive clean data and trigger actions.
+
+#### 5. The "Rule of Three" for Refactoring
+* **Rule:** Do not write abstractions prematurely for code that is only written twice.
+* **Instruction:** Write code inline the first time. Copy and modify it the second time. By the third time you write the exact same logic, refactor it into a reusable function, component, or class.
+
 ## Shared Types & Validation Guidelines
 
 Treat shared types and validation as cross-boundary domain contracts: organize them by business domain, keep common truly cross-domain, and prefer schemas as the source of truth.
