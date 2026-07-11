@@ -15,7 +15,7 @@ import type {
   UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 
-import { API_BASE_URL } from './config'
+import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
 
 export type UpdateProductInput = UpdateProductRequest & {
   imageFile?: File | null
@@ -44,7 +44,7 @@ export async function listProducts(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to load products.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to load products.'))
   }
 
   return listProductsResponseSchema.parse(body)
@@ -66,7 +66,7 @@ export async function createProduct(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to create product.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to create product.'))
   }
 
   return productSummarySchema.parse(body)
@@ -83,7 +83,7 @@ export async function getProduct(token: string, productId: string): Promise<GetP
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to load product.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to load product.'))
   }
 
   return getProductResponseSchema.parse(body)
@@ -123,7 +123,7 @@ export async function updateProduct(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to save product changes.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to save product changes.'))
   }
 
   return productDetailSchema.parse(body)
@@ -144,7 +144,7 @@ export async function deleteProduct(token: string, productId: string): Promise<v
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to delete product.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to delete product.'))
   }
 }
 
@@ -163,47 +163,6 @@ export async function restoreProduct(token: string, productId: string): Promise<
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body, 'Unable to restore product.'))
+    throw new Error(getResponseErrorMessage(body, 'Unable to restore product.'))
   }
-}
-
-function resolveApiUrl(path: string) {
-  if (!API_BASE_URL) {
-    return path
-  }
-
-  return new URL(path.replace(/^\//, ''), ensureTrailingSlash(API_BASE_URL)).toString()
-}
-
-function ensureTrailingSlash(url: string) {
-  return url.endsWith('/') ? url : `${url}/`
-}
-
-function getErrorMessage(body: unknown, fallbackMessage: string) {
-  if (
-    typeof body === 'object' &&
-    body !== null &&
-    'message' in body &&
-    typeof body.message === 'string'
-  ) {
-    return body.message
-  }
-
-  if (
-    typeof body === 'object' &&
-    body !== null &&
-    'errors' in body &&
-    typeof body.errors === 'object' &&
-    body.errors !== null
-  ) {
-    const firstFieldError = Object.values(body.errors).find(
-      (value): value is string[] => Array.isArray(value) && typeof value[0] === 'string'
-    )
-
-    if (firstFieldError?.[0]) {
-      return firstFieldError[0]
-    }
-  }
-
-  return fallbackMessage
 }

@@ -35,9 +35,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { createProduct, listProducts } from '@/features/products/api/endpoints'
 import { productListQueryKey } from '@/features/products/query-keys'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
-import { createProduct, listProducts } from '@/lib/api/products'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   CreateProductRequest,

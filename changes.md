@@ -1,71 +1,53 @@
-# Tighten the Product list row layout for density and scannability
+# Product endpoint locality and shared transport helpers
 
-This slice still targets the existing `/app/products` surface, but it now includes one small shared UI cleanup as well: the products card has been stripped down to a cleaner body-only container, and the shared page header no longer carries eyebrow or badge chrome.
+This slice is the first step in the Product data cache refactor. It does not introduce Product data hooks yet. It moves the Product endpoint adapter to the Product feature area and extracts only the shared web API transport behavior that Product and auth already duplicated.
 
-The Product workflows, filters, ordering, and navigation are unchanged. The work here is presentational only.
+The Product list, create, edit, delete, and restore workflows are intended to behave exactly as before.
 
-## Start at the Product list row
+## Start with the new shared transport helper
 
-The main list change lives in [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx).
+The shared transport behavior now lives in [apps/web/src/lib/api/transport.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/transport.ts).
 
-The visible row now reads across six columns:
+That file owns:
 
-- `Product`: Product name
-- `Collection`: collection badge
-- `Category`: category badge
-- `Status`: deleted and Product Status badges
-- `Lifecycle`: Lifecycle Status badge
-- `Created`: creator and created date
+- `resolveApiUrl`, including `VITE_API_URL` handling
+- `ensureTrailingSlash`, so absolute API base URLs compose consistently
+- `getResponseErrorMessage`, with endpoint-specific fallback text
 
-The `Record` column remains hidden from the Product list.
+This is intentionally narrow. It does not introduce a generic authenticated fetch wrapper, shared request builders, or schema parsing helpers.
 
-That means the list now favors row-level scanning across explicit columns instead of stacking supporting metadata under the Product name.
+## Then follow the auth adapter reuse
 
-## Then look at the cleaner card shell
+The auth adapter remains in [apps/web/src/lib/api/auth.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/auth.ts).
 
-The products list card in [product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx) no longer renders the `Product registrations` header block.
+It now imports `resolveApiUrl` and `getResponseErrorMessage` from the shared transport helper. Auth still owns its endpoint bodies, headers, request payload parsing, and response schema parsing. The fallback auth error copy remains local to the auth adapter.
 
-Previously, the card started with:
+## Next read the Product endpoint adapter in its feature home
 
-- a `CardTitle`
-- a `CardDescription`
+Product endpoint calls now live in [apps/web/src/features/products/api/endpoints.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/api/endpoints.ts).
 
-That content was visually redundant with the page-level context above it. The card now opens directly into status messages, filters, and the table content for a cleaner, less framed look.
+That adapter still owns the Product-specific details:
 
-## Follow the shared `PageHeader` refactor
+- Product request and response schema parsing
+- explicit bearer auth headers
+- list query-string construction for `includeDeleted`
+- multipart `FormData` construction for Product image updates
+- endpoint-specific fallback messages
 
-The shared header cleanup lives in [apps/web/src/components/app/page-header.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/components/app/page-header.tsx).
+The old generic [apps/web/src/lib/api/products.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/products.ts) file was removed because Product endpoints are no longer a generic web API concern.
 
-`PageHeader` now accepts only:
+## Then check the Product screen imports
 
-- `title`
-- `description`
-- optional `action`
-- optional `className`
-
-It no longer supports:
-
-- `eyebrow`
-- `badges`
-
-That change simplified the component markup and removed an extra decorative layer from page tops. The affected call sites were updated in:
+The Product screens now import endpoint functions from the Product feature API area:
 
 - [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx)
 - [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx)
-- [apps/web/src/features/app-shell/workspace-pages.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/app-shell/workspace-pages.tsx)
 
-## End at the focused regression coverage
+The screens still own their current TanStack Query calls and cache updates. That is deliberate: Product data hooks are the next issue, not this one.
 
-The route-level verification remains in [apps/web/src/routes/-products.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-products.test.tsx).
+## End at the tracker and verification
 
-The Products route test still covers ordering, search, and filters. For this slice, it continues to assert the visible row contract:
-
-- `Collection` and `Category` are separate table headers
-- `Status` and `Lifecycle` are separate table headers
-- `Record` is not a visible column header
-- Product IDs and `Stable short ID` do not render in the list row
-
-## Verification
+The completed issue is [.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md).
 
 Verification run for this slice:
 
@@ -74,4 +56,4 @@ Verification run for this slice:
 
 ## Scope note
 
-This slice only adjusts the Product list presentation and simplifies the shared page-header chrome. It does not change Product data shape, list filtering behavior, route behavior, or introduce a new UI abstraction.
+This slice is a locality cleanup only. It does not change backend behavior, Product route behavior, cache ownership, Product visual list projection, optimistic updates, auth contracts, or Product API contracts.

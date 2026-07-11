@@ -10,7 +10,9 @@ import type {
   LoginRequest,
 } from '@guardiola-foundry/shared-types'
 
-import { API_BASE_URL } from './config'
+import { getResponseErrorMessage, resolveApiUrl } from './transport'
+
+const defaultAuthErrorMessage = 'Unable to sign in. Check your credentials and try again.'
 
 export async function signIn(credentials: LoginRequest): Promise<AuthSessionResponse> {
   const response = await fetch(resolveApiUrl('/auth/login'), {
@@ -24,7 +26,7 @@ export async function signIn(credentials: LoginRequest): Promise<AuthSessionResp
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body))
+    throw new Error(getResponseErrorMessage(body, defaultAuthErrorMessage))
   }
 
   return authSessionResponseSchema.parse(body)
@@ -41,7 +43,7 @@ export async function getCurrentSession(token: string): Promise<CurrentSessionRe
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(body))
+    throw new Error(getResponseErrorMessage(body, defaultAuthErrorMessage))
   }
 
   return currentSessionResponseSchema.parse(body)
@@ -67,7 +69,7 @@ export async function logoutCurrentSession(token: string): Promise<void> {
     body = null
   }
 
-  throw new Error(getErrorMessage(body))
+  throw new Error(getResponseErrorMessage(body, defaultAuthErrorMessage))
 }
 
 export async function changePasswordCurrentSession(
@@ -95,46 +97,5 @@ export async function changePasswordCurrentSession(
     body = null
   }
 
-  throw new Error(getErrorMessage(body))
-}
-
-function resolveApiUrl(path: string) {
-  if (!API_BASE_URL) {
-    return path
-  }
-
-  return new URL(path.replace(/^\//, ''), ensureTrailingSlash(API_BASE_URL)).toString()
-}
-
-function ensureTrailingSlash(url: string) {
-  return url.endsWith('/') ? url : `${url}/`
-}
-
-function getErrorMessage(body: unknown) {
-  if (
-    typeof body === 'object' &&
-    body !== null &&
-    'message' in body &&
-    typeof body.message === 'string'
-  ) {
-    return body.message
-  }
-
-  if (
-    typeof body === 'object' &&
-    body !== null &&
-    'errors' in body &&
-    typeof body.errors === 'object' &&
-    body.errors !== null
-  ) {
-    const firstFieldError = Object.values(body.errors).find(
-      (value): value is string[] => Array.isArray(value) && typeof value[0] === 'string'
-    )
-
-    if (firstFieldError?.[0]) {
-      return firstFieldError[0]
-    }
-  }
-
-  return 'Unable to sign in. Check your credentials and try again.'
+  throw new Error(getResponseErrorMessage(body, defaultAuthErrorMessage))
 }

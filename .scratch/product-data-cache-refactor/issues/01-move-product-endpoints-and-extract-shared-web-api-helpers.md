@@ -1,6 +1,6 @@
 # Move Product endpoints and extract shared web API helpers
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,16 +14,20 @@ This slice should not introduce Product data hooks or change Product cache owner
 
 ## Acceptance criteria
 
-- [ ] Product endpoint calls are owned by the Product feature API area rather than the generic web API library area.
-- [ ] Product screens import Product endpoint functions from the Product feature API area.
-- [ ] Shared base API URL resolution and trailing slash normalization are extracted into shared web API helpers.
-- [ ] Shared response error-message extraction is extracted into a shared helper that accepts endpoint-specific fallback text.
-- [ ] Product and auth endpoint adapters reuse the shared helpers where the helper meaning is identical.
-- [ ] Product endpoint schema parsing, multipart request construction, auth header construction, and endpoint request bodies remain feature-specific.
-- [ ] Existing Product list, create, edit, delete, and restore route behavior remains unchanged.
-- [ ] Existing auth endpoint behavior remains unchanged.
-- [ ] Focused verification includes the existing Product route tests and web type checking.
+- [x] Product endpoint calls are owned by the Product feature API area rather than the generic web API library area.
+- [x] Product screens import Product endpoint functions from the Product feature API area.
+- [x] Shared base API URL resolution and trailing slash normalization are extracted into shared web API helpers.
+- [x] Shared response error-message extraction is extracted into a shared helper that accepts endpoint-specific fallback text.
+- [x] Product and auth endpoint adapters reuse the shared helpers where the helper meaning is identical.
+- [x] Product endpoint schema parsing, multipart request construction, auth header construction, and endpoint request bodies remain feature-specific.
+- [x] Existing Product list, create, edit, delete, and restore route behavior remains unchanged.
+- [x] Existing auth endpoint behavior remains unchanged.
+- [x] Focused verification includes the existing Product route tests and web type checking.
 
 ## Blocked by
 
 None - can start immediately
+
+## Comments
+
+- Completed by moving the Product endpoint adapter to `apps/web/src/features/products/api/endpoints.ts`, extracting shared URL and error helpers to `apps/web/src/lib/api/transport.ts`, and updating Product screens plus auth endpoints to use the new locations. Verified with `pnpm --dir apps/web test -- src/routes/-products.test.tsx` and `pnpm --dir apps/web typecheck`.

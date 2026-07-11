@@ -18,8 +18,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { productDetailQueryKey, productListQueryKey } from '@/features/products/query-keys'
-import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import {
   deleteProduct,
   getProduct,
@@ -27,7 +25,9 @@ import {
   restoreProduct,
   updateProduct,
   type UpdateProductInput,
-} from '@/lib/api/products'
+} from '@/features/products/api/endpoints'
+import { productDetailQueryKey, productListQueryKey } from '@/features/products/query-keys'
+import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   DeletedProductDetail,
