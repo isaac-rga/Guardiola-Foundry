@@ -73,8 +73,40 @@ The availability state of a Product record for ordinary use in the system. Produ
 _Avoid_: Progress, Phase
 
 **Material**:
-A stocked input used by the business, including inputs that may be consumed by production. Material is distinct from Product.
-_Avoid_: Ingredient, Supply, Item
+A stable textile input that can be referenced by a Bill of Materials. A Material may have one or more Sources that provide it, and is distinct from Product, Supply, Tool, and the vendor-specific Source used to purchase it. Materials are not generally interchangeable with each other because color tonality, flow dynamics, textile weight, and similar properties matter.
+_Avoid_: Ingredient, Supply, Tool, Source, Item
+
+**Material ID**:
+The app-owned public identifier used to route and operate on a Material record. Material ID currently uses an `M-` prefix and is distinct from any legacy spreadsheet ID preserved during import.
+_Avoid_: Spreadsheet ID, Source ID, Material Name
+
+**Material Use**:
+The controlled role a Material serves in product construction or design, such as base fabric, structure, or lace. Material Use belongs to the Material rather than the Source.
+_Avoid_: Usage, Category, Source Subcategory
+
+**Material Color**:
+The single controlled canonical color assigned to a Material. Material Color is part of Material identity because changing color can materially change the Product outcome in a Bill of Materials.
+_Avoid_: Source Color, Vendor Color
+
+**Material Unit**:
+The normalized internal unit used for Material quantities in Bills of Materials and Inventory. Material Unit is fixed to Meter for Materials, even when a Source is purchased in yards, rolls, or another vendor unit.
+_Avoid_: Purchase Unit, Vendor Unit
+
+**Supply**:
+A non-textile production input that may be referenced by a Bill of Materials, such as boning, thread, zippers, buttons, cups, trims, or similar consumables. Supply is distinct from Material because its units, purchasing process, and inventory handling differ from textiles.
+_Avoid_: Material, Tool, Source, Item
+
+**Source**:
+A vendor-specific offering used to purchase a Material or Supply. A Source captures purchasing, financial, vendor, and technical information for an offering, and is distinct from the Material or Supply it can provide. Multiple Sources may provide the same Material, and one Source may provide multiple Material Colors when the financial and technical specifications are otherwise the same. Material Sources and Supply Sources may diverge later if their fields or workflows become meaningfully different.
+_Avoid_: Sourcing, Material, Supply, Vendor
+
+**Textile Family**:
+The controlled textile classification for a Source, such as tulle, mesh, crepe, satin, organza, or interfacing. Textile Family belongs to the Source rather than the Material.
+_Avoid_: Material Use, Source Subcategory, Material Category
+
+**Preferred Source**:
+The Source selected as the default purchasing and cost basis for a Material. A Material can have alternate Sources, but its Preferred Source provides the cost shown and used for that Material unless changed. Material cost is derived from the Preferred Source rather than copied onto the Material.
+_Avoid_: Primary Vendor, Default Supplier
 
 **Inventory**:
 The current on-hand stock position for Material. Inventory is tracked as physical positions in the warehouse.
@@ -85,5 +117,5 @@ A physical location in the warehouse where Inventory for a Material is held. A W
 _Avoid_: Bin, Slot, Shelf
 
 **Bill of Materials**:
-One material definition for building a Product. A Product may have multiple Bills of Materials, and each Bill of Materials belongs to Product structure rather than Inventory.
+One input definition for building a Product. A Product may have multiple Bills of Materials, and each Bill of Materials belongs to Product structure rather than Inventory.
 _Avoid_: Recipe, Formula, BOM Sheet
