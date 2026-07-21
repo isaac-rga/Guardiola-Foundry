@@ -56,6 +56,81 @@ export class LoginAttemptSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class MaterialSourceLinkSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'isPreferred', 'materialId', 'materialSourceId', 'sortOrder', 'updatedAt'] as const
+  $columns = MaterialSourceLinkSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare isPreferred: boolean
+  @column()
+  declare materialId: number
+  @column()
+  declare materialSourceId: number
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class MaterialSourceSchema extends BaseModel {
+  static $columns = ['createdAt', 'deletedAt', 'id', 'legacySourceId', 'name', 'normalizedUnit', 'normalizedUnitCostCents', 'provider', 'publicId', 'purchaseUnit', 'textileFamily', 'updatedAt'] as const
+  $columns = MaterialSourceSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare legacySourceId: string
+  @column()
+  declare name: string
+  @column()
+  declare normalizedUnit: string
+  @column()
+  declare normalizedUnitCostCents: number
+  @column()
+  declare provider: string
+  @column()
+  declare publicId: string
+  @column()
+  declare purchaseUnit: string
+  @column()
+  declare textileFamily: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class MaterialSchema extends BaseModel {
+  static $columns = ['comments', 'createdAt', 'deletedAt', 'id', 'legacyMaterialId', 'materialColor', 'materialUnit', 'materialUse', 'name', 'publicId', 'updatedAt'] as const
+  $columns = MaterialSchema.$columns
+  @column()
+  declare comments: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare legacyMaterialId: string
+  @column()
+  declare materialColor: string
+  @column()
+  declare materialUnit: string
+  @column()
+  declare materialUse: string
+  @column()
+  declare name: string
+  @column()
+  declare publicId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class ProductSchema extends BaseModel {
   static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'deletedAt', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productImageFileName', 'productImageStorageKey', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
   $columns = ProductSchema.$columns

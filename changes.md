@@ -1,47 +1,35 @@
-# Materials Route States and Preferred Source Attention
+# Materials Import Cleanup and Follow-Up Boundaries
 
-This slice completes issue 03 for the Materials feature. It keeps the lean Materials table from the prior issue, then makes the route resilient around list states and Preferred Source availability.
+This slice completes issue 04 for the Materials feature. It is documentation and tracker upkeep only: no runtime behavior changes were needed after the persisted API, lean table, route states, and Preferred Source attention states were already implemented in the earlier slices.
 
-## Start With The Contract
+## Start With The Tracker
 
-The Materials shared response shape now marks whether the Preferred Source needs attention:
+Read the completed issue at [.scratch/materials/issues/04-document-materials-import-cleanup-and-follow-ups.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/issues/04-document-materials-import-cleanup-and-follow-ups.md).
 
-- [packages/shared-types/src/materials.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/materials.ts)
-- [packages/shared-validation/src/materials.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/materials.ts)
+The issue now records the cleanup boundary directly: the first import/list only includes Materials whose linked Source IDs resolve to imported Sources. The current fixture keeps the example intentionally small and non-exhaustive. `MAT-999` is skipped because it references unresolved Source ID `SRC-MISSING`.
 
-`MaterialPreferredSourceSummary` now includes `needsAttention: boolean`. This keeps the Source warning as part of the API contract instead of making the web route infer Source state from hidden details.
+## Then Read The Parent Notes
 
-## Then Read The API Serializer
+The parent PRD notes were updated in [.scratch/materials/PRD.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/PRD.md).
 
-The API summary is serialized in [apps/api/app/modules/materials/materials_service.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_service.ts).
+Those notes preserve the rule future agents should keep intact: a listed Material needs a valid Preferred Source. Unresolved spreadsheet rows should be reconciled back to the source data before import rather than surfaced as draft Materials in this first list.
 
-The list query still includes soft-deleted Material Sources so a Material remains visible when its Preferred Source has been retired. The serializer now sets `preferredSource.needsAttention` from the Source `deletedAt` value. Cost still comes from the Preferred Source, and the endpoint still returns only the lean table summary.
+## Confirm The Import Evidence
 
-## Then Read The Materials Page
+The implementation evidence is in [apps/api/database/fixtures/materials_import_fixture.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/fixtures/materials_import_fixture.ts) and [apps/api/app/modules/materials/materials_importer.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_importer.ts).
 
-The route page is [apps/web/src/features/materials/materials-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/materials-page.tsx).
+The fixture has three valid Materials with resolved Sources and one unresolved example row. The importer skips a Material when any linked Source ID cannot be resolved, so the API starts from active, Source-backed Materials only.
 
-The route keeps the user-visible states expected by the issue:
+## Keep Follow-Ups Separate
 
-- loading while the list request is pending
-- error when the list cannot load
-- empty state when there are no active Materials
-- table state when active Materials exist
+The documentation keeps these deferred areas out of the first Materials slice:
 
-When `preferredSource.needsAttention` is true, the Preferred Source cell shows a compact `Source needs attention` badge under the Source name and provider. The row remains read-only: there are no Source delete, restore, edit, or Preferred Source change controls.
+- Source table/detail screens, Source technical fields, Source images, Preferred Source changes, and Source deletion warnings.
+- Supplies, Tools, Inventory, Inventory movement, and Bills of Materials.
+- Table search, filters, pagination, summary stats, dashboards, category charts, bulk actions, and URL-synced table state.
 
-The parent PRD still requires every listed Material to have a Preferred Source. This issue handles the read-only unavailable state as a soft-deleted Preferred Source; missing Preferred Source links remain invalid imported data, not a user-facing draft state.
+The temporary spreadsheet `En BOMs` column is also called out again as a spreadsheet filter, not an app domain concept.
 
-## End At The Tests
+## What Did Not Change
 
-The API coverage is in [apps/api/tests/functional/materials/list_materials.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/list_materials.spec.ts).
-
-It verifies normal Preferred Sources return `needsAttention: false`, and that a Material remains listed with `needsAttention: true` when its Preferred Source is soft-deleted.
-
-The web route coverage is in [apps/web/src/routes/-materials.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-materials.test.tsx).
-
-It covers loading, empty, and error states, then checks the Preferred Source attention row from the user's perspective: the Material stays visible, the warning appears, and no management buttons are exposed.
-
-## Still Out Of Scope
-
-This issue does not add Source deletion, Source restore, Preferred Source changes, Source detail, search, filters, pagination, dashboards, or Material mutation workflows.
+No code paths changed in this slice. The Materials API, web table, route states, and tests remain as implemented by issues 01 through 03.

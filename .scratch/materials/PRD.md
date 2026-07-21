@@ -174,3 +174,7 @@ Introduce a persisted Materials module rooted in the existing authenticated `Mat
 - The first slice should feel like a real operational page while staying intentionally narrow: persisted data, authenticated API, and a lean table.
 - The domain language fixed during design should remain stable in implementation: `Material`, `Material ID`, `Material Use`, `Material Color`, `Material Unit`, `Supply`, `Source`, `Textile Family`, and `Preferred Source`.
 - The current ADR for separating Materials and Supplies should be treated as the planning source of truth for this slice.
+- The first implementation fixture imports only Materials whose listed Source IDs resolve to imported Sources. In the current fixture, `MAT-999` is intentionally skipped because it references unresolved Source ID `SRC-MISSING`; this preserves the rule that listed Materials need a valid Preferred Source.
+- Deferred Source work remains separate from the first Materials list: Source table/detail screens, technical fields, Source images, Preferred Source changes, and Source deletion warnings should be planned as their own follow-up slices.
+- Deferred non-Material domains remain out of scope for this feature: Supplies, Tools, Inventory, Inventory movement, and Bills of Materials should not be folded into the textile Materials list.
+- Deferred table mechanics remain out of scope until there is a user need: search, filters, pagination, summary stats, dashboards, category charts, bulk actions, and URL-synced table state.
