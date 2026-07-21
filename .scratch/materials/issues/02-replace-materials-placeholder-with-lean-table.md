@@ -1,6 +1,6 @@
 # Replace the Materials placeholder with the lean table
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -28,3 +28,7 @@ This issue should not add create, update, delete, restore, Source detail, search
 ## Blocked by
 
 - .scratch/materials/issues/01-persist-imported-materials-and-sources.md
+
+## Comments
+
+Completed the authenticated `/app/materials` route replacement with a feature-local Materials API adapter, TanStack Query-backed table page, focused route tests, and compact lean columns backed by the persisted `GET /materials` API. The route intentionally does not expose create, edit, delete, restore, Source management, search, filters, pagination, summary stats, charts, dashboards, or bulk actions.

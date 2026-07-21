@@ -1,81 +1,64 @@
-# Persisted Materials API
+# Materials Table Route
 
-This slice establishes the first real Materials backend. It does not replace the Materials page placeholder yet. Instead, it creates the persisted Material/Source data shape and exposes a lean authenticated `GET /materials` API that the next UI issue can consume.
+This slice replaces the authenticated Materials placeholder with the first real Materials table. It consumes the persisted backend API from the prior issue and keeps the screen intentionally Material-first: one row per `Material`, with only a compact Preferred Source reference beside it.
 
-## Start with the shared contract
+## Start at the route
 
-The cross-boundary response types now live in [packages/shared-types/src/index.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/index.ts).
+The route file is [apps/web/src/routes/app.materials.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.materials.tsx).
 
-The new Materials contract is intentionally table-shaped:
+It stays thin. The route still owns only the TanStack Router file-route registration for `/app/materials`, then renders the feature page from the Materials module.
 
-- `MaterialSummary` represents one Material row, not one Source row.
-- `MaterialPreferredSourceSummary` exposes only the shallow Source reference needed by the first table.
-- `ListMaterialsResponse` wraps the list as `{ materials: [...] }`.
+## Then read the Materials API adapter
 
-The matching Zod schemas are in [packages/shared-validation/src/index.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/index.ts). They keep Material Use, Material Color, and the normalized Meter unit controlled at the API boundary.
+The web endpoint adapter is [apps/web/src/features/materials/api/endpoints.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/api/endpoints.ts).
 
-## Then read the persistence model
+`listMaterials()` calls `GET /materials` with the current bearer token, parses the response through the shared `listMaterialsResponseSchema`, and turns API error payloads into the same kind of user-facing error messages used by the Product endpoint adapters.
 
-The new Lucid models are:
+The query key lives in [apps/web/src/features/materials/query-keys.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/query-keys.ts). There is only one first-slice list query because search, filters, pagination, and deleted-record views are out of scope.
 
-- [apps/api/app/models/material.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material.ts)
-- [apps/api/app/models/material_source.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material_source.ts)
-- [apps/api/app/models/material_source_link.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material_source_link.ts)
+## Then read the page
 
-`Material` owns the textile identity: public `M-` ID, legacy spreadsheet Material ID, name, Material Color, Material Use, normalized Meter unit, comments, and soft deletion.
+The page is [apps/web/src/features/materials/materials-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/materials-page.tsx).
 
-`MaterialSource` owns vendor-facing purchasing context: public Source ID, legacy spreadsheet Source ID, provider, textile family, purchase unit, normalized unit cost, normalized Meter unit, and soft deletion.
+It reads the authenticated app session, loads the persisted Materials list with TanStack Query, and renders the user-visible states:
 
-`MaterialSourceLink` connects Materials to one or more Sources. The first imported link is marked as the Preferred Source, and any additional links become alternate Sources.
+- loading while the API request is pending
+- an API error message when the request fails
+- an empty state when there are no active Materials
+- the Materials table when active Materials are returned
 
-## Then follow the schema and import fixture
+The table columns are the lean issue contract:
 
-The database tables are created in [apps/api/database/migrations/1783420000000_create_materials_tables.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/migrations/1783420000000_create_materials_tables.ts).
+- Material ID
+- name
+- Material Color
+- Material Use
+- Material Unit
+- Preferred Source reference
+- derived cost
+- alternate Source count
+- compact comments
 
-The spreadsheet-shaped rows now live in [apps/api/database/fixtures/materials_import_fixture.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/fixtures/materials_import_fixture.ts).
+The Preferred Source cell shows only the Source name and provider. It does not expose Source technical fields, Source IDs, textile family, purchase unit, GSM, width, fiber, composition, finish, weave, or country of origin.
 
-That fixture includes three valid Materials and one unresolved spreadsheet Material. The unresolved row is deliberately skipped because it points at a missing Source, which keeps the first API list limited to Materials with valid linked Source data.
+Comments use a two-line clamp so imported migration context can remain visible without turning the page back into a spreadsheet-like layout.
 
-The fixture is loaded by [apps/api/database/seeders/materials_seeder.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/seeders/materials_seeder.ts). That keeps spreadsheet-derived business data refreshable through the importer/seeder path instead of locking it into migration history.
+## End at the tests
 
-## Then read the import routine
+The focused route spec is [apps/web/src/routes/-materials.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-materials.test.tsx).
 
-The reusable importer is [apps/api/app/modules/materials/materials_importer.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_importer.ts).
+It covers the route from the user perspective:
 
-It accepts imported row arrays, preserves legacy IDs internally, generates app-owned public IDs like `M-0001`, imports Sources first, skips Materials with unresolved Source links, and rebuilds each Material's Source links so the first listed Source becomes preferred. The focused tests call this importer directly with the fixture, so they verify the refreshable import path rather than relying on migration side effects.
+- `/app/materials` calls the persisted `/materials` API with the stored session token
+- the table renders one row per Material, not one row per Source
+- the visible column set matches the lean Material summary
+- Preferred Source context stays shallow
+- Source technical columns are absent
+- out-of-scope controls are absent
+- loading, empty, and error states render clearly
 
-## Then read the API service and route
-
-The list service is [apps/api/app/modules/materials/materials_service.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_service.ts).
-
-It loads active Materials only, resolves Preferred Source data, derives `derivedUnitCostCents` from the Preferred Source normalized cost, and counts alternate Sources from the remaining links. It does not expose legacy IDs, textile family, purchase unit, or other Source technical fields in the API response.
-
-The controller is [apps/api/app/modules/materials/controllers/materials_controller.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/controllers/materials_controller.ts), and the route is registered in [apps/api/start/routes.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/start/routes.ts) as `GET /materials`.
-
-The existing soft-delete helper in [apps/api/app/mixins/soft_delete.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/mixins/soft_delete.ts) now supports relation preloads that need to include deleted records. Materials still hide soft-deleted Materials by default, but a Material can remain visible if its Preferred Source is later soft-deleted.
-
-## End at tests and tracker
-
-The focused API spec is [apps/api/tests/functional/materials/list_materials.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/list_materials.spec.ts).
-
-It covers authentication, the lean summary contract, source-derived cost, alternate Source counts, skipped unresolved Source links, first-linked Preferred Source behavior, legacy ID preservation, soft-deleted Material exclusion, and soft-deleted Preferred Source visibility.
-
-The importer has its own functional coverage in [apps/api/tests/functional/materials/materials_importer.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/materials_importer.spec.ts).
-
-That spec keeps importer-specific behavior out of the route tests: valid import counts, unresolved Source skipping, legacy ID preservation, preferred Source ordering, idempotent re-imports, refreshed spreadsheet values, and soft-deleted Material/Source reconciliation without duplicate public IDs.
-
-The completed issue is [.scratch/materials/issues/01-persist-imported-materials-and-sources.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/issues/01-persist-imported-materials-and-sources.md).
-
-Verification run for this slice:
-
-- `pnpm --dir apps/api typecheck`
-- `pnpm --dir apps/api lint`
-- `pnpm lint`
-- `pnpm typecheck`
-- `CI=true NODE_ENV=test node ace.js test functional --files tests/functional/materials/materials_importer.spec.ts`
-- `CI=true NODE_ENV=test node ace.js test functional --files tests/functional/materials/list_materials.spec.ts`
-- `CI=true pnpm test`
+The completed issue is [.scratch/materials/issues/02-replace-materials-placeholder-with-lean-table.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/issues/02-replace-materials-placeholder-with-lean-table.md).
 
 ## Scope note
 
-This slice is backend persistence and API read behavior only. It does not add Materials create, update, delete, restore, import management, Source management, search, filtering, pagination, or the user-facing Materials table route.
+This slice does not add Materials create, edit, delete, restore, Source management, search, filters, pagination, summary stats, charts, dashboards, bulk actions, or URL-synced table state.
