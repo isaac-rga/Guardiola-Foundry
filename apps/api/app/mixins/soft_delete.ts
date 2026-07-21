@@ -40,7 +40,15 @@ export const SoftDelete = <T extends NormalizeConstructor<typeof BaseModel>>(Bas
       this: Model
     ): ModelQueryBuilderContract<Model> {
       const query = this.query() as ModelQueryBuilderContract<Model> & Record<string, boolean>
-      query[includeDeletedQueryFlag] = true
+
+      this.includeDeleted(query)
+
+      return query
+    }
+
+    static includeDeleted(query: unknown) {
+      const queryWithFlags = query as Record<string, boolean>
+      queryWithFlags[includeDeletedQueryFlag] = true
 
       return query
     }

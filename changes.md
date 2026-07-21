@@ -1,59 +1,81 @@
-# Product endpoint locality and shared transport helpers
+# Persisted Materials API
 
-This slice is the first step in the Product data cache refactor. It does not introduce Product data hooks yet. It moves the Product endpoint adapter to the Product feature area and extracts only the shared web API transport behavior that Product and auth already duplicated.
+This slice establishes the first real Materials backend. It does not replace the Materials page placeholder yet. Instead, it creates the persisted Material/Source data shape and exposes a lean authenticated `GET /materials` API that the next UI issue can consume.
 
-The Product list, create, edit, delete, and restore workflows are intended to behave exactly as before.
+## Start with the shared contract
 
-## Start with the new shared transport helper
+The cross-boundary response types now live in [packages/shared-types/src/index.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/index.ts).
 
-The shared transport behavior now lives in [apps/web/src/lib/api/transport.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/transport.ts).
+The new Materials contract is intentionally table-shaped:
 
-That file owns:
+- `MaterialSummary` represents one Material row, not one Source row.
+- `MaterialPreferredSourceSummary` exposes only the shallow Source reference needed by the first table.
+- `ListMaterialsResponse` wraps the list as `{ materials: [...] }`.
 
-- `resolveApiUrl`, including `VITE_API_URL` handling
-- `ensureTrailingSlash`, so absolute API base URLs compose consistently
-- `getResponseErrorMessage`, with endpoint-specific fallback text
+The matching Zod schemas are in [packages/shared-validation/src/index.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/index.ts). They keep Material Use, Material Color, and the normalized Meter unit controlled at the API boundary.
 
-This is intentionally narrow. It does not introduce a generic authenticated fetch wrapper, shared request builders, or schema parsing helpers.
+## Then read the persistence model
 
-## Then follow the auth adapter reuse
+The new Lucid models are:
 
-The auth adapter remains in [apps/web/src/lib/api/auth.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/auth.ts).
+- [apps/api/app/models/material.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material.ts)
+- [apps/api/app/models/material_source.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material_source.ts)
+- [apps/api/app/models/material_source_link.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/models/material_source_link.ts)
 
-It now imports `resolveApiUrl` and `getResponseErrorMessage` from the shared transport helper. Auth still owns its endpoint bodies, headers, request payload parsing, and response schema parsing. The fallback auth error copy remains local to the auth adapter.
+`Material` owns the textile identity: public `M-` ID, legacy spreadsheet Material ID, name, Material Color, Material Use, normalized Meter unit, comments, and soft deletion.
 
-## Next read the Product endpoint adapter in its feature home
+`MaterialSource` owns vendor-facing purchasing context: public Source ID, legacy spreadsheet Source ID, provider, textile family, purchase unit, normalized unit cost, normalized Meter unit, and soft deletion.
 
-Product endpoint calls now live in [apps/web/src/features/products/api/endpoints.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/api/endpoints.ts).
+`MaterialSourceLink` connects Materials to one or more Sources. The first imported link is marked as the Preferred Source, and any additional links become alternate Sources.
 
-That adapter still owns the Product-specific details:
+## Then follow the schema and import fixture
 
-- Product request and response schema parsing
-- explicit bearer auth headers
-- list query-string construction for `includeDeleted`
-- multipart `FormData` construction for Product image updates
-- endpoint-specific fallback messages
+The database tables are created in [apps/api/database/migrations/1783420000000_create_materials_tables.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/migrations/1783420000000_create_materials_tables.ts).
 
-The old generic [apps/web/src/lib/api/products.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/products.ts) file was removed because Product endpoints are no longer a generic web API concern.
+The spreadsheet-shaped rows now live in [apps/api/database/fixtures/materials_import_fixture.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/fixtures/materials_import_fixture.ts).
 
-## Then check the Product screen imports
+That fixture includes three valid Materials and one unresolved spreadsheet Material. The unresolved row is deliberately skipped because it points at a missing Source, which keeps the first API list limited to Materials with valid linked Source data.
 
-The Product screens now import endpoint functions from the Product feature API area:
+The fixture is loaded by [apps/api/database/seeders/materials_seeder.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/database/seeders/materials_seeder.ts). That keeps spreadsheet-derived business data refreshable through the importer/seeder path instead of locking it into migration history.
 
-- [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx)
-- [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx)
+## Then read the import routine
 
-The screens still own their current TanStack Query calls and cache updates. That is deliberate: Product data hooks are the next issue, not this one.
+The reusable importer is [apps/api/app/modules/materials/materials_importer.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_importer.ts).
 
-## End at the tracker and verification
+It accepts imported row arrays, preserves legacy IDs internally, generates app-owned public IDs like `M-0001`, imports Sources first, skips Materials with unresolved Source links, and rebuilds each Material's Source links so the first listed Source becomes preferred. The focused tests call this importer directly with the fixture, so they verify the refreshable import path rather than relying on migration side effects.
 
-The completed issue is [.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md).
+## Then read the API service and route
+
+The list service is [apps/api/app/modules/materials/materials_service.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_service.ts).
+
+It loads active Materials only, resolves Preferred Source data, derives `derivedUnitCostCents` from the Preferred Source normalized cost, and counts alternate Sources from the remaining links. It does not expose legacy IDs, textile family, purchase unit, or other Source technical fields in the API response.
+
+The controller is [apps/api/app/modules/materials/controllers/materials_controller.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/controllers/materials_controller.ts), and the route is registered in [apps/api/start/routes.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/start/routes.ts) as `GET /materials`.
+
+The existing soft-delete helper in [apps/api/app/mixins/soft_delete.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/mixins/soft_delete.ts) now supports relation preloads that need to include deleted records. Materials still hide soft-deleted Materials by default, but a Material can remain visible if its Preferred Source is later soft-deleted.
+
+## End at tests and tracker
+
+The focused API spec is [apps/api/tests/functional/materials/list_materials.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/list_materials.spec.ts).
+
+It covers authentication, the lean summary contract, source-derived cost, alternate Source counts, skipped unresolved Source links, first-linked Preferred Source behavior, legacy ID preservation, soft-deleted Material exclusion, and soft-deleted Preferred Source visibility.
+
+The importer has its own functional coverage in [apps/api/tests/functional/materials/materials_importer.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/materials_importer.spec.ts).
+
+That spec keeps importer-specific behavior out of the route tests: valid import counts, unresolved Source skipping, legacy ID preservation, preferred Source ordering, idempotent re-imports, refreshed spreadsheet values, and soft-deleted Material/Source reconciliation without duplicate public IDs.
+
+The completed issue is [.scratch/materials/issues/01-persist-imported-materials-and-sources.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/issues/01-persist-imported-materials-and-sources.md).
 
 Verification run for this slice:
 
-- `pnpm --dir apps/web test -- src/routes/-products.test.tsx`
-- `pnpm --dir apps/web typecheck`
+- `pnpm --dir apps/api typecheck`
+- `pnpm --dir apps/api lint`
+- `pnpm lint`
+- `pnpm typecheck`
+- `CI=true NODE_ENV=test node ace.js test functional --files tests/functional/materials/materials_importer.spec.ts`
+- `CI=true NODE_ENV=test node ace.js test functional --files tests/functional/materials/list_materials.spec.ts`
+- `CI=true pnpm test`
 
 ## Scope note
 
-This slice is a locality cleanup only. It does not change backend behavior, Product route behavior, cache ownership, Product visual list projection, optimistic updates, auth contracts, or Product API contracts.
+This slice is backend persistence and API read behavior only. It does not add Materials create, update, delete, restore, import management, Source management, search, filtering, pagination, or the user-facing Materials table route.
