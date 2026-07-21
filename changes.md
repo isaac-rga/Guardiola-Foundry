@@ -1,64 +1,47 @@
-# Materials Table Route
+# Materials Route States and Preferred Source Attention
 
-This slice replaces the authenticated Materials placeholder with the first real Materials table. It consumes the persisted backend API from the prior issue and keeps the screen intentionally Material-first: one row per `Material`, with only a compact Preferred Source reference beside it.
+This slice completes issue 03 for the Materials feature. It keeps the lean Materials table from the prior issue, then makes the route resilient around list states and Preferred Source availability.
 
-## Start at the route
+## Start With The Contract
 
-The route file is [apps/web/src/routes/app.materials.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/app.materials.tsx).
+The Materials shared response shape now marks whether the Preferred Source needs attention:
 
-It stays thin. The route still owns only the TanStack Router file-route registration for `/app/materials`, then renders the feature page from the Materials module.
+- [packages/shared-types/src/materials.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-types/src/materials.ts)
+- [packages/shared-validation/src/materials.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/packages/shared-validation/src/materials.ts)
 
-## Then read the Materials API adapter
+`MaterialPreferredSourceSummary` now includes `needsAttention: boolean`. This keeps the Source warning as part of the API contract instead of making the web route infer Source state from hidden details.
 
-The web endpoint adapter is [apps/web/src/features/materials/api/endpoints.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/api/endpoints.ts).
+## Then Read The API Serializer
 
-`listMaterials()` calls `GET /materials` with the current bearer token, parses the response through the shared `listMaterialsResponseSchema`, and turns API error payloads into the same kind of user-facing error messages used by the Product endpoint adapters.
+The API summary is serialized in [apps/api/app/modules/materials/materials_service.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/app/modules/materials/materials_service.ts).
 
-The query key lives in [apps/web/src/features/materials/query-keys.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/query-keys.ts). There is only one first-slice list query because search, filters, pagination, and deleted-record views are out of scope.
+The list query still includes soft-deleted Material Sources so a Material remains visible when its Preferred Source has been retired. The serializer now sets `preferredSource.needsAttention` from the Source `deletedAt` value. Cost still comes from the Preferred Source, and the endpoint still returns only the lean table summary.
 
-## Then read the page
+## Then Read The Materials Page
 
-The page is [apps/web/src/features/materials/materials-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/materials-page.tsx).
+The route page is [apps/web/src/features/materials/materials-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/materials/materials-page.tsx).
 
-It reads the authenticated app session, loads the persisted Materials list with TanStack Query, and renders the user-visible states:
+The route keeps the user-visible states expected by the issue:
 
-- loading while the API request is pending
-- an API error message when the request fails
-- an empty state when there are no active Materials
-- the Materials table when active Materials are returned
+- loading while the list request is pending
+- error when the list cannot load
+- empty state when there are no active Materials
+- table state when active Materials exist
 
-The table columns are the lean issue contract:
+When `preferredSource.needsAttention` is true, the Preferred Source cell shows a compact `Source needs attention` badge under the Source name and provider. The row remains read-only: there are no Source delete, restore, edit, or Preferred Source change controls.
 
-- Material ID
-- name
-- Material Color
-- Material Use
-- Material Unit
-- Preferred Source reference
-- derived cost
-- alternate Source count
-- compact comments
+The parent PRD still requires every listed Material to have a Preferred Source. This issue handles the read-only unavailable state as a soft-deleted Preferred Source; missing Preferred Source links remain invalid imported data, not a user-facing draft state.
 
-The Preferred Source cell shows only the Source name and provider. It does not expose Source technical fields, Source IDs, textile family, purchase unit, GSM, width, fiber, composition, finish, weave, or country of origin.
+## End At The Tests
 
-Comments use a two-line clamp so imported migration context can remain visible without turning the page back into a spreadsheet-like layout.
+The API coverage is in [apps/api/tests/functional/materials/list_materials.spec.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/api/tests/functional/materials/list_materials.spec.ts).
 
-## End at the tests
+It verifies normal Preferred Sources return `needsAttention: false`, and that a Material remains listed with `needsAttention: true` when its Preferred Source is soft-deleted.
 
-The focused route spec is [apps/web/src/routes/-materials.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-materials.test.tsx).
+The web route coverage is in [apps/web/src/routes/-materials.test.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/routes/-materials.test.tsx).
 
-It covers the route from the user perspective:
+It covers loading, empty, and error states, then checks the Preferred Source attention row from the user's perspective: the Material stays visible, the warning appears, and no management buttons are exposed.
 
-- `/app/materials` calls the persisted `/materials` API with the stored session token
-- the table renders one row per Material, not one row per Source
-- the visible column set matches the lean Material summary
-- Preferred Source context stays shallow
-- Source technical columns are absent
-- out-of-scope controls are absent
-- loading, empty, and error states render clearly
+## Still Out Of Scope
 
-The completed issue is [.scratch/materials/issues/02-replace-materials-placeholder-with-lean-table.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/materials/issues/02-replace-materials-placeholder-with-lean-table.md).
-
-## Scope note
-
-This slice does not add Materials create, edit, delete, restore, Source management, search, filters, pagination, summary stats, charts, dashboards, bulk actions, or URL-synced table state.
+This issue does not add Source deletion, Source restore, Preferred Source changes, Source detail, search, filters, pagination, dashboards, or Material mutation workflows.

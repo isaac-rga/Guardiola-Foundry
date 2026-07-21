@@ -59,6 +59,7 @@ test.group('Materials list', (group) => {
             provider: 'Atelier Supply',
             normalizedUnitCostCents: 2800,
             normalizedUnit: 'meter',
+            needsAttention: false,
           },
           derivedUnitCostCents: 2800,
           alternateSourceCount: 0,
@@ -96,6 +97,7 @@ test.group('Materials list', (group) => {
         provider: 'Casa Tessile',
         normalizedUnitCostCents: 4200,
         normalizedUnit: 'meter',
+        needsAttention: false,
       },
       derivedUnitCostCents: 4200,
       alternateSourceCount: 1,
@@ -191,6 +193,7 @@ test.group('Materials list', (group) => {
       .first()
 
     assert.equal(material.preferredSource.id, 'MS-0003')
+    assert.isTrue(material.preferredSource.needsAttention)
     assert.isNotNull(persistedSource?.deletedAt)
   })
 })

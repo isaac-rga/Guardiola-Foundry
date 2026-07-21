@@ -52,5 +52,6 @@ function serializePreferredSource(materialSource: MaterialSource): MaterialPrefe
     provider: materialSource.provider,
     normalizedUnitCostCents: materialSource.normalizedUnitCostCents,
     normalizedUnit: materialSource.normalizedUnit,
+    needsAttention: materialSource.deletedAt !== null,
   }
 }

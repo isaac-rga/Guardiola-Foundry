@@ -109,6 +109,9 @@ function MaterialRow({ material }: { material: MaterialSummary }) {
             {material.preferredSource.name}
           </p>
           <p className="text-xs leading-5 text-muted-foreground">{material.preferredSource.provider}</p>
+          {material.preferredSource.needsAttention ? (
+            <StatusBadge label="Source needs attention" tone="warning" />
+          ) : null}
         </div>
       </TableCell>
       <TableCell className="py-3 text-right align-top font-medium">

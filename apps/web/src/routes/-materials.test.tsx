@@ -45,6 +45,7 @@ describe('materials route', () => {
                 provider: 'Maison Textile',
                 normalizedUnitCostCents: 4200,
                 normalizedUnit: 'meter',
+                needsAttention: false,
               },
               derivedUnitCostCents: 4200,
               alternateSourceCount: 1,
@@ -63,6 +64,7 @@ describe('materials route', () => {
                 provider: 'Atelier Supply',
                 normalizedUnitCostCents: 875,
                 normalizedUnit: 'meter',
+                needsAttention: false,
               },
               derivedUnitCostCents: 875,
               alternateSourceCount: 0,
@@ -148,6 +150,7 @@ describe('materials route', () => {
                 provider: 'Lace House',
                 normalizedUnitCostCents: 3100,
                 normalizedUnit: 'meter',
+                needsAttention: false,
               },
               derivedUnitCostCents: 3100,
               alternateSourceCount: 0,
@@ -243,6 +246,64 @@ describe('materials route', () => {
     renderMaterialsRoute()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Materials service unavailable.')
+  })
+
+  it('keeps a Material visible when its Preferred Source needs attention', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse({
+          materials: [
+            {
+              id: 'M-0002',
+              name: 'Champagne Horsehair',
+              materialColor: 'champagne',
+              materialUse: 'structure',
+              materialUnit: 'meter',
+              preferredSource: {
+                id: 'MS-0003',
+                name: 'Horsehair Braid',
+                provider: 'Atelier Supply',
+                normalizedUnitCostCents: 875,
+                normalizedUnit: 'meter',
+                needsAttention: true,
+              },
+              derivedUnitCostCents: 875,
+              alternateSourceCount: 0,
+              comments: null,
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+
+    renderMaterialsRoute()
+
+    const attentionRow = (await screen.findByText('Source needs attention')).closest('tr')
+
+    expect(attentionRow).not.toBeNull()
+    expect(within(attentionRow!).getByText('Champagne Horsehair')).toBeInTheDocument()
+    expect(
+      within(attentionRow!).queryByRole('button', { name: /delete|restore|edit|change/i })
+    ).not.toBeInTheDocument()
   })
 })
 
