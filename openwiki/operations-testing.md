@@ -1,17 +1,17 @@
 ---
 type: Operations Guide
 title: Guardiola Foundry Operations and Testing
-description: Practical runbook for local development, database operations, quality checks, tests, and scheduled OpenWiki updates in the Guardiola Foundry monorepo.
-tags: [operations, testing, database, ci, openwiki]
+description: Practical runbook for local development, database operations, quality checks, tests, and change-specific verification in the Guardiola Foundry monorepo.
+tags: [operations, testing, database, runbook]
 ---
 
 # Guardiola Foundry Operations and Testing
 
-Use this page when changing code documented in [Architecture](architecture.md) or behavior described in [Workflows](workflows.md). Commands are defined in root `package.json` and app package files.
+Use this page when changing code documented in [Architecture](./architecture.md), behavior described in [Workflows](./workflows.md), or business rules summarized in [Domain Concepts](./domain.md). The [Source Map](./source-map.md) lists test and source file locations.
 
-## Local services
+## Local services and database
 
-The database is PostgreSQL 16 through `compose.yaml`. Use the repository scripts instead of raw Docker commands unless a task explicitly requires otherwise:
+Root scripts in `package.json` wrap Docker Compose and Adonis commands:
 
 ```bash
 pnpm db:up
@@ -19,45 +19,59 @@ pnpm db:status
 pnpm db:migrate
 pnpm db:rollback
 pnpm db:seed
+pnpm db:logs
 pnpm db:down
 ```
 
-The API test runner uses a dedicated `guardiola_foundry_test` database. README notes that fresh Docker volumes create it automatically; older local volumes may need the one-time manual `CREATE DATABASE guardiola_foundry_test OWNER guardiola_foundry` command.
+`compose.yaml` runs PostgreSQL 16 with database/user/password values suitable for local development. It mounts `docker/postgres/init`, and `README.md` notes the API test runner uses a dedicated `guardiola_foundry_test` database. Do not document or read live `.env` values; use `.env.example` files for setup shape only.
 
-## Running the app
+## Development commands
 
-```bash
-pnpm dev      # web + API
-pnpm dev:web  # Vite app only
-pnpm dev:api  # Adonis API only
-```
-
-The frontend runs at `http://localhost:5173`, the API at `http://localhost:3333`, and `GET /health` returns `{ "status": "ok" }` without checking Postgres.
-
-## Verification commands
-
-Root scripts recurse through workspaces where scripts exist:
+Root commands:
 
 ```bash
+pnpm dev
+pnpm dev:web
+pnpm dev:api
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
 
-`apps/api` uses ESLint, TypeScript, Adonis build/test commands, and Japa functional tests. `apps/web` uses Oxlint, TanStack Router generation during build/typecheck, Vitest, React Testing Library, and jsdom. The shared packages currently participate through package scripts and TypeScript contracts consumed by both apps.
+App-specific commands include `pnpm --dir apps/web test`, `pnpm --dir apps/web typecheck`, `pnpm --dir apps/api test`, and `pnpm --dir apps/api typecheck`. The web build/typecheck generates TanStack routes first. The API test bootstrap migrates the PostgreSQL test database and starts the HTTP server for functional suites.
 
-## Product test anchors
+## Change-specific verification
 
-For [Product management workflows](workflows.md#product-management-workflows), start with:
+Use focused tests first, then broader checks when the slice is stable.
 
-- `apps/api/tests/functional/products/create_products.spec.ts` for API contract behavior: creation defaults, duplicate-name permissiveness, edit fields, image upload/removal, soft-delete filtering, include-deleted admin behavior, restore permissions, and auth failures.
-- `apps/web/src/routes/-products.test.tsx` for route-level UI behavior: create dialog, duplicate warnings, filtering, edit page, unsaved-change blocking, delete feedback, deleted Product read-only state, and restore UI.
+- Auth/session changes: `apps/api/tests/functional/auth/sign_in.spec.ts`, `apps/web/src/routes/-sign-in.test.tsx`, and `apps/web/src/routes/-app.test.tsx`.
+- Product API changes: `apps/api/tests/functional/products/create_products.spec.ts`.
+- Product UI or endpoint adapter changes: `apps/web/src/routes/-products.test.tsx` plus web typecheck.
+- Materials API/list behavior: `apps/api/tests/functional/materials/list_materials.spec.ts`.
+- Materials import behavior: `apps/api/tests/functional/materials/materials_importer.spec.ts`.
+- Materials UI behavior: `apps/web/src/routes/-materials.test.tsx`.
+- Shared contract changes: update both shared packages and run relevant API functional tests, web route tests, `pnpm typecheck`, and `pnpm test` where feasible.
 
-When changing shared Product types or validation, update API and web tests together because [Architecture](architecture.md#shared-contracts) uses shared schemas on both sides.
+Recent `changes.md` snapshots show the expected style for verification notes: list focused commands, broader commands, and any environment limitation. If typecheck or install is blocked by registry or environment access, record it rather than claiming a clean run.
 
-## Documentation and OpenWiki updates
+## Data and migration notes
 
-The scheduled OpenWiki workflow in `.github/workflows/openwiki-update.yml` installs OpenWiki and runs `openwiki code --update --print`, then opens a PR. It uses OpenRouter and LangSmith environment variables by name; do not copy secret values into documentation or chat.
+- `apps/api/database/schema.ts` is generated by migrations; do not hand-edit it.
+- Product image files are stored under the API app temp product-image path by `products_service.ts`; production storage is not yet abstracted.
+- Materials fixture data is intentionally small and non-exhaustive. The current fixture has three valid Materials and one unresolved row that should remain skipped unless source data is cleaned.
+- Materials and Sources preserve legacy spreadsheet IDs internally, but API/web summaries use app-owned public IDs.
 
-Generated OpenWiki content belongs under `openwiki/`. `openwiki/INSTRUCTIONS.md` is user-authored control metadata and should not be rewritten during normal update runs. The workflow PR includes `openwiki`, `AGENTS.md`, `CLAUDE.md`, and the workflow file so agent context can evolve with the generated wiki.
+## Operational watchouts
+
+- The root `README.md` has useful setup commands. Prefer current tests/source for detailed implemented scope.
+- Admin-only behavior currently matters for Product restore and include-deleted Product lists. Most other authenticated endpoints accept any valid active user session.
+- `SoftDelete` hides deleted records by default. If a query unexpectedly misses Products, Materials, or Sources, confirm whether `queryWithDeleted()` or `includeDeleted()` is intentionally required.
+- Feature endpoint adapters parse API responses with shared Zod schemas. A backend response shape change can fail in the web adapter even if TypeScript compiles.
+- Materials table scope is intentionally narrow. Do not add Source management, search/filter/pagination, or mutation controls without returning to the Materials PRD and backlog in [Quickstart](./quickstart.md#backlog).
+
+## Documentation maintenance
+
+The generated wiki lives under `openwiki/`. `/openwiki/INSTRUCTIONS.md` is user-authored control metadata and should not be rewritten during normal documentation runs. Directory `index.md` files are generated deterministically; do not hand-maintain them.
+
+When updating the wiki after code changes, inspect `/openwiki/quickstart.md` first, then update the smallest set of concept pages. Keep meaningful links between concepts: for example, [Workflows](./workflows.md) should link to the [Architecture](./architecture.md) that explains boundaries and the [Domain Concepts](./domain.md) that constrain behavior.
