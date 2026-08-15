@@ -97,15 +97,67 @@ A non-textile production input that may be referenced by a Bill of Materials, su
 _Avoid_: Material, Tool, Source, Item
 
 **Source**:
-A vendor-specific offering used to purchase a Material or Supply. A Source captures purchasing, financial, vendor, and technical information for an offering, and is distinct from the Material or Supply it can provide. Multiple Sources may provide the same Material, and one Source may provide multiple Material Colors when the financial and technical specifications are otherwise the same. Material Sources and Supply Sources may diverge later if their fields or workflows become meaningfully different.
+A vendor-specific offering used to purchase a Material or Supply. A Source captures one stable commercial and technical specification; differences in vendor SKU, purchase presentation, price basis, or relevant technical specification identify separate Sources, while one Source may offer multiple Vendor Shades that supply separate single-color Materials.
 _Avoid_: Sourcing, Material, Supply, Vendor
+
+**Source ID**:
+The app-owned stable sequential identifier used to route and operate on a Source, currently using the `S-0001` convention independently of spreadsheet order. It is distinct from optional legacy spreadsheet provenance; the prefix may be revisited if Source later separates into Material Source and Supply Source concepts.
+_Avoid_: Legacy Source ID, Vendor SKU, Material ID
+
+**Vendor**:
+The organization that offers a Source for purchase. Vendor is distinct from the Source offering itself, even while Vendor identity is recorded by name rather than managed as a separate catalog.
+_Avoid_: Source, Provider, Manufacturer
+
+**Source Status**:
+The purchasing availability of a Source, limited to `Active` or `Retired`. A Retired Source is unavailable for new purchasing decisions but remains part of historical Material relationships and may be restored.
+_Avoid_: Deleted Source, Source Lifecycle
+
+**Unlinked Source**:
+An otherwise valid Source that is not currently linked to a Material. Unlinked describes the Source's relationship state, not its completeness or Source Status.
+_Avoid_: Draft Source, Inactive Source
+
+**Vendor Shade**:
+A vendor-defined color name or code offered by a Source. A Source may offer multiple Vendor Shades, and each Material–Source relationship may identify the applicable Vendor Shade when the Vendor provides one.
+_Avoid_: Material Color, Source Color, Color Variant
+
+**Purchase Presentation**:
+The physical form in which a Source is purchased, such as a Roll or Piece. A fixed piece length is recorded separately when the presentation has one.
+_Avoid_: Purchase Unit, Minimum Purchase Quantity, Package Size
+
+**Purchase Unit**:
+The unit in which a Vendor prices and sells a Source, currently Meter or Yard. It is distinct from the Source's Purchase Presentation and the Material's normalized Meter unit.
+_Avoid_: Material Unit, Purchase Presentation
+
+**Minimum Purchase Quantity**:
+The smallest quantity of a Source that the Vendor permits in one purchase, measured in the Source's Purchase Unit. It is distinct from a fixed piece length or the quantity eventually ordered.
+_Avoid_: Piece Length, Order Quantity, Purchase Presentation
+
+**Vendor Currency**:
+The USD or MXN currency in which a Vendor quotes a Source's purchase price. Vendor Currency is preserved even when the Source is converted to a common cost basis.
+_Avoid_: Base Currency, Display Currency
+
+**Currency Conversion Rate**:
+The single global `USD:MXN` rate used as the application's common currency-conversion assumption; the reciprocal provides the `MXN:USD` rate. It has an Effective Date and is shared across Sources rather than owned by an individual Source.
+_Avoid_: Source Exchange Rate, Vendor Rate
+
+**Landed Unit Cost**:
+The MXN cost per meter of acquiring a Source after applicable shipping, import duties, and taxes. It is distinct from the Vendor purchase price and provides the Material cost basis through the Preferred Source.
+_Avoid_: Purchase Price, Vendor Price, Material Cost
+
+**Cost needs attention**:
+The condition of an Active Source whose Landed Unit Cost is not yet recorded. The Source remains a valid catalog record but cannot become a Preferred Source until the cost is supplied.
+_Avoid_: Draft Source, Invalid Source, Unknown Vendor Price
+
+**Data needs attention**:
+The non-blocking condition of a Source with missing optional catalog information. It signals that the Source can be enriched without making the record invalid or preventing Material relationships.
+_Avoid_: Invalid Source, Draft Source, Cost needs attention
 
 **Textile Family**:
 The controlled textile classification for a Source, such as tulle, mesh, crepe, satin, organza, or interfacing. Textile Family belongs to the Source rather than the Material.
 _Avoid_: Material Use, Source Subcategory, Material Category
 
 **Preferred Source**:
-The Source selected as the default purchasing and cost basis for a Material. A Material can have alternate Sources, but its Preferred Source provides the cost shown and used for that Material unless changed. Material cost is derived from the Preferred Source rather than copied onto the Material.
+The one linked Active Source with a recorded Landed Unit Cost selected as the default purchasing and cost basis for an Active Material. Selecting a new Preferred Source makes the former one an alternate; an Active Material always has exactly one Preferred Source.
 _Avoid_: Primary Vendor, Default Supplier
 
 **Inventory**:
