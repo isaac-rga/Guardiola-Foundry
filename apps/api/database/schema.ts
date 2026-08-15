@@ -85,7 +85,7 @@ export class MaterialSourceSchema extends BaseModel {
   @column({ isPrimary: true })
   declare id: number
   @column()
-  declare legacySourceId: string
+  declare legacySourceId: string | null
   @column()
   declare name: string
   @column()

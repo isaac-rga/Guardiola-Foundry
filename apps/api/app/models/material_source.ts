@@ -14,7 +14,7 @@ export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   declare publicId: string
 
   @column({ columnName: 'legacy_source_id' })
-  declare legacySourceId: string
+  declare legacySourceId: string | null
 
   @column({
     prepare: (value: string) => value.trim(),

@@ -22,7 +22,6 @@ export interface ImportedMaterialRow {
 }
 
 const MATERIAL_PUBLIC_ID_PREFIX = 'M-'
-const SOURCE_PUBLIC_ID_PREFIX = 'MS-'
 
 export async function importMaterialsFromRows(
   sourceRows: ImportedMaterialSourceRow[],
@@ -30,10 +29,10 @@ export async function importMaterialsFromRows(
 ) {
   const sourcesByLegacyId = new Map<string, MaterialSource>()
 
-  for (const [sourceIndex, sourceRow] of sourceRows.entries()) {
-    const source = await upsertSource(sourceRow, sourceIndex)
+  for (const sourceRow of sourceRows) {
+    const source = await upsertSource(sourceRow)
 
-    sourcesByLegacyId.set(source.legacySourceId, source)
+    sourcesByLegacyId.set(sourceRow.legacySourceId, source)
   }
 
   let importedCount = 0
@@ -71,13 +70,11 @@ export async function importMaterialsFromRows(
   }
 }
 
-async function upsertSource(sourceRow: ImportedMaterialSourceRow, sourceIndex: number) {
+async function upsertSource(sourceRow: ImportedMaterialSourceRow) {
   const source = await MaterialSource.queryWithDeleted()
     .where('legacySourceId', sourceRow.legacySourceId)
     .first()
   const sourceAttributes = {
-    publicId: sourcePublicIdForIndex(sourceIndex),
-    legacySourceId: sourceRow.legacySourceId,
     name: sourceRow.name,
     provider: sourceRow.provider,
     textileFamily: sourceRow.textileFamily,
@@ -87,7 +84,10 @@ async function upsertSource(sourceRow: ImportedMaterialSourceRow, sourceIndex: n
   }
 
   if (!source) {
-    return MaterialSource.create(sourceAttributes)
+    return MaterialSource.create({
+      legacySourceId: sourceRow.legacySourceId,
+      ...sourceAttributes,
+    })
   }
 
   source.merge(sourceAttributes)
@@ -122,8 +122,4 @@ async function upsertMaterial(materialRow: ImportedMaterialRow, materialIndex: n
 
 function materialPublicIdForIndex(index: number) {
   return `${MATERIAL_PUBLIC_ID_PREFIX}${(index + 1).toString().padStart(4, '0')}`
-}
-
-function sourcePublicIdForIndex(index: number) {
-  return `${SOURCE_PUBLIC_ID_PREFIX}${(index + 1).toString().padStart(4, '0')}`
 }

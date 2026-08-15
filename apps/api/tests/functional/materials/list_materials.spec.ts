@@ -54,7 +54,7 @@ test.group('Materials list', (group) => {
           materialUse: 'structure',
           materialUnit: 'meter',
           preferredSource: {
-            id: 'MS-0003',
+            id: 'S-0003',
             name: 'Champagne Structure Satin',
             provider: 'Atelier Supply',
             normalizedUnitCostCents: 2800,
@@ -92,7 +92,7 @@ test.group('Materials list', (group) => {
       materialUse: 'base-fabric',
       materialUnit: 'meter',
       preferredSource: {
-        id: 'MS-0001',
+        id: 'S-0001',
         name: 'Italian Silk Crepe',
         provider: 'Casa Tessile',
         normalizedUnitCostCents: 4200,
@@ -174,7 +174,7 @@ test.group('Materials list', (group) => {
     client,
   }) => {
     const session = await authenticateAs(client, 'admin')
-    const source = await MaterialSource.findByOrFail('publicId', 'MS-0003')
+    const source = await MaterialSource.findByOrFail('publicId', 'S-0003')
 
     await source.softDelete()
 
@@ -189,10 +189,10 @@ test.group('Materials list', (group) => {
       .materials.find((summary: { id: string }) => summary.id === 'M-0002')
 
     const persistedSource = await MaterialSource.queryWithDeleted()
-      .where('publicId', 'MS-0003')
+      .where('publicId', 'S-0003')
       .first()
 
-    assert.equal(material.preferredSource.id, 'MS-0003')
+    assert.equal(material.preferredSource.id, 'S-0003')
     assert.isTrue(material.preferredSource.needsAttention)
     assert.isNotNull(persistedSource?.deletedAt)
   })
@@ -224,4 +224,5 @@ async function clearMaterialsData() {
   await db.from('material_source_links').delete()
   await db.from('materials').delete()
   await db.from('material_sources').delete()
+  await db.rawQuery('ALTER SEQUENCE material_source_public_id_seq RESTART WITH 1')
 }

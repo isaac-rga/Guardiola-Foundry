@@ -40,7 +40,7 @@ describe('materials route', () => {
               materialUse: 'base-fabric',
               materialUnit: 'meter',
               preferredSource: {
-                id: 'MS-0001',
+                id: 'S-0001',
                 name: 'Silk Crepe 40mm',
                 provider: 'Maison Textile',
                 normalizedUnitCostCents: 4200,
@@ -59,7 +59,7 @@ describe('materials route', () => {
               materialUse: 'structure',
               materialUnit: 'meter',
               preferredSource: {
-                id: 'MS-0003',
+                id: 'S-0003',
                 name: 'Horsehair Braid',
                 provider: 'Atelier Supply',
                 normalizedUnitCostCents: 875,
@@ -115,7 +115,7 @@ describe('materials route', () => {
 
     expect(within(table).getByText('Champagne Horsehair')).toBeInTheDocument()
     expect(within(table).getByText('No comments')).toBeInTheDocument()
-    expect(screen.queryByText('MS-0001')).not.toBeInTheDocument()
+    expect(screen.queryByText('S-0001')).not.toBeInTheDocument()
   })
 
   it('omits Source technical fields and out-of-scope table controls', async () => {
@@ -145,7 +145,7 @@ describe('materials route', () => {
               materialUse: 'lace',
               materialUnit: 'meter',
               preferredSource: {
-                id: 'MS-0004',
+                id: 'S-0004',
                 name: 'Chantilly Lace',
                 provider: 'Lace House',
                 normalizedUnitCostCents: 3100,
@@ -275,7 +275,7 @@ describe('materials route', () => {
               materialUse: 'structure',
               materialUnit: 'meter',
               preferredSource: {
-                id: 'MS-0003',
+                id: 'S-0003',
                 name: 'Horsehair Braid',
                 provider: 'Atelier Supply',
                 normalizedUnitCostCents: 875,
