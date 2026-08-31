@@ -136,9 +136,7 @@ test.group('Materials list', (group) => {
     )
   })
 
-  test('uses the first linked Source as Preferred Source and counts alternates', async ({
-    assert,
-  }) => {
+  test('uses the declared Preferred Source and counts alternates', async ({ assert }) => {
     const material = await Material.query()
       .where('publicId', 'M-0001')
       .preload('sourceLinks', (sourceLinkQuery) => {

@@ -1,16 +1,24 @@
 import Material from '#models/material'
-import MaterialSource from '#models/material_source'
 import MaterialSourceLink from '#models/material_source_link'
+import {
+  importSourceCatalogRows,
+  type ImportedSourceCatalogRow,
+  type SourceImportExclusion,
+} from '#modules/sources/source_catalog_importer'
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type { MaterialColor, MaterialUse } from '@guardiola-foundry/shared-types'
 
-export interface ImportedMaterialSourceRow {
-  legacySourceId: string
-  name: string
-  provider: string
-  textileFamily: string
-  purchaseUnit: string
-  normalizedUnitCostCents: number
+export type ImportedMaterialSourceRow = ImportedSourceCatalogRow
+
+interface MaterialImportExclusion {
+  legacyId: string
+  recordType: 'Material'
+  invalidFields: string[]
+  correctiveGuidance: string
 }
+
+export type ImportExclusion = SourceImportExclusion | MaterialImportExclusion
 
 export interface ImportedMaterialRow {
   legacyMaterialId: string
@@ -18,7 +26,10 @@ export interface ImportedMaterialRow {
   materialColor: MaterialColor
   materialUse: MaterialUse
   comments: string | null
-  legacySourceIds: string[]
+  sourceLinks: Array<{
+    legacySourceId: string
+    isPreferred: boolean
+  }>
 }
 
 const MATERIAL_PUBLIC_ID_PREFIX = 'M-'
@@ -27,77 +38,81 @@ export async function importMaterialsFromRows(
   sourceRows: ImportedMaterialSourceRow[],
   materialRows: ImportedMaterialRow[]
 ) {
-  const sourcesByLegacyId = new Map<string, MaterialSource>()
-
-  for (const sourceRow of sourceRows) {
-    const source = await upsertSource(sourceRow)
-
-    sourcesByLegacyId.set(sourceRow.legacySourceId, source)
-  }
+  const { report: sourceReport, sourcesByLegacyId } = await importSourceCatalogRows(sourceRows)
+  const exclusions: ImportExclusion[] = [...sourceReport.exclusions]
 
   let importedCount = 0
   let skippedCount = 0
 
   for (const materialRow of materialRows) {
-    const linkedSources = materialRow.legacySourceIds.map((legacySourceId) =>
-      sourcesByLegacyId.get(legacySourceId)
-    )
+    const linkedSources = materialRow.sourceLinks.map((sourceLink) => ({
+      ...sourceLink,
+      source: sourcesByLegacyId.get(sourceLink.legacySourceId),
+    }))
+    const preferredLinks = linkedSources.filter((sourceLink) => sourceLink.isPreferred)
+    const hasInvalidSourceLink = linkedSources.some((sourceLink) => !sourceLink.source)
+    const hasInvalidPreferredSource =
+      preferredLinks.length !== 1 ||
+      !preferredLinks[0]?.source ||
+      preferredLinks[0].source.sourceStatus !== 'active' ||
+      preferredLinks[0].source.landedUnitCostCents === null
 
-    if (linkedSources.some((source) => !source)) {
+    if (hasInvalidSourceLink || hasInvalidPreferredSource) {
+      const invalidFields: string[] = []
+
+      if (hasInvalidSourceLink) invalidFields.push('sourceLinks')
+      if (hasInvalidPreferredSource) invalidFields.push('preferredSource')
+
+      exclusions.push({
+        legacyId: materialRow.legacyMaterialId,
+        recordType: 'Material',
+        invalidFields,
+        correctiveGuidance:
+          'Declare exactly one valid Preferred Source in the source workbook before rerunning the import.',
+      })
       skippedCount += 1
       continue
     }
 
-    const material = await upsertMaterial(materialRow, importedCount)
+    await db.transaction(async (trx) => {
+      const material = await upsertMaterial(materialRow, importedCount, trx)
 
-    await MaterialSourceLink.query().where('materialId', material.id).delete()
+      await MaterialSourceLink.query({ client: trx }).where('materialId', material.id).delete()
 
-    for (const [linkIndex, source] of linkedSources.entries()) {
-      await MaterialSourceLink.create({
-        materialId: material.id,
-        materialSourceId: source!.id,
-        sortOrder: linkIndex + 1,
-        isPreferred: linkIndex === 0,
-      })
-    }
+      for (const [linkIndex, sourceLink] of linkedSources.entries()) {
+        await MaterialSourceLink.create(
+          {
+            materialId: material.id,
+            materialSourceId: sourceLink.source!.id,
+            sortOrder: linkIndex + 1,
+            isPreferred: sourceLink.isPreferred,
+          },
+          { client: trx }
+        )
+      }
+    })
 
     importedCount += 1
   }
 
   return {
+    successful: exclusions.length === 0,
+    importedSourceCount: sourceReport.importedSourceCount,
+    ignoredSourceCount: sourceReport.ignoredSourceCount,
     importedCount,
     skippedCount,
+    exclusions,
   }
 }
 
-async function upsertSource(sourceRow: ImportedMaterialSourceRow) {
-  const source = await MaterialSource.queryWithDeleted()
-    .where('legacySourceId', sourceRow.legacySourceId)
-    .first()
-  const sourceAttributes = {
-    name: sourceRow.name,
-    provider: sourceRow.provider,
-    textileFamily: sourceRow.textileFamily,
-    purchaseUnit: sourceRow.purchaseUnit,
-    normalizedUnitCostCents: sourceRow.normalizedUnitCostCents,
-    normalizedUnit: 'meter' as const,
-  }
-
-  if (!source) {
-    return MaterialSource.create({
-      legacySourceId: sourceRow.legacySourceId,
-      ...sourceAttributes,
-    })
-  }
-
-  source.merge(sourceAttributes)
-  await source.save()
-
-  return source
-}
-
-async function upsertMaterial(materialRow: ImportedMaterialRow, materialIndex: number) {
-  const material = await Material.queryWithDeleted()
+async function upsertMaterial(
+  materialRow: ImportedMaterialRow,
+  materialIndex: number,
+  trx: TransactionClientContract
+) {
+  const materialQuery = Material.query({ client: trx })
+  Material.includeDeleted(materialQuery)
+  const material = await materialQuery
     .where('legacyMaterialId', materialRow.legacyMaterialId)
     .first()
   const materialAttributes = {
@@ -111,7 +126,7 @@ async function upsertMaterial(materialRow: ImportedMaterialRow, materialIndex: n
   }
 
   if (!material) {
-    return Material.create(materialAttributes)
+    return Material.create(materialAttributes, { client: trx })
   }
 
   material.merge(materialAttributes)

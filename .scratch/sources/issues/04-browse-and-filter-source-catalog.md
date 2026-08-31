@@ -7,6 +7,7 @@
 **Status:** ready-for-agent
 
 - [ ] Materials and Sources appear as sibling views while preserving their distinct row identities.
+- [ ] Source controlled values and public contracts are organized by domain in `packages/shared-types` and `packages/shared-validation`; API and web consume that single definition without redeclaring Textile Family, Purchase Presentation, Purchase Unit, Vendor Currency, or Source Status locally.
 - [ ] The Source list API returns a table-shaped projection rather than the complete technical Source payload.
 - [ ] Active Sources, including Unlinked Sources, appear by default and are ordered by Source Name then Vendor.
 - [ ] Search performs case-insensitive matching only against Source Name and Vendor.

@@ -76,32 +76,46 @@ export class MaterialSourceLinkSchema extends BaseModel {
 }
 
 export class MaterialSourceSchema extends BaseModel {
-  static $columns = ['createdAt', 'deletedAt', 'id', 'legacySourceId', 'name', 'normalizedUnit', 'normalizedUnitCostCents', 'provider', 'publicId', 'purchaseUnit', 'textileFamily', 'updatedAt'] as const
+  static $columns = ['createdAt', 'deletedAt', 'fixedPieceLength', 'id', 'landedUnitCostCents', 'legacySourceId', 'minimumPurchaseQuantity', 'name', 'normalizedUnit', 'priceDate', 'publicId', 'purchasePresentation', 'purchasePriceCents', 'purchaseUnit', 'sourceStatus', 'textileFamily', 'updatedAt', 'vendor', 'vendorCurrency'] as const
   $columns = MaterialSourceSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column.dateTime()
   declare deletedAt: DateTime | null
+  @column()
+  declare fixedPieceLength: string | null
   @column({ isPrimary: true })
   declare id: number
   @column()
+  declare landedUnitCostCents: number | null
+  @column()
   declare legacySourceId: string | null
+  @column()
+  declare minimumPurchaseQuantity: string | null
   @column()
   declare name: string
   @column()
   declare normalizedUnit: string
-  @column()
-  declare normalizedUnitCostCents: number
-  @column()
-  declare provider: string
+  @column.date()
+  declare priceDate: DateTime | null
   @column()
   declare publicId: string
   @column()
+  declare purchasePresentation: string | null
+  @column()
+  declare purchasePriceCents: number | null
+  @column()
   declare purchaseUnit: string
+  @column()
+  declare sourceStatus: string
   @column()
   declare textileFamily: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column()
+  declare vendor: string
+  @column()
+  declare vendorCurrency: string | null
 }
 
 export class MaterialSchema extends BaseModel {

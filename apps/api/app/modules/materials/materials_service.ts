@@ -46,11 +46,15 @@ function serializeMaterialSummary(material: Material): MaterialSummary {
 }
 
 function serializePreferredSource(materialSource: MaterialSource): MaterialPreferredSourceSummary {
+  if (materialSource.landedUnitCostCents === null) {
+    throw new Error(`Preferred Source ${materialSource.publicId} requires Landed Unit Cost.`)
+  }
+
   return {
     id: materialSource.publicId,
     name: materialSource.name,
-    provider: materialSource.provider,
-    normalizedUnitCostCents: materialSource.normalizedUnitCostCents,
+    provider: materialSource.vendor,
+    normalizedUnitCostCents: materialSource.landedUnitCostCents,
     normalizedUnit: materialSource.normalizedUnit,
     needsAttention: materialSource.deletedAt !== null,
   }

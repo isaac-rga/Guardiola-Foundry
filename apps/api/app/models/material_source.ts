@@ -5,6 +5,13 @@ import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import type { MaterialUnit } from '@guardiola-foundry/shared-types'
+import type {
+  PurchasePresentation,
+  PurchaseUnit,
+  SourceStatus,
+  TextileFamily,
+  VendorCurrency,
+} from '#modules/sources/source_catalog'
 
 export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   @column({ isPrimary: true })
@@ -24,16 +31,43 @@ export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   @column({
     prepare: (value: string) => value.trim(),
   })
-  declare provider: string
+  declare vendor: string
 
   @column({ columnName: 'textile_family' })
-  declare textileFamily: string
+  declare textileFamily: TextileFamily
 
   @column({ columnName: 'purchase_unit' })
-  declare purchaseUnit: string
+  declare purchaseUnit: PurchaseUnit
 
-  @column({ columnName: 'normalized_unit_cost_cents' })
-  declare normalizedUnitCostCents: number
+  @column({ columnName: 'purchase_presentation' })
+  declare purchasePresentation: PurchasePresentation | null
+
+  @column({
+    columnName: 'fixed_piece_length',
+    consume: (value: string | null) => (value === null ? null : Number(value)),
+  })
+  declare fixedPieceLength: number | null
+
+  @column({
+    columnName: 'minimum_purchase_quantity',
+    consume: (value: string | null) => (value === null ? null : Number(value)),
+  })
+  declare minimumPurchaseQuantity: number | null
+
+  @column({ columnName: 'purchase_price_cents' })
+  declare purchasePriceCents: number | null
+
+  @column.date({ columnName: 'price_date' })
+  declare priceDate: DateTime | null
+
+  @column({ columnName: 'vendor_currency' })
+  declare vendorCurrency: VendorCurrency | null
+
+  @column({ columnName: 'landed_unit_cost_cents' })
+  declare landedUnitCostCents: number | null
+
+  @column({ columnName: 'source_status' })
+  declare sourceStatus: SourceStatus
 
   @column({ columnName: 'normalized_unit' })
   declare normalizedUnit: MaterialUnit
