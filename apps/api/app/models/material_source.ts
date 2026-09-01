@@ -1,4 +1,5 @@
 import MaterialSourceLink from '#models/material_source_link'
+import VendorShade from '#modules/sources/models/vendor_shade'
 import { SoftDelete } from '#mixins/soft_delete'
 import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
@@ -72,6 +73,60 @@ export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   @column({ columnName: 'normalized_unit' })
   declare normalizedUnit: MaterialUnit
 
+  @column({ columnName: 'vendor_sku' })
+  declare vendorSku: string | null
+
+  @column()
+  declare url: string | null
+
+  @column()
+  declare description: string | null
+
+  @column()
+  declare manufacturer: string | null
+
+  @column()
+  declare fiber: string | null
+
+  @column()
+  declare composition: string | null
+
+  @column({
+    columnName: 'gsm_grams_per_square_meter',
+    consume: (value: string | null) => (value === null ? null : Number(value)),
+  })
+  declare gsmGramsPerSquareMeter: number | null
+
+  @column({
+    columnName: 'width_centimeters',
+    consume: (value: string | null) => (value === null ? null : Number(value)),
+  })
+  declare widthCentimeters: number | null
+
+  @column()
+  declare finish: string | null
+
+  @column()
+  declare weave: string | null
+
+  @column({ columnName: 'presentation_notes' })
+  declare presentationNotes: string | null
+
+  @column({ columnName: 'country_of_origin' })
+  declare countryOfOrigin: string | null
+
+  @column()
+  declare comments: string | null
+
+  @column({ columnName: 'estimated_shipping_usd_per_kilogram_cents' })
+  declare estimatedShippingUsdPerKilogramCents: number | null
+
+  @column({
+    columnName: 'igi_percentage',
+    consume: (value: string | null) => (value === null ? null : Number(value)),
+  })
+  declare igiPercentage: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -82,4 +137,9 @@ export default class MaterialSource extends compose(BaseModel, SoftDelete) {
     foreignKey: 'materialSourceId',
   })
   declare materialLinks: HasMany<typeof MaterialSourceLink>
+
+  @hasMany(() => VendorShade, {
+    foreignKey: 'materialSourceId',
+  })
+  declare vendorShades: HasMany<typeof VendorShade>
 }

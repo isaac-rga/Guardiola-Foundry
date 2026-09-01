@@ -1,91 +1,94 @@
-# Commercial Source Catalog Import
+# Source Details, Vendor Shades, and Attention States
 
-This slice completes Sources issue 02. It expands the existing Source persistence shell into the commercial catalog model, evaluates the complete workbook Sourcing dataset, and replaces inferred Preferred Source selection with an explicit, transactional import rule.
+This slice completes Sources issue 03. It extends the commercial Source catalog with optional technical knowledge and future-cost inputs, adds Source-owned Vendor Shades, and makes relationship shade ownership a database invariant. It does not add Source screens or calculate Landed Unit Cost.
 
 ## Start With The Issue
 
-Read the completed tracker item at [.scratch/sources/issues/02-import-commercial-source-catalog.md](.scratch/sources/issues/02-import-commercial-source-catalog.md). The issue is limited to persistence and migration behavior. Source technical details, Vendor Shades, and attention derivation remain in issue 03; Source browsing begins in issue 04.
+Read [.scratch/sources/issues/03-import-source-details-and-vendor-shades.md](.scratch/sources/issues/03-import-source-details-and-vendor-shades.md). The slice is persistence and import work only. Source browsing remains issue 04, and user-managed Source editing remains issue 07.
 
-## Follow The Commercial Model
+## Follow The Persistence Change
 
-Open [apps/api/database/migrations/1786766400000_add_source_commercial_catalog.ts](apps/api/database/migrations/1786766400000_add_source_commercial_catalog.ts), then [apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts).
+Open [apps/api/database/migrations/1788199200000_add_source_details_and_vendor_shades.ts](apps/api/database/migrations/1788199200000_add_source_details_and_vendor_shades.ts), then [apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts) and [apps/api/app/modules/sources/models/vendor_shade.ts](apps/api/app/modules/sources/models/vendor_shade.ts).
 
-The migration expands `material_sources` in place. `provider` becomes the approved Vendor term, and the old normalized-cost column becomes Landed Unit Cost. The model now stores Purchase Presentation, fixed piece length, Purchase Unit, Minimum Purchase Quantity, Purchase Price, Price Date, Vendor Currency, optional Landed Unit Cost, and Source Status.
+The migration adds the optional Source fields named by the PRD:
 
-New commercial-core columns remain nullable at the database transition only because pre-catalog rows already exist and the migration must not fabricate workbook facts. The importer is the current write boundary and accepts only complete commercial-core records. The generated schema representation is in [apps/api/database/schema.ts](apps/api/database/schema.ts).
+- Vendor SKU, URL, description, manufacturer, fiber, composition, finish, weave, presentation notes, country of origin, and comments;
+- GSM in grams per square meter and width in centimeters;
+- estimated shipping in USD-per-kilogram cents and IGI as percentage points.
 
-## Inspect The Source-Owned Vocabulary
+Positive database checks protect GSM and width, while IGI is constrained to 0–100 percent. IVA is deliberately absent from Source persistence: [apps/api/app/modules/sources/source_catalog.ts](apps/api/app/modules/sources/source_catalog.ts) exposes the fixed `16` percent business rule instead of creating a per-Source editable value.
 
-Next, read [apps/api/app/modules/sources/source_catalog.ts](apps/api/app/modules/sources/source_catalog.ts).
+Future-cost inputs remain context only. The importer stores them but never derives, replaces, or updates the manual Landed Unit Cost.
 
-This module is the API-local authority for the twelve workbook Textile Families, Roll/Piece Purchase Presentation, Meter/Yard Purchase Unit, USD/MXN Vendor Currency, and Active/Retired Source Status. It also performs pure commercial-row validation. Source Status is deliberately not part of the required commercial core: a missing imported status defaults to Active.
+## Trace Vendor Shade Ownership
 
-## Compare The Importer With The Workbook Evidence
+The migration creates `material_source_vendor_shades`, where each Vendor Shade belongs to exactly one Source and stores the Vendor's name or code. A Material–Source link may hold a nullable Vendor Shade selection.
 
-The checked-in source data is [apps/api/database/fixtures/source_catalog_import_fixture.ts](apps/api/database/fixtures/source_catalog_import_fixture.ts). It was derived from all 280 populated rows in the workbook's `Sourcing` sheet:
+The important protection is a composite foreign key over both Vendor Shade and Source. A link can therefore omit a Vendor Shade, or choose one owned by its linked Source, but PostgreSQL rejects a shade belonging to another Source even if code writes around the importer.
 
-- 156 `Textil` rows are considered for the Source catalog.
-- 85 production-supply rows, 23 workshop-supply rows, and 16 Tool rows are outside this textile Source boundary.
-- Nine `Pieza 3m` rows retain Piece as Purchase Presentation and `3` as a distinct fixed piece length.
+[apps/api/app/models/material_source_link.ts](apps/api/app/models/material_source_link.ts) exposes the optional relationship, while [apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) resolves explicit imported shade names through the Source-owned import result.
 
-The workbook contains a 2026 price-verification flag but no auditable Price Date. The fixture therefore leaves Price Date empty instead of inventing a day. At the current source-data state, all 156 `Textil` rows are correctly excluded and reported; two rows also need a valid Textile Family. This is an operational workbook-cleanup result, not a hidden implementation success.
+## Compare The Import With Workbook Evidence
 
-Now open [apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts). The Source-owned importer upserts each valid `Textil` row by immutable legacy provenance, so Unlinked Sources are included and stable `S-####` IDs survive reruns. Invalid Source rows never receive partial records. Every exclusion contains the legacy ID, Source record type, invalid fields, and corrective guidance.
+The checked-in [apps/api/database/fixtures/source_catalog_import_fixture.ts](apps/api/database/fixtures/source_catalog_import_fixture.ts) still represents all 280 populated `Sourcing` rows. The optional mapping now preserves 1,089 populated workbook values overall, including 802 values on the 156 `Textil` candidates.
 
-[apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) composes that Source import result when it builds Material relationships, keeping Source catalog persistence out of the Materials slice.
+The mapping keeps the workbook's facts in explicit fields and units:
 
-## Run The Operator Command
+- `Description`, `URL`, `Manufacturer`, `Fibra`, `Composición`, `Acabado`, `Tejido`, `Presentación`, `Pais de origen`, and `Comentarios` remain text;
+- positive `GSM` and `Ancho` values become grams per square meter and centimeters;
+- `Precio de envio por KG` becomes integer USD cents per kilogram;
+- `% de IGI` becomes percentage points.
 
-The command entry point is [apps/api/commands/import_source_catalog.ts](apps/api/commands/import_source_catalog.ts). It calls the Source-owned importer directly. From `apps/api`, run:
+Zero or formula-error GSM/width cells are treated as absent technical data because zero is not a physically valid measurement. No replacement value is invented.
 
-```text
-node ace.js source:import-catalog
-```
+The workbook has no dedicated Vendor Shade column, but 66 textile rows contain explicit `Color:` or `Colors:` labels in Description. Those labels contribute 85 preserved Vendor Shade names/codes. Other free-form color prose is left in Description rather than guessed into structured data. The deterministic import fixture in [apps/api/database/fixtures/materials_import_fixture.ts](apps/api/database/fixtures/materials_import_fixture.ts) also supplies an explicit Vendor Shade selection so the persisted Material relationship remains fully exercised.
 
-The command prints the complete structured result. Valid rows may persist alongside exclusions, but any exclusion sets exit code 1 so automation cannot describe a partial migration as clean completion. With the current workbook fixture, the result is 124 intentionally ignored non-textile rows, 156 Source exclusions, zero imported catalog Sources, and exit code 1.
+One workbook row describes a one-inch trim but records width as `5`. Because that conflicts with the declared centimeter unit and the two-inch row also records `5`, the one-inch width remains absent and derives `Data needs attention` rather than importing a contradictory canonical value.
 
-Normal development seeding remains separate: [apps/api/database/seeders/materials_seeder.ts](apps/api/database/seeders/materials_seeder.ts) continues loading the small deterministic Materials fixture without running the one-time workbook audit.
+The workbook still has no auditable Price Date. `source:import-catalog` therefore continues to report 124 ignored non-textile rows, 156 Source exclusions, zero imported catalog Sources, and exit code 1. Issue 03 preserves optional facts for those rows without weakening issue 02's commercial-core gate.
 
-## Trace Preferred Source Safety
+## Inspect Source-Owned Import And Attention Rules
 
-Return to [apps/api/database/fixtures/materials_import_fixture.ts](apps/api/database/fixtures/materials_import_fixture.ts). Material relationships now declare `isPreferred` explicitly instead of relying on array position. The importer rejects Materials with zero or multiple Preferred Sources and also rejects a missing, Retired, or costless Preferred Source.
+[apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts) writes a Source and its supplied Vendor Shades in one transaction. Vendor Shade reruns are stable and additive: an existing Source-owned name/code is reused rather than duplicated.
 
-Material plus relationship replacement runs in one database transaction. If a link insert fails, the Material fields and its previous Source links roll back together, preserving the exact-one-Preferred invariant.
+[apps/api/app/modules/sources/source_catalog.ts](apps/api/app/modules/sources/source_catalog.ts) derives two independent conditions:
 
-The existing Materials response stays lean. [apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) maps canonical Vendor and Landed Unit Cost back through the established Materials summary contract, so this issue does not pull Source catalog screens or technical detail into the Materials table.
+- `Cost needs attention` applies only to an Active Source without manual Landed Unit Cost.
+- `Data needs attention` applies when optional Source detail is missing.
+
+Both remain non-blocking catalog information. A Source with missing optional details or no Vendor Shades remains valid and can be linked to a Material. Preferred Source eligibility still depends on Active status and Landed Unit Cost, not optional enrichment.
 
 ## Read The Tests As Specifications
 
-[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) covers:
+[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) now proves that:
 
-- all 280 workbook rows and the explicit textile/supply/workshop/tool boundary;
-- complete commercial-core validation and one structured exclusion result;
-- valid Unlinked Source persistence and missing-status defaulting;
-- explicit Preferred Source rules, including zero and multiple declarations;
-- partial-success semantics without partial invalid records;
-- transaction rollback after relationship failure;
-- stable Source IDs, reruns, identity constraints, and soft-delete reconciliation.
-
-[apps/api/tests/functional/materials/list_materials.spec.ts](apps/api/tests/functional/materials/list_materials.spec.ts) confirms the authenticated Materials endpoint still returns Preferred Source reference, Source-derived cost, and alternate counts after the canonical field changes.
+- every optional field and canonical unit persists;
+- future-cost inputs do not recalculate manual Landed Unit Cost;
+- IVA remains the fixed 16 percent rule;
+- missing optional data derives non-blocking `Data needs attention`;
+- missing manual cost on an Active Source derives `Cost needs attention`;
+- Vendor Shades belong to Sources and import without duplication;
+- a relationship may select an owned Vendor Shade or omit it;
+- the database rejects a relationship that selects another Source's Vendor Shade;
+- the full workbook fixture retains the known structured exclusion behavior.
 
 ## Review Follow-Up
 
-The required two-axis review found and resolved three material risks. Material/link replacement is now transactional; migration rollback refuses to convert missing Landed Unit Cost into a fabricated zero; and Source vocabulary/validation now lives in the owning Sources slice. A follow-up review also separated the workbook audit command from normal development seeding.
+The first two-axis review identified a Source model placed outside its vertical slice, a duplicated optional-field list, missing structured shade extraction from explicit workbook labels, and the contradictory one-inch width. The implementation now keeps the new model under `modules/sources`, derives the attention input type from one authoritative field list, preserves all high-confidence shade labels, and leaves the contradictory width absent.
 
-The final Spec review found no remaining implementation defects. It confirmed that nullable transition columns are consistent with the documented pre-catalog boundary because the importer is the only current catalog write path.
+The follow-up Standards review and Spec review both report no remaining findings.
 
 ## Verification
 
-- The focused importer suite passed with 15 tests.
-- The focused Materials API suite passed with 7 tests.
-- API lint and API strict typecheck passed during implementation.
-- The new migration applied to the development database, and migration status reports all 12 migrations completed.
-- Normal `db:seed` completed successfully.
-- `source:import-catalog` printed all 156 Source exclusions and returned exit code 1 as required.
-- Repository-wide lint and strict typecheck passed across the API, web app, and both shared packages.
-- The complete test suites passed with 51 API tests and 37 web tests.
-- Production builds passed for the API, web app, and both shared packages.
+- The focused database-backed importer suite passes with 19 tests.
+- API lint and strict typecheck pass.
+- The development migration is applied; migration status reports all 13 migrations completed.
+- Normal `db:seed` succeeds with the deterministic Source, Vendor Shade, and relationship data.
+- `source:import-catalog` returns the expected non-success audit: 124 ignored non-textile rows and 156 Source exclusions caused by existing workbook cleanup needs.
+- Repository-wide lint and strict typecheck pass across the API, web app, and shared packages.
+- The complete test suites pass with 55 API tests and 37 web tests.
+- Production builds pass for the API, web app, and shared packages.
 
 ## What Comes Next
 
-Issue 03 is the next implementation slice: optional Source technical fields, future-cost inputs, Vendor Shades, and attention derivation. Separately, the workbook needs real Price Dates—and valid Textile Family values for the two reported rows—before the commercial catalog command can complete successfully. Those facts should be corrected at the source rather than guessed in application code.
+Issue 04 is the next implementation slice: an authenticated, table-shaped Source catalog with search, approved filters, URL state, attention indicators, and sibling Materials/Sources navigation. Workbook Price Dates—and the two invalid Textile Family values already reported by the audit—remain source-data cleanup, not application defaults.

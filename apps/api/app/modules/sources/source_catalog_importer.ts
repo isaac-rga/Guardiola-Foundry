@@ -1,10 +1,13 @@
 import MaterialSource from '#models/material_source'
+import VendorShade from '#modules/sources/models/vendor_shade'
 import {
   invalidCommercialSourceFields,
   type CommercialSourceCandidate,
   type ValidatedCommercialSource,
 } from '#modules/sources/source_catalog'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export interface ImportedSourceCatalogRow extends CommercialSourceCandidate {
   legacySourceId: string
@@ -35,6 +38,7 @@ export async function importSourceCatalogFromRows(sourceRows: ImportedSourceCata
 
 export async function importSourceCatalogRows(sourceRows: ImportedSourceCatalogRow[]) {
   const sourcesByLegacyId = new Map<string, MaterialSource>()
+  const vendorShadesByLegacySourceId = new Map<string, Map<string, VendorShade>>()
   const exclusions: SourceImportExclusion[] = []
   let importedSourceCount = 0
   let ignoredSourceCount = 0
@@ -58,12 +62,28 @@ export async function importSourceCatalogRows(sourceRows: ImportedSourceCatalogR
       continue
     }
 
-    const source = await upsertSource({
-      ...sourceRow,
-      sourceStatus: sourceRow.sourceStatus ?? 'active',
-    } as ValidatedImportedSourceCatalogRow)
+    const { source, vendorShadesByNameOrCode } = await db.transaction(async (trx) => {
+      const persistedSource = await upsertSource(
+        {
+          ...sourceRow,
+          sourceStatus: sourceRow.sourceStatus ?? 'active',
+        } as ValidatedImportedSourceCatalogRow,
+        trx
+      )
+      const importedVendorShades = await importVendorShades(
+        persistedSource,
+        sourceRow.vendorShades ?? [],
+        trx
+      )
+
+      return {
+        source: persistedSource,
+        vendorShadesByNameOrCode: importedVendorShades,
+      }
+    })
 
     sourcesByLegacyId.set(sourceRow.legacySourceId, source)
+    vendorShadesByLegacySourceId.set(sourceRow.legacySourceId, vendorShadesByNameOrCode)
     importedSourceCount += 1
   }
 
@@ -75,11 +95,16 @@ export async function importSourceCatalogRows(sourceRows: ImportedSourceCatalogR
       exclusions,
     } satisfies SourceCatalogImportReport,
     sourcesByLegacyId,
+    vendorShadesByLegacySourceId,
   }
 }
 
-async function upsertSource(sourceRow: ValidatedImportedSourceCatalogRow) {
+async function upsertSource(
+  sourceRow: ValidatedImportedSourceCatalogRow,
+  trx: TransactionClientContract
+) {
   const source = await MaterialSource.queryWithDeleted()
+    .useTransaction(trx)
     .where('legacySourceId', sourceRow.legacySourceId)
     .first()
   const sourceAttributes = {
@@ -96,17 +121,68 @@ async function upsertSource(sourceRow: ValidatedImportedSourceCatalogRow) {
     landedUnitCostCents: sourceRow.landedUnitCostCents,
     sourceStatus: sourceRow.sourceStatus,
     normalizedUnit: 'meter' as const,
+    vendorSku: sourceRow.vendorSku ?? null,
+    url: sourceRow.url ?? null,
+    description: sourceRow.description ?? null,
+    manufacturer: sourceRow.manufacturer ?? null,
+    fiber: sourceRow.fiber ?? null,
+    composition: sourceRow.composition ?? null,
+    gsmGramsPerSquareMeter: sourceRow.gsmGramsPerSquareMeter ?? null,
+    widthCentimeters: sourceRow.widthCentimeters ?? null,
+    finish: sourceRow.finish ?? null,
+    weave: sourceRow.weave ?? null,
+    presentationNotes: sourceRow.presentationNotes ?? null,
+    countryOfOrigin: sourceRow.countryOfOrigin ?? null,
+    comments: sourceRow.comments ?? null,
+    estimatedShippingUsdPerKilogramCents: sourceRow.estimatedShippingUsdPerKilogramCents ?? null,
+    igiPercentage: sourceRow.igiPercentage ?? null,
   }
 
   if (!source) {
-    return MaterialSource.create({
-      legacySourceId: sourceRow.legacySourceId,
-      ...sourceAttributes,
-    })
+    return MaterialSource.create(
+      {
+        legacySourceId: sourceRow.legacySourceId,
+        ...sourceAttributes,
+      },
+      { client: trx }
+    )
   }
 
   source.merge(sourceAttributes)
   await source.save()
 
   return source
+}
+
+async function importVendorShades(
+  source: MaterialSource,
+  vendorShadeNamesOrCodes: string[],
+  trx: TransactionClientContract
+) {
+  const namesOrCodes = [...new Set(vendorShadeNamesOrCodes.map((value) => value.trim()))].filter(
+    Boolean
+  )
+  const existingVendorShades = await VendorShade.query({ client: trx }).where(
+    'materialSourceId',
+    source.id
+  )
+  const existingNamesOrCodes = new Set(existingVendorShades.map((shade) => shade.nameOrCode))
+  const newNamesOrCodes = namesOrCodes.filter((nameOrCode) => !existingNamesOrCodes.has(nameOrCode))
+
+  if (newNamesOrCodes.length > 0) {
+    await VendorShade.createMany(
+      newNamesOrCodes.map((nameOrCode) => ({
+        materialSourceId: source.id,
+        nameOrCode,
+      })),
+      { client: trx }
+    )
+  }
+
+  const importedVendorShades = await VendorShade.query({ client: trx }).where(
+    'materialSourceId',
+    source.id
+  )
+
+  return new Map(importedVendorShades.map((shade) => [shade.nameOrCode, shade]))
 }

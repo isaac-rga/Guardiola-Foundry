@@ -1,5 +1,6 @@
 import Material from '#models/material'
 import MaterialSource from '#models/material_source'
+import VendorShade from '#modules/sources/models/vendor_shade'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -20,6 +21,9 @@ export default class MaterialSourceLink extends BaseModel {
   @column({ columnName: 'is_preferred' })
   declare isPreferred: boolean
 
+  @column({ columnName: 'vendor_shade_id' })
+  declare vendorShadeId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -35,4 +39,9 @@ export default class MaterialSourceLink extends BaseModel {
     foreignKey: 'materialSourceId',
   })
   declare materialSource: BelongsTo<typeof MaterialSource>
+
+  @belongsTo(() => VendorShade, {
+    foreignKey: 'vendorShadeId',
+  })
+  declare vendorShade: BelongsTo<typeof VendorShade>
 }

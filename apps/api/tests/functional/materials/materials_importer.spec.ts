@@ -10,6 +10,8 @@ import {
 import { SOURCE_CATALOG_IMPORT_FIXTURE } from '#database/fixtures/source_catalog_import_fixture'
 import AdoptStableSourceIdentity from '#database/migrations/1786680000000_adopt_stable_source_identity'
 import { importMaterialsFromRows } from '#modules/materials/materials_importer'
+import { deriveSourceAttention, IVA_PERCENTAGE } from '#modules/sources/source_catalog'
+import type { ImportedSourceCatalogRow } from '#modules/sources/source_catalog_importer'
 import { test } from '@japa/runner'
 
 test.group('Materials importer', (group) => {
@@ -140,6 +142,129 @@ test.group('Materials importer', (group) => {
     })
   })
 
+  test('preserves optional Source details and future costing inputs without recalculating cost', async ({
+    assert,
+  }) => {
+    const sourceRow = {
+      ...commercialSourceRow(),
+      landedUnitCostCents: 4200,
+      vendorSku: 'ORG-3M-IV',
+      url: 'https://vendor.example/silk-organza',
+      description: 'Lightweight silk organza.',
+      manufacturer: 'Example Mill',
+      fiber: 'Silk',
+      composition: '100% silk',
+      gsmGramsPerSquareMeter: 20,
+      widthCentimeters: 300,
+      finish: 'Matte',
+      weave: 'Plain weave',
+      presentationNotes: 'Folded inside protective paper.',
+      countryOfOrigin: 'Italy',
+      comments: 'Use for structured overlays.',
+      estimatedShippingUsdPerKilogramCents: 1500,
+      igiPercentage: 35,
+    }
+
+    const result = await importMaterialsFromRows([sourceRow], [])
+    const importedSource = await MaterialSource.findByOrFail(
+      'legacySourceId',
+      sourceRow.legacySourceId
+    )
+    const source = await db
+      .from('material_sources')
+      .where('legacy_source_id', sourceRow.legacySourceId)
+      .select([
+        'vendor_sku',
+        'url',
+        'description',
+        'manufacturer',
+        'fiber',
+        'composition',
+        'gsm_grams_per_square_meter',
+        'width_centimeters',
+        'finish',
+        'weave',
+        'presentation_notes',
+        'country_of_origin',
+        'comments',
+        'estimated_shipping_usd_per_kilogram_cents',
+        'igi_percentage',
+        'landed_unit_cost_cents',
+      ])
+      .firstOrFail()
+
+    assert.isTrue(result.successful)
+    assert.equal(IVA_PERCENTAGE, 16)
+    assert.deepEqual(deriveSourceAttention(importedSource), {
+      costNeedsAttention: false,
+      dataNeedsAttention: false,
+    })
+    assert.deepEqual(source, {
+      vendor_sku: 'ORG-3M-IV',
+      url: 'https://vendor.example/silk-organza',
+      description: 'Lightweight silk organza.',
+      manufacturer: 'Example Mill',
+      fiber: 'Silk',
+      composition: '100% silk',
+      gsm_grams_per_square_meter: '20.0000',
+      width_centimeters: '300.0000',
+      finish: 'Matte',
+      weave: 'Plain weave',
+      presentation_notes: 'Folded inside protective paper.',
+      country_of_origin: 'Italy',
+      comments: 'Use for structured overlays.',
+      estimated_shipping_usd_per_kilogram_cents: 1500,
+      igi_percentage: '35.0000',
+      landed_unit_cost_cents: 4200,
+    })
+  })
+
+  test('derives non-blocking Source attention from missing cost and optional details', async ({
+    assert,
+  }) => {
+    const costlessSourceRow = commercialSourceRow()
+    const linkedSourceRow = {
+      ...commercialSourceRow(),
+      legacySourceId: 'SRC-CATALOG-002',
+      landedUnitCostCents: 4300,
+    }
+    const result = await importMaterialsFromRows([costlessSourceRow, linkedSourceRow], [
+      {
+        legacyMaterialId: 'MAT-OPTIONAL-DETAILS',
+        name: 'White Organza',
+        materialColor: 'white',
+        materialUse: 'base-fabric',
+        comments: null,
+        sourceLinks: [
+          {
+            legacySourceId: linkedSourceRow.legacySourceId,
+            isPreferred: true,
+            vendorShade: null,
+          },
+        ],
+      },
+    ] as unknown as typeof MATERIAL_IMPORT_FIXTURE)
+    const costlessSource = await MaterialSource.findByOrFail(
+      'legacySourceId',
+      costlessSourceRow.legacySourceId
+    )
+    const linkedSource = await MaterialSource.findByOrFail(
+      'legacySourceId',
+      linkedSourceRow.legacySourceId
+    )
+
+    assert.isTrue(result.successful)
+    assert.deepEqual(deriveSourceAttention(costlessSource), {
+      costNeedsAttention: true,
+      dataNeedsAttention: true,
+    })
+    assert.deepEqual(deriveSourceAttention(linkedSource), {
+      costNeedsAttention: false,
+      dataNeedsAttention: true,
+    })
+    assert.equal(await MaterialSourceLink.query().count('* as total').first().then(countTotal), 1)
+  })
+
   test('reports every invalid commercial field while ignoring non-textile rows', async ({
     assert,
   }) => {
@@ -208,6 +333,7 @@ test.group('Materials importer', (group) => {
   test('considers every workbook Source row and reports the missing Price Dates', async ({
     assert,
   }) => {
+    const workbookSourceRows: readonly ImportedSourceCatalogRow[] = SOURCE_CATALOG_IMPORT_FIXTURE
     const result = await importMaterialsFromRows(SOURCE_CATALOG_IMPORT_FIXTURE, [])
 
     assert.equal(SOURCE_CATALOG_IMPORT_FIXTURE.length, 280)
@@ -220,6 +346,30 @@ test.group('Materials importer', (group) => {
     assert.equal(
       SOURCE_CATALOG_IMPORT_FIXTURE.filter((source) => source.fixedPieceLength === 3).length,
       9
+    )
+    assert.equal(
+      workbookSourceRows.reduce((count, source) => count + (source.vendorShades?.length ?? 0), 0),
+      85
+    )
+    assert.deepEqual(
+      workbookSourceRows.find((source) => source.legacySourceId === '4')?.vendorShades,
+      ['Ivory (3633)', 'Nude (3921)']
+    )
+    assert.deepInclude(
+      workbookSourceRows.find((source) => source.legacySourceId === '2'),
+      {
+        gsmGramsPerSquareMeter: 20,
+        widthCentimeters: 300,
+        estimatedShippingUsdPerKilogramCents: 1500,
+        igiPercentage: 35,
+      }
+    )
+    assert.isUndefined(
+      workbookSourceRows.find((source) => source.legacySourceId === '18')?.widthCentimeters
+    )
+    assert.equal(
+      workbookSourceRows.find((source) => source.legacySourceId === '96')?.widthCentimeters,
+      5
     )
     assert.isFalse(result.successful)
     assert.equal(result.importedSourceCount, 0)
@@ -255,6 +405,131 @@ test.group('Materials importer', (group) => {
         { legacySourceId: 'SRC-100', isPreferred: true, sortOrder: 1 },
         { legacySourceId: 'SRC-101', isPreferred: false, sortOrder: 2 },
       ]
+    )
+  })
+
+  test('imports Source-owned Vendor Shades and an optional relationship selection', async ({
+    assert,
+  }) => {
+    const sourceRows = [
+      {
+        ...commercialSourceRow(),
+        landedUnitCostCents: 4200,
+        vendorShades: ['Ivory 100', 'Nude 200'],
+      },
+      {
+        ...commercialSourceRow(),
+        legacySourceId: 'SRC-CATALOG-002',
+        landedUnitCostCents: 4300,
+        vendorShades: [],
+      },
+    ]
+    const materialRows = [
+      {
+        legacyMaterialId: 'MAT-SHADE',
+        name: 'Ivory Organza',
+        materialColor: 'ivory',
+        materialUse: 'base-fabric',
+        comments: null,
+        sourceLinks: [
+          {
+            legacySourceId: 'SRC-CATALOG-001',
+            isPreferred: true,
+            vendorShade: 'Ivory 100',
+          },
+        ],
+      },
+      {
+        legacyMaterialId: 'MAT-NO-SHADE',
+        name: 'White Organza',
+        materialColor: 'white',
+        materialUse: 'base-fabric',
+        comments: null,
+        sourceLinks: [
+          {
+            legacySourceId: 'SRC-CATALOG-002',
+            isPreferred: true,
+            vendorShade: null,
+          },
+        ],
+      },
+    ]
+
+    const result = await importMaterialsFromRows(
+      sourceRows,
+      materialRows as unknown as typeof MATERIAL_IMPORT_FIXTURE
+    )
+    const vendorShades = await db
+      .from('material_source_vendor_shades')
+      .join(
+        'material_sources',
+        'material_sources.id',
+        'material_source_vendor_shades.material_source_id'
+      )
+      .select(['material_sources.legacy_source_id', 'material_source_vendor_shades.name_or_code'])
+      .orderBy('material_source_vendor_shades.name_or_code', 'asc')
+    const links = await db
+      .from('material_source_links')
+      .join('materials', 'materials.id', 'material_source_links.material_id')
+      .leftJoin(
+        'material_source_vendor_shades',
+        'material_source_vendor_shades.id',
+        'material_source_links.vendor_shade_id'
+      )
+      .select(['materials.legacy_material_id', 'material_source_vendor_shades.name_or_code'])
+      .orderBy('materials.legacy_material_id', 'asc')
+
+    assert.isTrue(result.successful)
+    assert.deepEqual(vendorShades, [
+      { legacy_source_id: 'SRC-CATALOG-001', name_or_code: 'Ivory 100' },
+      { legacy_source_id: 'SRC-CATALOG-001', name_or_code: 'Nude 200' },
+    ])
+    assert.deepEqual(links, [
+      { legacy_material_id: 'MAT-NO-SHADE', name_or_code: null },
+      { legacy_material_id: 'MAT-SHADE', name_or_code: 'Ivory 100' },
+    ])
+  })
+
+  test('rejects a relationship that selects another Source vendor shade', async ({ assert }) => {
+    const sourceRows = [
+      { ...commercialSourceRow(), vendorShades: ['Ivory 100'] },
+      {
+        ...commercialSourceRow(),
+        legacySourceId: 'SRC-CATALOG-002',
+        vendorShades: ['Nude 200'],
+      },
+    ]
+
+    await importMaterialsFromRows(sourceRows, [])
+
+    const firstSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-CATALOG-001')
+    const secondSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-CATALOG-002')
+    const firstSourceShade = await db
+      .from('material_source_vendor_shades')
+      .where('material_source_id', firstSource.id)
+      .firstOrFail()
+    const material = await Material.create({
+      publicId: 'M-SHADE-OWNERSHIP',
+      legacyMaterialId: 'MAT-SHADE-OWNERSHIP',
+      name: 'Ownership Test Material',
+      materialColor: 'ivory',
+      materialUse: 'base-fabric',
+      materialUnit: 'meter',
+      comments: null,
+    })
+
+    await assert.rejects(
+      () =>
+        db.table('material_source_links').insert({
+          material_id: material.id,
+          material_source_id: secondSource.id,
+          vendor_shade_id: firstSourceShade.id,
+          sort_order: 1,
+          is_preferred: true,
+          created_at: new Date(),
+          updated_at: new Date(),
+        }),
+      /foreign key constraint/
     )
   })
 
@@ -340,6 +615,14 @@ test.group('Materials importer', (group) => {
     assert.equal(await Material.query().count('* as total').first().then(countTotal), 3)
     assert.equal(await MaterialSource.query().count('* as total').first().then(countTotal), 4)
     assert.equal(await MaterialSourceLink.query().count('* as total').first().then(countTotal), 4)
+    assert.equal(
+      await db
+        .from('material_source_vendor_shades')
+        .count('* as total')
+        .first()
+        .then((row) => Number(row?.total ?? 0)),
+      1
+    )
   })
 
   test('rolls back a Material and its links when relationship replacement fails', async ({

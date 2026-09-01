@@ -29,6 +29,7 @@ export interface ImportedMaterialRow {
   sourceLinks: Array<{
     legacySourceId: string
     isPreferred: boolean
+    vendorShade?: string | null
   }>
 }
 
@@ -38,7 +39,11 @@ export async function importMaterialsFromRows(
   sourceRows: ImportedMaterialSourceRow[],
   materialRows: ImportedMaterialRow[]
 ) {
-  const { report: sourceReport, sourcesByLegacyId } = await importSourceCatalogRows(sourceRows)
+  const {
+    report: sourceReport,
+    sourcesByLegacyId,
+    vendorShadesByLegacySourceId,
+  } = await importSourceCatalogRows(sourceRows)
   const exclusions: ImportExclusion[] = [...sourceReport.exclusions]
 
   let importedCount = 0
@@ -48,19 +53,29 @@ export async function importMaterialsFromRows(
     const linkedSources = materialRow.sourceLinks.map((sourceLink) => ({
       ...sourceLink,
       source: sourcesByLegacyId.get(sourceLink.legacySourceId),
+      vendorShade:
+        sourceLink.vendorShade === null || sourceLink.vendorShade === undefined
+          ? null
+          : vendorShadesByLegacySourceId
+              .get(sourceLink.legacySourceId)
+              ?.get(sourceLink.vendorShade),
     }))
     const preferredLinks = linkedSources.filter((sourceLink) => sourceLink.isPreferred)
     const hasInvalidSourceLink = linkedSources.some((sourceLink) => !sourceLink.source)
+    const hasInvalidVendorShade = linkedSources.some(
+      (sourceLink) => sourceLink.vendorShade !== null && !sourceLink.vendorShade
+    )
     const hasInvalidPreferredSource =
       preferredLinks.length !== 1 ||
       !preferredLinks[0]?.source ||
       preferredLinks[0].source.sourceStatus !== 'active' ||
       preferredLinks[0].source.landedUnitCostCents === null
 
-    if (hasInvalidSourceLink || hasInvalidPreferredSource) {
+    if (hasInvalidSourceLink || hasInvalidVendorShade || hasInvalidPreferredSource) {
       const invalidFields: string[] = []
 
       if (hasInvalidSourceLink) invalidFields.push('sourceLinks')
+      if (hasInvalidVendorShade) invalidFields.push('vendorShade')
       if (hasInvalidPreferredSource) invalidFields.push('preferredSource')
 
       exclusions.push({
@@ -84,6 +99,7 @@ export async function importMaterialsFromRows(
           {
             materialId: material.id,
             materialSourceId: sourceLink.source!.id,
+            vendorShadeId: sourceLink.vendorShade?.id ?? null,
             sortOrder: linkIndex + 1,
             isPreferred: sourceLink.isPreferred,
           },

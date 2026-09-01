@@ -21,6 +21,7 @@ export const PURCHASE_PRESENTATIONS = ['roll', 'piece'] as const
 export const PURCHASE_UNITS = ['meter', 'yard'] as const
 export const VENDOR_CURRENCIES = ['USD', 'MXN'] as const
 export const SOURCE_STATUSES = ['active', 'retired'] as const
+export const IVA_PERCENTAGE = 16 as const
 
 export type TextileFamily = (typeof TEXTILE_FAMILIES)[number]
 export type PurchasePresentation = (typeof PURCHASE_PRESENTATIONS)[number]
@@ -41,6 +42,22 @@ export interface CommercialSourceCandidate {
   vendorCurrency: string | null
   landedUnitCostCents: number | null
   sourceStatus: string | null
+  vendorSku?: string | null
+  url?: string | null
+  description?: string | null
+  manufacturer?: string | null
+  fiber?: string | null
+  composition?: string | null
+  gsmGramsPerSquareMeter?: number | null
+  widthCentimeters?: number | null
+  finish?: string | null
+  weave?: string | null
+  presentationNotes?: string | null
+  countryOfOrigin?: string | null
+  comments?: string | null
+  estimatedShippingUsdPerKilogramCents?: number | null
+  igiPercentage?: number | null
+  vendorShades?: string[]
 }
 
 export interface ValidatedCommercialSource extends CommercialSourceCandidate {
@@ -54,6 +71,38 @@ export interface ValidatedCommercialSource extends CommercialSourceCandidate {
   priceDate: string
   vendorCurrency: VendorCurrency
   sourceStatus: SourceStatus
+}
+
+const OPTIONAL_SOURCE_DETAIL_FIELDS = [
+  'vendorSku',
+  'url',
+  'description',
+  'manufacturer',
+  'fiber',
+  'composition',
+  'gsmGramsPerSquareMeter',
+  'widthCentimeters',
+  'finish',
+  'weave',
+  'presentationNotes',
+  'countryOfOrigin',
+  'comments',
+  'estimatedShippingUsdPerKilogramCents',
+  'igiPercentage',
+] as const satisfies ReadonlyArray<keyof CommercialSourceCandidate>
+
+type SourceAttentionInput = Pick<
+  CommercialSourceCandidate,
+  'sourceStatus' | 'landedUnitCostCents' | (typeof OPTIONAL_SOURCE_DETAIL_FIELDS)[number]
+>
+
+export function deriveSourceAttention(source: SourceAttentionInput) {
+  return {
+    costNeedsAttention: source.sourceStatus === 'active' && source.landedUnitCostCents === null,
+    dataNeedsAttention: OPTIONAL_SOURCE_DETAIL_FIELDS.some((field) =>
+      isMissingOptionalValue(source[field])
+    ),
+  }
 }
 
 export function invalidCommercialSourceFields(source: CommercialSourceCandidate) {
@@ -85,6 +134,29 @@ export function invalidCommercialSourceFields(source: CommercialSourceCandidate)
   if (source.sourceStatus !== null && !includes(SOURCE_STATUSES, source.sourceStatus)) {
     invalidFields.push('sourceStatus')
   }
+  if (
+    isPresent(source.gsmGramsPerSquareMeter) &&
+    !isPositiveNumber(source.gsmGramsPerSquareMeter)
+  ) {
+    invalidFields.push('gsmGramsPerSquareMeter')
+  }
+  if (isPresent(source.widthCentimeters) && !isPositiveNumber(source.widthCentimeters)) {
+    invalidFields.push('widthCentimeters')
+  }
+  if (
+    isPresent(source.estimatedShippingUsdPerKilogramCents) &&
+    !isNonnegativeInteger(source.estimatedShippingUsdPerKilogramCents)
+  ) {
+    invalidFields.push('estimatedShippingUsdPerKilogramCents')
+  }
+  if (
+    isPresent(source.igiPercentage) &&
+    (!Number.isFinite(source.igiPercentage) ||
+      source.igiPercentage < 0 ||
+      source.igiPercentage > 100)
+  ) {
+    invalidFields.push('igiPercentage')
+  }
 
   return invalidFields
 }
@@ -95,6 +167,10 @@ function includes<const Values extends readonly string[]>(values: Values, value:
 
 function isNonBlankString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
+}
+
+function isPresent<Value>(value: Value | null | undefined): value is Value {
+  return value !== null && value !== undefined
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -111,4 +187,8 @@ function isIsoDate(value: unknown): value is string {
   const date = DateTime.fromISO(value, { zone: 'utc' })
 
   return date.isValid && date.toISODate() === value
+}
+
+function isMissingOptionalValue(value: unknown) {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '')
 }
