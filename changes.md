@@ -1,94 +1,69 @@
-# Source Details, Vendor Shades, and Attention States
+# Browse and Filter the Source Catalog
 
-This slice completes Sources issue 03. It extends the commercial Source catalog with optional technical knowledge and future-cost inputs, adds Source-owned Vendor Shades, and makes relationship shade ownership a database invariant. It does not add Source screens or calculate Landed Unit Cost.
+This slice completes Sources issue 04. Authenticated users can now move between Materials and Sources as sibling views, scan the complete operational Source catalog, and narrow it without losing their working view on refresh. The implementation remains list-only: Source detail and mutations begin in later issues.
 
-## Start With The Issue
+## Start With the Issue
 
-Read [.scratch/sources/issues/03-import-source-details-and-vendor-shades.md](.scratch/sources/issues/03-import-source-details-and-vendor-shades.md). The slice is persistence and import work only. Source browsing remains issue 04, and user-managed Source editing remains issue 07.
+Read [.scratch/sources/issues/04-browse-and-filter-source-catalog.md](.scratch/sources/issues/04-browse-and-filter-source-catalog.md). It defines two public seams: the authenticated `GET /sources` contract and the `/app/sources` route. Both now have focused behavior tests.
 
-## Follow The Persistence Change
+## Follow the Shared Source Contract
 
-Open [apps/api/database/migrations/1788199200000_add_source_details_and_vendor_shades.ts](apps/api/database/migrations/1788199200000_add_source_details_and_vendor_shades.ts), then [apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts) and [apps/api/app/modules/sources/models/vendor_shade.ts](apps/api/app/modules/sources/models/vendor_shade.ts).
+Open [packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts), then [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts).
 
-The migration adds the optional Source fields named by the PRD:
+These files are now the single cross-boundary home for Textile Family, Purchase Presentation, Purchase Unit, Vendor Currency, Source Status, link state, attention state, list filters, and the table-shaped Source summary. The API importer, persistence model, endpoint, and web route consume those definitions instead of redeclaring controlled values locally.
 
-- Vendor SKU, URL, description, manufacturer, fiber, composition, finish, weave, presentation notes, country of origin, and comments;
-- GSM in grams per square meter and width in centimeters;
-- estimated shipping in USD-per-kilogram cents and IGI as percentage points.
+The list projection deliberately contains only operational columns. Technical details such as GSM, width, composition, finish, weave, and Vendor Shades remain persisted for later Source detail work but are not sent as part of the table response.
 
-Positive database checks protect GSM and width, while IGI is constrained to 0–100 percent. IVA is deliberately absent from Source persistence: [apps/api/app/modules/sources/source_catalog.ts](apps/api/app/modules/sources/source_catalog.ts) exposes the fixed `16` percent business rule instead of creating a per-Source editable value.
+## Trace the Authenticated List Endpoint
 
-Future-cost inputs remain context only. The importer stores them but never derives, replaces, or updates the manual Landed Unit Cost.
+[apps/api/app/middleware/bearer_auth_middleware.ts](apps/api/app/middleware/bearer_auth_middleware.ts) authenticates the request at the HTTP boundary and exposes the typed current session to downstream handlers. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) then validates the shared query contract and protects Retired Source data. Operators receive an actionable permission response if they manually request the retired view; Admins can select it through the Status filter.
 
-## Trace Vendor Shade Ownership
+[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) loads Source rows and their Material links without per-row follow-up queries. It defaults to Active Sources, includes Unlinked Sources, searches only Source Name and Vendor case-insensitively, applies the approved filters, and orders by Source Name then Vendor.
 
-The migration creates `material_source_vendor_shades`, where each Vendor Shade belongs to exactly one Source and stores the Vendor's name or code. A Material–Source link may hold a nullable Vendor Shade selection.
+Each response row includes:
 
-The important protection is a composite foreign key over both Vendor Shade and Source. A link can therefore omit a Vendor Shade, or choose one owned by its linked Source, but PostgreSQL rejects a shade belonging to another Source even if code writes around the importer.
+- Source ID, Source Name, Vendor, and Textile Family;
+- Purchase Presentation, Purchase Unit, Vendor Currency, and Purchase Price;
+- manual Landed Unit Cost in MXN per meter;
+- linked Material count;
+- `Cost needs attention` and `Data needs attention` indicators.
 
-[apps/api/app/models/material_source_link.ts](apps/api/app/models/material_source_link.ts) exposes the optional relationship, while [apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) resolves explicit imported shade names through the Source-owned import result.
+## Walk Through the Sources View
 
-## Compare The Import With Workbook Evidence
+Open [apps/web/src/routes/app.sources.tsx](apps/web/src/routes/app.sources.tsx). The route validates its search parameters with the shared schema and keeps every filter change in the URL. Refreshing or sharing the URL therefore restores the same search, Textile Family, Status, Material link, and attention view.
 
-The checked-in [apps/api/database/fixtures/source_catalog_import_fixture.ts](apps/api/database/fixtures/source_catalog_import_fixture.ts) still represents all 280 populated `Sourcing` rows. The optional mapping now preserves 1,089 populated workbook values overall, including 802 values on the 156 `Textil` candidates.
+[apps/web/src/features/sources/sources-page.tsx](apps/web/src/features/sources/sources-page.tsx) renders the operational table and role-aware controls. Admins see Active and Retired Status choices; Operators stay in the Active catalog. The existing table primitive supplies horizontal scrolling for the nine-column layout, and the full known 156-row result renders without pagination or infinite-scroll controls.
 
-The mapping keeps the workbook's facts in explicit fields and units:
+The page distinguishes loading, no-match, service-error, and permission states. Empty and error messages tell the user how to recover. Materials now carries the same local Materials/Sources switcher so either row identity remains one click away.
 
-- `Description`, `URL`, `Manufacturer`, `Fibra`, `Composición`, `Acabado`, `Tejido`, `Presentación`, `Pais de origen`, and `Comentarios` remain text;
-- positive `GSM` and `Ancho` values become grams per square meter and centimeters;
-- `Precio de envio por KG` becomes integer USD cents per kilogram;
-- `% de IGI` becomes percentage points.
+Server state stays outside the presentation component. [apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) owns transport and runtime response validation, while [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) owns the filter-sensitive TanStack Query key.
 
-Zero or formula-error GSM/width cells are treated as absent technical data because zero is not a physically valid measurement. No replacement value is invented.
+## Read the Tests as Specifications
 
-The workbook has no dedicated Vendor Shade column, but 66 textile rows contain explicit `Color:` or `Colors:` labels in Description. Those labels contribute 85 preserved Vendor Shade names/codes. Other free-form color prose is left in Description rather than guessed into structured data. The deterministic import fixture in [apps/api/database/fixtures/materials_import_fixture.ts](apps/api/database/fixtures/materials_import_fixture.ts) also supplies an explicit Vendor Shade selection so the persisted Material relationship remains fully exercised.
+[apps/api/tests/functional/sources/list_sources.spec.ts](apps/api/tests/functional/sources/list_sources.spec.ts) proves authentication, the lean projection, default Active and Unlinked visibility, ordering, search scope, all filter dimensions, invalid-filter rejection, and Admin-only Retired access.
 
-One workbook row describes a one-inch trim but records width as `5`. Because that conflicts with the declared centimeter unit and the two-inch row also records `5`, the one-inch width remains absent and derives `Data needs attention` rather than importing a contradictory canonical value.
+[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) proves sibling navigation, required columns, omitted technical fields and pagination, 156-row rendering, horizontal overflow, URL hydration and updates, role-aware controls, and loading, empty, service-error, and permission states.
 
-The workbook still has no auditable Price Date. `source:import-catalog` therefore continues to report 124 ignored non-textile rows, 156 Source exclusions, zero imported catalog Sources, and exit code 1. Issue 03 preserves optional facts for those rows without weakening issue 02's commercial-core gate.
+The web TypeScript config also drops the deprecated `baseUrl` option. Its existing `@/*` paths continue to resolve relative to the config file, while the repository's declared TypeScript 6 typecheck can run without a deprecation error.
 
-## Inspect Source-Owned Import And Attention Rules
+## Review and Verification
 
-[apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts) writes a Source and its supplied Vendor Shades in one transaction. Vendor Shade reruns are stable and additive: an existing Source-owned name/code is reused rather than duplicated.
+The completed tree received separate Standards and Spec reviews against `HEAD`. The follow-up review found no remaining actionable findings after moving bearer authentication to middleware, placing Source query logic under `services/`, separating the page orchestration from its filters and table, and consuming every controlled Source state from the shared contract.
 
-[apps/api/app/modules/sources/source_catalog.ts](apps/api/app/modules/sources/source_catalog.ts) derives two independent conditions:
+The final local verification passed:
 
-- `Cost needs attention` applies only to an Active Source without manual Landed Unit Cost.
-- `Data needs attention` applies when optional Source detail is missing.
+- API functional suite: 60 tests;
+- web suite: 41 tests;
+- API, web, shared-types, and shared-validation lint and strict typechecks;
+- API, web, shared-types, and shared-validation production builds;
+- whitespace validation with `git diff --check`.
 
-Both remain non-blocking catalog information. A Source with missing optional details or no Vendor Shades remains valid and can be linked to a Material. Preferred Source eligibility still depends on Active status and Landed Unit Cost, not optional enrichment.
+No database schema changed in this slice, so there is no migration or seed step to apply.
 
-## Read The Tests As Specifications
+## Scope Boundaries
 
-[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) now proves that:
-
-- every optional field and canonical unit persists;
-- future-cost inputs do not recalculate manual Landed Unit Cost;
-- IVA remains the fixed 16 percent rule;
-- missing optional data derives non-blocking `Data needs attention`;
-- missing manual cost on an Active Source derives `Cost needs attention`;
-- Vendor Shades belong to Sources and import without duplication;
-- a relationship may select an owned Vendor Shade or omit it;
-- the database rejects a relationship that selects another Source's Vendor Shade;
-- the full workbook fixture retains the known structured exclusion behavior.
-
-## Review Follow-Up
-
-The first two-axis review identified a Source model placed outside its vertical slice, a duplicated optional-field list, missing structured shade extraction from explicit workbook labels, and the contradictory one-inch width. The implementation now keeps the new model under `modules/sources`, derives the attention input type from one authoritative field list, preserves all high-confidence shade labels, and leaves the contradictory width absent.
-
-The follow-up Standards review and Spec review both report no remaining findings.
-
-## Verification
-
-- The focused database-backed importer suite passes with 19 tests.
-- API lint and strict typecheck pass.
-- The development migration is applied; migration status reports all 13 migrations completed.
-- Normal `db:seed` succeeds with the deterministic Source, Vendor Shade, and relationship data.
-- `source:import-catalog` returns the expected non-success audit: 124 ignored non-textile rows and 156 Source exclusions caused by existing workbook cleanup needs.
-- Repository-wide lint and strict typecheck pass across the API, web app, and shared packages.
-- The complete test suites pass with 55 API tests and 37 web tests.
-- Production builds pass for the API, web app, and shared packages.
+Issue 04 does not add Source detail, create, edit, retirement, restoration, Material relationship mutations, currency-rate display, or automatic Landed Unit Cost calculation. Those remain assigned to later Sources issues. The current page is an authenticated operational catalog, not a second spreadsheet-width technical report.
 
 ## What Comes Next
 
-Issue 04 is the next implementation slice: an authenticated, table-shaped Source catalog with search, approved filters, URL state, attention indicators, and sibling Materials/Sources navigation. Workbook Price Dates—and the two invalid Textile Family values already reported by the audit—remain source-data cleanup, not application defaults.
+Issue 05 is the next slice: Source detail for the complete commercial, technical, costing-input, Vendor Shade, and linked-Material context. The list route now provides the stable Source IDs and navigation foundation that detail work will consume.

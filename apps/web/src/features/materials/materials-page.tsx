@@ -12,9 +12,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { MaterialsAreaNavigation } from '@/features/materials/components/materials-area-navigation'
 import { listMaterials } from '@/features/materials/api/endpoints'
 import { materialListQueryKey } from '@/features/materials/query-keys'
-import type { MaterialColor, MaterialSummary, MaterialUnit, MaterialUse } from '@guardiola-foundry/shared-types'
+import type {
+  MaterialColor,
+  MaterialSummary,
+  MaterialUnit,
+  MaterialUse,
+} from '@guardiola-foundry/shared-types'
 
 export function MaterialsPage() {
   const { session } = useAppShell()
@@ -31,10 +37,14 @@ export function MaterialsPage() {
         description="Scan the active textile Material list with Preferred Source cost context kept compact beside each Material identity."
       />
 
+      <MaterialsAreaNavigation />
+
       <Card>
         <CardContent>
           {materialsQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading materials...</p>
+            <p className="text-sm text-muted-foreground">
+              Loading materials...
+            </p>
           ) : null}
 
           {materialsQuery.isError ? (
@@ -48,11 +58,16 @@ export function MaterialsPage() {
             </p>
           ) : null}
 
-          {!materialsQuery.isLoading && !materialsQuery.isError && materials.length === 0 ? (
+          {!materialsQuery.isLoading &&
+          !materialsQuery.isError &&
+          materials.length === 0 ? (
             <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">No active materials found.</p>
+              <p className="text-sm font-medium text-foreground">
+                No active materials found.
+              </p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Imported textile Materials will appear here after they have valid linked Source data.
+                Imported textile Materials will appear here after they have
+                valid linked Source data.
               </p>
             </div>
           ) : null}
@@ -92,30 +107,43 @@ function MaterialRow({ material }: { material: MaterialSummary }) {
         {material.id}
       </TableCell>
       <TableCell className="max-w-[16rem] py-3 align-top whitespace-normal">
-        <p className="text-sm font-medium leading-5 text-foreground">{material.name}</p>
+        <p className="text-sm font-medium leading-5 text-foreground">
+          {material.name}
+        </p>
       </TableCell>
       <TableCell className="py-3 align-top">
-        <StatusBadge label={toMaterialColorLabel(material.materialColor)} tone="muted" />
+        <StatusBadge
+          label={toMaterialColorLabel(material.materialColor)}
+          tone="muted"
+        />
       </TableCell>
       <TableCell className="py-3 align-top">
         <StatusBadge label={toMaterialUseLabel(material.materialUse)} />
       </TableCell>
       <TableCell className="py-3 align-top">
-        <StatusBadge label={toMaterialUnitLabel(material.materialUnit)} tone="muted" />
+        <StatusBadge
+          label={toMaterialUnitLabel(material.materialUnit)}
+          tone="muted"
+        />
       </TableCell>
       <TableCell className="max-w-[14rem] py-3 align-top whitespace-normal">
         <div className="space-y-1">
           <p className="text-sm font-medium leading-5 text-foreground">
             {material.preferredSource.name}
           </p>
-          <p className="text-xs leading-5 text-muted-foreground">{material.preferredSource.provider}</p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {material.preferredSource.provider}
+          </p>
           {material.preferredSource.needsAttention ? (
             <StatusBadge label="Source needs attention" tone="warning" />
           ) : null}
         </div>
       </TableCell>
       <TableCell className="py-3 text-right align-top font-medium">
-        {formatUnitCost(material.derivedUnitCostCents, material.preferredSource.normalizedUnit)}
+        {formatUnitCost(
+          material.derivedUnitCostCents,
+          material.preferredSource.normalizedUnit,
+        )}
       </TableCell>
       <TableCell className="py-3 text-right align-top">
         {material.alternateSourceCount}
@@ -155,5 +183,7 @@ function formatUnitCost(costCents: number, unit: MaterialUnit) {
   return `${new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-  }).format(costCents / 100)} / ${toMaterialUnitLabel(unit).toLocaleLowerCase()}`
+  }).format(
+    costCents / 100,
+  )} / ${toMaterialUnitLabel(unit).toLocaleLowerCase()}`
 }

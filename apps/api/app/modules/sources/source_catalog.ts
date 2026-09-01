@@ -1,33 +1,20 @@
 import { DateTime } from 'luxon'
+import {
+  PURCHASE_PRESENTATIONS,
+  PURCHASE_UNITS,
+  SOURCE_STATUSES,
+  TEXTILE_FAMILIES,
+  VENDOR_CURRENCIES,
+} from '@guardiola-foundry/shared-types'
+import type {
+  PurchasePresentation,
+  PurchaseUnit,
+  SourceStatus,
+  TextileFamily,
+  VendorCurrency,
+} from '@guardiola-foundry/shared-types'
 
-// TODO(issue 04): Move cross-boundary Source controlled values and derived types into the
-// shared Source contract when the catalog API and UI are added. Workbook candidate/report
-// types and import-specific validation remain API-local.
-export const TEXTILE_FAMILIES = [
-  'Chiffon',
-  'Crepe',
-  'Crin',
-  'Encaje',
-  'Entretela',
-  'Georgette',
-  'Malla',
-  'Organza',
-  'Satin',
-  'Silk Organza',
-  'Taffeta',
-  'Tul',
-] as const
-export const PURCHASE_PRESENTATIONS = ['roll', 'piece'] as const
-export const PURCHASE_UNITS = ['meter', 'yard'] as const
-export const VENDOR_CURRENCIES = ['USD', 'MXN'] as const
-export const SOURCE_STATUSES = ['active', 'retired'] as const
 export const IVA_PERCENTAGE = 16 as const
-
-export type TextileFamily = (typeof TEXTILE_FAMILIES)[number]
-export type PurchasePresentation = (typeof PURCHASE_PRESENTATIONS)[number]
-export type PurchaseUnit = (typeof PURCHASE_UNITS)[number]
-export type VendorCurrency = (typeof VENDOR_CURRENCIES)[number]
-export type SourceStatus = (typeof SOURCE_STATUSES)[number]
 
 export interface CommercialSourceCandidate {
   name: string | null

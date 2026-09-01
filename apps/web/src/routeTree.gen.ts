@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppUserSettingsRouteImport } from './routes/app.user-settings'
+import { Route as AppSourcesRouteImport } from './routes/app.sources'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
@@ -44,6 +45,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppUserSettingsRoute = AppUserSettingsRouteImport.update({
   id: '/user-settings',
   path: '/user-settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSourcesRoute = AppSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProductsRoute = AppProductsRouteImport.update({
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
+  '/app/sources': typeof AppSourcesRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
+  '/app/sources': typeof AppSourcesRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
+  '/app/sources': typeof AppSourcesRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/materials'
     | '/app/products'
+    | '/app/sources'
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
+    | '/app/sources'
     | '/app/user-settings'
     | '/app'
     | '/app/products/$productId'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/materials'
     | '/app/products'
+    | '/app/sources'
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
@@ -196,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/user-settings'
       fullPath: '/app/user-settings'
       preLoaderRoute: typeof AppUserSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/sources': {
+      id: '/app/sources'
+      path: '/sources'
+      fullPath: '/app/sources'
+      preLoaderRoute: typeof AppSourcesRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/products': {
@@ -262,6 +281,7 @@ interface AppRouteChildren {
   AppInventoryRoute: typeof AppInventoryRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
+  AppSourcesRoute: typeof AppSourcesRoute
   AppUserSettingsRoute: typeof AppUserSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -271,6 +291,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppMaterialsRoute: AppMaterialsRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
+  AppSourcesRoute: AppSourcesRoute,
   AppUserSettingsRoute: AppUserSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }

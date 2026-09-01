@@ -5,14 +5,14 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
-import type { MaterialUnit } from '@guardiola-foundry/shared-types'
 import type {
+  MaterialUnit,
   PurchasePresentation,
   PurchaseUnit,
   SourceStatus,
   TextileFamily,
   VendorCurrency,
-} from '#modules/sources/source_catalog'
+} from '@guardiola-foundry/shared-types'
 
 export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   @column({ isPrimary: true })

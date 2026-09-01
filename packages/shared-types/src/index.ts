@@ -115,3 +115,4 @@ export interface UpdateProductRequest {
 }
 
 export * from './materials.js'
+export * from './sources.js'

@@ -24,6 +24,21 @@ Object.defineProperty(window, 'scrollTo', {
   value: () => undefined,
 })
 
+Object.defineProperties(Element.prototype, {
+  hasPointerCapture: {
+    value: () => false,
+  },
+  releasePointerCapture: {
+    value: () => undefined,
+  },
+  scrollIntoView: {
+    value: () => undefined,
+  },
+  setPointerCapture: {
+    value: () => undefined,
+  },
+})
+
 class ResizeObserver {
   observe() {}
 
