@@ -1,5 +1,8 @@
-import { getSource, listSources } from '#modules/sources/services/sources_service'
-import { listSourcesQuerySchema } from '@guardiola-foundry/shared-validation'
+import { createSource, getSource, listSources } from '#modules/sources/services/sources_service'
+import {
+  createSourceRequestSchema,
+  listSourcesQuerySchema,
+} from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class SourcesController {
@@ -28,5 +31,17 @@ export default class SourcesController {
     }
 
     return response.ok(result)
+  }
+
+  async store({ request, response }: HttpContext) {
+    const payload = createSourceRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({
+        errors: payload.error.flatten().fieldErrors,
+      })
+    }
+
+    return response.created(await createSource(payload.data))
   }
 }

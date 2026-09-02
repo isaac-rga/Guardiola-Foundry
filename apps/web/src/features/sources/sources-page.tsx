@@ -1,7 +1,9 @@
 import type { ListSourcesQuery } from '@guardiola-foundry/shared-types'
+import { Link } from '@tanstack/react-router'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { MaterialsAreaNavigation } from '@/features/materials/components/materials-area-navigation'
 import { useSourceList } from '@/features/sources/api/queries'
@@ -23,6 +25,11 @@ export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
       <PageHeader
         title="Sources"
         description="Browse vendor-specific textile offerings, commercial context, Material links, and attention needs."
+        action={
+          <Button asChild>
+            <Link to="/app/sources/new">Create Source</Link>
+          </Button>
+        }
       />
 
       <MaterialsAreaNavigation />

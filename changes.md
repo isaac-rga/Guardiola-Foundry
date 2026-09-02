@@ -1,86 +1,105 @@
-# Inspect Source Detail and Linked Materials
+# Create a Source From the Catalog
 
-This slice completes Sources issue 05. Authenticated users can open a Source from the catalog and inspect its complete record at a stable app-owned route. The detail remains an inspection surface: it explains the Source and its Material usage without introducing Source editing or relationship mutations.
+This slice completes Sources issue 06. Admins and Operators can now start from the authoritative Sources catalog, enter the commercial core plus any known optional details, and save a new Active Source without fabricating provenance or calculating Landed Unit Cost.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/05-inspect-source-detail.md](.scratch/sources/issues/05-inspect-source-detail.md). It defines two public seams: authenticated `GET /sources/:sourceId` and `/app/sources/$sourceId`. The implementation and tests stay within those boundaries.
+Read [.scratch/sources/issues/06-create-source-from-catalog.md](.scratch/sources/issues/06-create-source-from-catalog.md). It defines two public seams: authenticated `POST /sources` and the `/app/sources/new` catalog workflow. The implementation and tests stay within those boundaries.
 
-## Follow the Detail Contract
+## Follow the Shared Create Contract
 
 Open [packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts), then [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts).
 
-The shared Source contract now describes:
+`CreateSourceRequest` covers:
 
-- every commercial field already owned by the Source, including stable and legacy identity, presentation, quantity, price, date, currency, and manual Landed Unit Cost;
-- optional technical fields and Vendor Shades;
-- the stored future-costing inputs together with the fixed 16 percent IVA rule;
-- Source Status and both derived attention conditions;
-- read-only linked Material summaries, including relationship role, Vendor Shade, and whether the relationship is Active or historical.
+- the required commercial core: Source Name, Vendor, Textile Family, Purchase Presentation, Purchase Unit, Minimum Purchase Quantity, Purchase Price, Price Date, and Vendor Currency;
+- optional fixed-piece length and manual Landed Unit Cost;
+- optional commercial and technical details;
+- optional future-costing inputs;
+- zero or more Vendor Shade names or codes.
 
-The response exposes app-owned IDs and business vocabulary. It does not expose database foreign keys, action metadata, or mutation contracts.
+The shared Zod schema trims text, normalizes blank optional text to `null`, enforces the controlled Source values, requires positive quantities, rejects negative cent amounts, validates the ISO Price Date, bounds IGI from 0 through 100, and rejects blank or duplicate Vendor Shades. The same schema protects the API boundary and drives field-level validation in the web form.
 
-## Trace the Authenticated Detail Endpoint
+The response reuses the existing `{ source: SourceDetail }` contract. A successful create therefore returns the same complete, validated representation that the detail route reads.
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) registers `GET /sources/:sourceId` behind the existing bearer-authentication middleware. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) remains a thin HTTP boundary: it passes the current role to the service, returns the detail, or responds with `Source not found.`
+## Trace the Authenticated Create Endpoint
 
-[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) loads the Source with Vendor Shades and Material relationships in one detail query. It deliberately includes soft-deleted Materials so historical usage remains visible. Active Sources are available to Admins and Operators; the service excludes Retired Sources for Operators before serialization. A missing Source and an unauthorized Retired Source therefore produce the same 404 response and do not disclose whether the Retired record exists.
+[apps/api/start/routes.ts](apps/api/start/routes.ts) registers `POST /sources` behind the existing bearer-authentication middleware. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) remains a thin HTTP boundary: it validates the body, returns field-keyed `422` errors, delegates creation, and responds with `201 Created`.
 
-The serializer carries the fixed `IVA_PERCENTAGE` business rule from the Source catalog module and reuses the existing attention derivation. Future-costing inputs are returned as stored facts only; no calculation changes the manual Landed Unit Cost.
+[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) owns persistence:
 
-## Open a Source From the Catalog
+1. It creates the Source and any Vendor Shades in one database transaction.
+2. PostgreSQL allocates the next stable `S-` public ID; the service refreshes the row to read that database-owned value.
+3. App-created Sources store `legacySourceId: null`, default to Active, and normalize Landed Unit Cost to MXN per meter.
+4. Optional fields remain `null` when unknown rather than receiving invented values.
+5. The created record is reloaded through the existing detail serializer, so IVA, attention states, Vendor Shades, and linked-Material summaries have one authoritative representation.
 
-In [apps/web/src/features/sources/components/sources-table.tsx](apps/web/src/features/sources/components/sources-table.tsx), each Source ID is now a typed link to `/app/sources/$sourceId`. The link passes the Source ID through TanStack Router path parameters rather than string interpolation.
+There is no Currency Conversion Rate lookup in the create path. A USD Source remains valid when that later global setting is absent because this slice performs no currency conversion.
 
-The Sources route is now a small layout with an index child and a detail child:
+## Start Creation From the Catalog
 
-- [apps/web/src/routes/app.sources.tsx](apps/web/src/routes/app.sources.tsx) owns the shared Sources search validation and outlet;
-- [apps/web/src/routes/app.sources.index.tsx](apps/web/src/routes/app.sources.index.tsx) keeps the existing URL-synchronized catalog filters;
-- [apps/web/src/routes/app.sources.$sourceId.tsx](apps/web/src/routes/app.sources.$sourceId.tsx) reads the stable Source ID and renders the detail feature.
+[apps/web/src/features/sources/sources-page.tsx](apps/web/src/features/sources/sources-page.tsx) now exposes a typed **Create Source** link. [apps/web/src/routes/app.sources.new.tsx](apps/web/src/routes/app.sources.new.tsx) owns the stable `/app/sources/new` route and post-create navigation; the feature page reports the created Source ID back to that route.
 
-This preserves `/app/sources` as the catalog URL while making `/app/sources/S-0001` directly refreshable and shareable.
+[apps/web/src/features/sources/source-create-page.tsx](apps/web/src/features/sources/source-create-page.tsx) groups the workflow into four readable areas:
 
-## Walk Through the Detail Page
+1. **Commercial data** captures the required core, optional fixed-piece length, manual Landed Unit Cost, Vendor SKU, and Vendor URL.
+2. **Technical data** captures description, manufacturer, fiber, composition, GSM, width, finish, weave, presentation notes, origin, and comments.
+3. **Future costing inputs** captures estimated shipping and IGI beside the fixed 16 percent IVA rule. The page states explicitly that these inputs do not calculate or update Landed Unit Cost.
+4. **Vendor Shades** accepts one Vendor shade name or code per line.
 
-[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) fetches and validates the detail response. [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) owns the Source-ID-specific TanStack Query key.
+Money inputs are displayed in normal currency units and converted to integer cents at the request boundary. The form allows Landed Unit Cost to remain blank and explains that the resulting Active Source will show `Cost needs attention`. Missing optional details may produce `Data needs attention`, but neither condition blocks creation.
 
-[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) presents four read-only areas:
+## Preserve Values Through Validation
 
-1. **Commercial data** shows Vendor, Textile Family, stable provenance, presentation, purchase terms, Vendor Price, Price Date, and manual Landed Unit Cost.
-2. **Technical data** shows description, manufacturer, fiber, composition, GSM, width, finish, weave, notes, origin, comments, and Vendor Shades.
-3. **Future costing inputs** explicitly says the fields do not recalculate Landed Unit Cost. Estimated shipping and IGI are displayed beside IVA as the fixed 16 percent business rule.
-4. **Linked Materials** shows Material identity, color and use, Preferred or alternate relationship, selected Vendor Shade, and Active or historical relationship status. A retained link is historical when either the Source is Retired or the Material itself is historical.
+[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates outbound and inbound payloads. API field errors are retained as structured Source validation errors instead of being collapsed into one generic message.
 
-The page contains no edit, link, unlink, Preferred Source, or Material-field controls. Loading is explicit, missing and permission-safe 404 responses retain a route back to the catalog, and service errors offer an in-place retry.
+[apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) owns the create mutation and invalidates Source queries after success. The form maps server errors back beside the relevant controls without resetting entered values. On success, TanStack Router navigates with the returned `sourceId` path parameter to `/app/sources/$sourceId`.
 
 ## Read the Tests as Specifications
 
-[apps/api/tests/functional/sources/show_source.spec.ts](apps/api/tests/functional/sources/show_source.spec.ts) proves the full response contract, historical Material visibility, authenticated access, Admin-only Retired access, and identical missing/unauthorized responses.
+[apps/api/tests/functional/sources/create_source.spec.ts](apps/api/tests/functional/sources/create_source.spec.ts) proves:
 
-[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) proves stable list-to-detail routing. [apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) proves the complete read-only presentation, fixed IVA and no-calculation language, active and historical relationships, lack of mutation controls, loading, permission-safe missing state, service errors, and retry recovery.
+- authenticated Admin and Operator creation;
+- unauthenticated rejection;
+- sequential database-owned identity and nullable legacy provenance;
+- Active defaults, complete optional-field persistence, and transactional Vendor Shades;
+- required-field, controlled-value, numeric-bound, and Price Date validation with no partial record on failure;
+- creation without Landed Unit Cost or a Currency Conversion Rate;
+- derived cost/data attention without automatic cost calculation.
+
+[apps/web/src/routes/-source-create.test.tsx](apps/web/src/routes/-source-create.test.tsx) proves:
+
+- the complete create route, stable post-create navigation, and both derived attention indicators;
+- money-to-cents conversion, optional future inputs, and multiword Vendor Shades;
+- the no-calculation explanation;
+- client and server field-level validation;
+- preservation of the user's entered values after validation failure.
+
+[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) also protects the catalog entry point to `/app/sources/new`.
 
 ## Verification
 
 Focused verification passed:
 
-- Source detail API suite: 3 tests;
-- Sources list and detail web route suites: 8 tests;
+- Source creation API suite: 3 tests;
+- Sources list, create, and detail web route suites: 11 tests;
 - strict typechecks for the API, web, shared types, and shared validation packages.
 
 The complete repository gate also passed:
 
 - lint and strict typechecking across all four packages;
-- 63 API tests and 45 web tests across 9 web test files;
+- 66 API tests and 48 web tests across 10 web test files;
 - production builds for the API, web, shared types, and shared validation packages;
-- whitespace validation with `git diff --check`;
-- independent Standards and Spec reviews with no remaining findings.
+- whitespace validation with `git diff --check`.
 
-The reviews caught two issues before the final gate: duplicated Material enum knowledge in the Source response schema and an Active label on a Retired Source's otherwise-active Material relationship. The schema now composes the authoritative Material schemas, and relationship history now follows both sides of the relationship. Regression coverage protects the latter case.
+Independent Standards and Spec reviews were rerun after their findings were addressed. Both finished with no remaining findings.
+
+The globally active pnpm 11.9.0 tried to reinstall the repository-pinned pnpm 11.8.0 and then retried blocked registry downloads. Dependency links were restored from the existing local store with an offline frozen-lockfile install, and the same package lint, typecheck, test, and build commands were run directly with the installed workspace binaries. No dependency or lockfile changes are part of this slice.
 
 ## Scope Boundaries
 
-Issue 05 does not add Source creation, editing, lifecycle actions, currency-rate display, Material dialogs, relationship mutations, Preferred Source replacement, or Landed Unit Cost calculation. Those remain assigned to later Sources issues.
+Issue 06 does not add Source editing, lifecycle actions, Currency Conversion Rate display, Material dialogs, relationship mutations, Preferred Source replacement, or Landed Unit Cost calculation. Those remain assigned to later Sources issues.
 
 ## What Comes Next
 
-Issue 06 is the next incomplete slice: create a Source from the authoritative Sources catalog while preserving stable identity, validation, attention derivation, and the no-calculation boundary.
+Issue 07 is the next incomplete slice: edit Source commercial, technical, shade, future-input, and manual Landed Unit Cost data while preserving Source identity and provenance.

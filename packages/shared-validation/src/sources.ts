@@ -8,6 +8,8 @@ import {
   VENDOR_CURRENCIES,
 } from '@guardiola-foundry/shared-types'
 import type {
+  CreateSourceRequest,
+  CreateSourceResponse,
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
@@ -17,7 +19,11 @@ import type {
   SourceVendorShade,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
-import { materialColorSchema, materialUnitSchema, materialUseSchema } from './materials.js'
+import {
+  materialColorSchema,
+  materialUnitSchema,
+  materialUseSchema,
+} from './materials.js'
 
 export const textileFamilySchema = z.enum(TEXTILE_FAMILIES)
 export const purchasePresentationSchema = z.enum(PURCHASE_PRESENTATIONS)
@@ -102,7 +108,11 @@ export const sourceDetailSchema = z.object({
   presentationNotes: z.string().nullable(),
   countryOfOrigin: z.string().nullable(),
   comments: z.string().nullable(),
-  estimatedShippingUsdPerKilogramCents: z.number().int().nonnegative().nullable(),
+  estimatedShippingUsdPerKilogramCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable(),
   igiPercentage: z.number().min(0).max(100).nullable(),
   ivaPercentage: z.literal(16),
   costNeedsAttention: z.boolean(),
@@ -114,3 +124,64 @@ export const sourceDetailSchema = z.object({
 export const getSourceResponseSchema = z.object({
   source: sourceDetailSchema,
 }) satisfies z.ZodType<GetSourceResponse>
+
+const nullableTrimmedStringSchema = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => {
+    if (value === null || value === undefined) return null
+
+    const trimmedValue = value.trim()
+    return trimmedValue.length > 0 ? trimmedValue : null
+  })
+
+const nullablePositiveNumberSchema = z.number().positive().nullable().optional()
+const nullableNonnegativeIntegerSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .nullable()
+  .optional()
+
+export const createSourceRequestSchema = z.object({
+  name: z.string().trim().min(1, 'Source Name is required.'),
+  vendor: z.string().trim().min(1, 'Vendor is required.'),
+  textileFamily: textileFamilySchema,
+  purchasePresentation: purchasePresentationSchema,
+  fixedPieceLength: nullablePositiveNumberSchema,
+  purchaseUnit: purchaseUnitSchema,
+  minimumPurchaseQuantity: z
+    .number()
+    .positive('Minimum Purchase Quantity must be greater than 0.'),
+  purchasePriceCents: z
+    .number()
+    .int()
+    .nonnegative('Purchase Price cannot be negative.'),
+  priceDate: z.string().date('Price Date must use YYYY-MM-DD.'),
+  vendorCurrency: vendorCurrencySchema,
+  landedUnitCostCents: nullableNonnegativeIntegerSchema,
+  vendorSku: nullableTrimmedStringSchema,
+  url: nullableTrimmedStringSchema,
+  description: nullableTrimmedStringSchema,
+  manufacturer: nullableTrimmedStringSchema,
+  fiber: nullableTrimmedStringSchema,
+  composition: nullableTrimmedStringSchema,
+  gsmGramsPerSquareMeter: nullablePositiveNumberSchema,
+  widthCentimeters: nullablePositiveNumberSchema,
+  finish: nullableTrimmedStringSchema,
+  weave: nullableTrimmedStringSchema,
+  presentationNotes: nullableTrimmedStringSchema,
+  countryOfOrigin: nullableTrimmedStringSchema,
+  comments: nullableTrimmedStringSchema,
+  estimatedShippingUsdPerKilogramCents: nullableNonnegativeIntegerSchema,
+  igiPercentage: z.number().min(0).max(100).nullable().optional(),
+  vendorShades: z
+    .array(z.string().trim().min(1, 'Vendor Shade cannot be blank.'))
+    .refine((values) => new Set(values).size === values.length, {
+      message: 'Vendor Shades must be unique.',
+    })
+    .optional(),
+}) satisfies z.ZodType<CreateSourceRequest>
+
+export const createSourceResponseSchema =
+  getSourceResponseSchema satisfies z.ZodType<CreateSourceResponse>

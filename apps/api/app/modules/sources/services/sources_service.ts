@@ -1,7 +1,11 @@
 import MaterialSource from '#models/material_source'
 import Material from '#models/material'
+import VendorShade from '#modules/sources/models/vendor_shade'
 import { deriveSourceAttention, IVA_PERCENTAGE } from '#modules/sources/source_catalog'
+import db from '@adonisjs/lucid/services/db'
 import type {
+  CreateSourceRequest,
+  CreateSourceResponse,
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
@@ -9,6 +13,7 @@ import type {
   SourceLinkedMaterialSummary,
   SourceSummary,
 } from '@guardiola-foundry/shared-types'
+import { DateTime } from 'luxon'
 
 export async function listSources(filters: ListSourcesQuery): Promise<ListSourcesResponse> {
   const query = MaterialSource.query()
@@ -58,6 +63,65 @@ export async function getSource(
   const source = await query.first()
 
   return source ? { source: serializeSourceDetail(source) } : null
+}
+
+export async function createSource(payload: CreateSourceRequest): Promise<CreateSourceResponse> {
+  const source = await db.transaction(async (trx) => {
+    const createdSource = await MaterialSource.create(
+      {
+        legacySourceId: null,
+        name: payload.name,
+        vendor: payload.vendor,
+        textileFamily: payload.textileFamily,
+        purchasePresentation: payload.purchasePresentation,
+        fixedPieceLength: payload.fixedPieceLength ?? null,
+        purchaseUnit: payload.purchaseUnit,
+        minimumPurchaseQuantity: payload.minimumPurchaseQuantity,
+        purchasePriceCents: payload.purchasePriceCents,
+        priceDate: DateTime.fromISO(payload.priceDate, { zone: 'utc' }),
+        vendorCurrency: payload.vendorCurrency,
+        landedUnitCostCents: payload.landedUnitCostCents ?? null,
+        sourceStatus: 'active',
+        normalizedUnit: 'meter',
+        vendorSku: payload.vendorSku ?? null,
+        url: payload.url ?? null,
+        description: payload.description ?? null,
+        manufacturer: payload.manufacturer ?? null,
+        fiber: payload.fiber ?? null,
+        composition: payload.composition ?? null,
+        gsmGramsPerSquareMeter: payload.gsmGramsPerSquareMeter ?? null,
+        widthCentimeters: payload.widthCentimeters ?? null,
+        finish: payload.finish ?? null,
+        weave: payload.weave ?? null,
+        presentationNotes: payload.presentationNotes ?? null,
+        countryOfOrigin: payload.countryOfOrigin ?? null,
+        comments: payload.comments ?? null,
+        estimatedShippingUsdPerKilogramCents: payload.estimatedShippingUsdPerKilogramCents ?? null,
+        igiPercentage: payload.igiPercentage ?? null,
+      },
+      { client: trx }
+    )
+    await createdSource.refresh()
+
+    if (payload.vendorShades && payload.vendorShades.length > 0) {
+      await VendorShade.createMany(
+        payload.vendorShades.map((nameOrCode) => ({
+          materialSourceId: createdSource.id,
+          nameOrCode,
+        })),
+        { client: trx }
+      )
+    }
+
+    return createdSource
+  })
+  const response = await getSource(source.publicId, true)
+
+  if (!response) {
+    throw new Error(`Created Source ${source.publicId} could not be reloaded.`)
+  }
+
+  return response
 }
 
 function serializeSourceSummary(source: MaterialSource): SourceSummary {

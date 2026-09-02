@@ -31,9 +31,13 @@ describe('sources route', () => {
     renderSourcesRoute('/app/sources')
 
     expect(
-      await screen.findByRole('link', {
-        name: 'S-0001 Ivory Silk Crepe',
-      }, { timeout: 5_000 }),
+      await screen.findByRole(
+        'link',
+        {
+          name: 'S-0001 Ivory Silk Crepe',
+        },
+        { timeout: 5_000 },
+      ),
     ).toHaveAttribute('href', '/app/sources/S-0001')
   })
 
@@ -50,6 +54,10 @@ describe('sources route', () => {
     expect(
       await screen.findByRole('heading', { name: 'Sources' }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Create Source' })).toHaveAttribute(
+      'href',
+      '/app/sources/new',
+    )
     const areaNavigation = screen.getByRole('navigation', {
       name: 'Materials area views',
     })

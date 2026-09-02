@@ -116,3 +116,35 @@ export interface SourceDetail {
 export interface GetSourceResponse {
   source: SourceDetail
 }
+
+export interface CreateSourceRequest {
+  name: string
+  vendor: string
+  textileFamily: TextileFamily
+  purchasePresentation: PurchasePresentation
+  fixedPieceLength?: number | null
+  purchaseUnit: PurchaseUnit
+  minimumPurchaseQuantity: number
+  purchasePriceCents: number
+  priceDate: string
+  vendorCurrency: VendorCurrency
+  landedUnitCostCents?: number | null
+  vendorSku?: string | null
+  url?: string | null
+  description?: string | null
+  manufacturer?: string | null
+  fiber?: string | null
+  composition?: string | null
+  gsmGramsPerSquareMeter?: number | null
+  widthCentimeters?: number | null
+  finish?: string | null
+  weave?: string | null
+  presentationNotes?: string | null
+  countryOfOrigin?: string | null
+  comments?: string | null
+  estimatedShippingUsdPerKilogramCents?: number | null
+  igiPercentage?: number | null
+  vendorShades?: string[]
+}
+
+export type CreateSourceResponse = GetSourceResponse
