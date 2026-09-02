@@ -1,8 +1,10 @@
 import MaterialSource from '#models/material_source'
 import Material from '#models/material'
+import MaterialSourceLink from '#models/material_source_link'
 import VendorShade from '#modules/sources/models/vendor_shade'
 import { deriveSourceAttention, IVA_PERCENTAGE } from '#modules/sources/source_catalog'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   CreateSourceRequest,
   CreateSourceResponse,
@@ -12,6 +14,8 @@ import type {
   SourceDetail,
   SourceLinkedMaterialSummary,
   SourceSummary,
+  UpdateSourceRequest,
+  UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
 import { DateTime } from 'luxon'
 
@@ -122,6 +126,115 @@ export async function createSource(payload: CreateSourceRequest): Promise<Create
   }
 
   return response
+}
+
+export async function updateSource(
+  sourceId: string,
+  payload: UpdateSourceRequest,
+  includeRetired: boolean
+): Promise<UpdateSourceResponse | null> {
+  const updatedSourceId = await db.transaction(async (trx) => {
+    const query = MaterialSource.query({ client: trx }).where('publicId', sourceId)
+
+    if (!includeRetired) {
+      query.where('sourceStatus', 'active')
+    }
+
+    const source = await query.first()
+
+    if (!source) {
+      return null
+    }
+
+    source.merge({
+      name: payload.name,
+      vendor: payload.vendor,
+      textileFamily: payload.textileFamily,
+      purchasePresentation: payload.purchasePresentation,
+      fixedPieceLength: payload.fixedPieceLength ?? null,
+      purchaseUnit: payload.purchaseUnit,
+      minimumPurchaseQuantity: payload.minimumPurchaseQuantity,
+      purchasePriceCents: payload.purchasePriceCents,
+      priceDate: DateTime.fromISO(payload.priceDate, { zone: 'utc' }),
+      vendorCurrency: payload.vendorCurrency,
+      landedUnitCostCents: payload.landedUnitCostCents ?? null,
+      vendorSku: payload.vendorSku ?? null,
+      url: payload.url ?? null,
+      description: payload.description ?? null,
+      manufacturer: payload.manufacturer ?? null,
+      fiber: payload.fiber ?? null,
+      composition: payload.composition ?? null,
+      gsmGramsPerSquareMeter: payload.gsmGramsPerSquareMeter ?? null,
+      widthCentimeters: payload.widthCentimeters ?? null,
+      finish: payload.finish ?? null,
+      weave: payload.weave ?? null,
+      presentationNotes: payload.presentationNotes ?? null,
+      countryOfOrigin: payload.countryOfOrigin ?? null,
+      comments: payload.comments ?? null,
+      estimatedShippingUsdPerKilogramCents: payload.estimatedShippingUsdPerKilogramCents ?? null,
+      igiPercentage: payload.igiPercentage ?? null,
+    })
+    await source.save()
+    await reconcileVendorShades(source, payload.vendorShades ?? [], trx)
+
+    return source.publicId
+  })
+
+  if (!updatedSourceId) {
+    return null
+  }
+
+  const response = await getSource(updatedSourceId, includeRetired)
+
+  if (!response) {
+    throw new Error(`Updated Source ${updatedSourceId} could not be reloaded.`)
+  }
+
+  return response
+}
+
+async function reconcileVendorShades(
+  source: MaterialSource,
+  desiredNamesOrCodes: string[],
+  trx: TransactionClientContract
+) {
+  const existingShades = await VendorShade.query({ client: trx })
+    .where('materialSourceId', source.id)
+    .orderBy('id', 'asc')
+  const desiredNames = new Set(desiredNamesOrCodes)
+  const existingNames = new Set(existingShades.map((shade) => shade.nameOrCode))
+  const unmatchedExisting = existingShades.filter((shade) => !desiredNames.has(shade.nameOrCode))
+  const unmatchedDesired = desiredNamesOrCodes.filter(
+    (nameOrCode) => !existingNames.has(nameOrCode)
+  )
+  const renameCount = Math.min(unmatchedExisting.length, unmatchedDesired.length)
+
+  for (let index = 0; index < renameCount; index += 1) {
+    unmatchedExisting[index].nameOrCode = unmatchedDesired[index]
+    await unmatchedExisting[index].save()
+  }
+
+  const removedShadeIds = unmatchedExisting.slice(renameCount).map((shade) => shade.id)
+
+  if (removedShadeIds.length > 0) {
+    await MaterialSourceLink.query({ client: trx })
+      .where('materialSourceId', source.id)
+      .whereIn('vendorShadeId', removedShadeIds)
+      .update({ vendorShadeId: null })
+    await VendorShade.query({ client: trx }).whereIn('id', removedShadeIds).delete()
+  }
+
+  const addedNamesOrCodes = unmatchedDesired.slice(renameCount)
+
+  if (addedNamesOrCodes.length > 0) {
+    await VendorShade.createMany(
+      addedNamesOrCodes.map((nameOrCode) => ({
+        materialSourceId: source.id,
+        nameOrCode,
+      })),
+      { client: trx }
+    )
+  }
 }
 
 function serializeSourceSummary(source: MaterialSource): SourceSummary {

@@ -41,6 +41,18 @@ describe('Source create route', () => {
       await screen.findByRole('heading', { name: 'Create Source' }),
     ).toBeInTheDocument()
     expect(
+      screen.getByRole('region', { name: 'Commercial data' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: 'Technical data' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: 'Future costing inputs' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: 'Vendor Shades' }),
+    ).toBeInTheDocument()
+    expect(
       screen.getByText(
         'These inputs do not calculate or update Landed Unit Cost.',
       ),
@@ -58,7 +70,10 @@ describe('Source create route', () => {
     )
     await user.clear(screen.getByLabelText('IGI Percentage'))
     await user.type(screen.getByLabelText('IGI Percentage'), '10')
-    await user.type(screen.getByLabelText('Vendor Shades'), 'Ivory 100')
+    await user.type(
+      screen.getByRole('textbox', { name: 'Vendor Shades' }),
+      'Ivory 100',
+    )
     await user.click(screen.getByRole('button', { name: 'Create Source' }))
 
     await waitFor(() =>

@@ -1,7 +1,13 @@
-import { createSource, getSource, listSources } from '#modules/sources/services/sources_service'
+import {
+  createSource,
+  getSource,
+  listSources,
+  updateSource,
+} from '#modules/sources/services/sources_service'
 import {
   createSourceRequestSchema,
   listSourcesQuerySchema,
+  updateSourceRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -43,5 +49,27 @@ export default class SourcesController {
     }
 
     return response.created(await createSource(payload.data))
+  }
+
+  async update({ authenticatedSession, params, request, response }: HttpContext) {
+    const payload = updateSourceRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({
+        errors: payload.error.flatten().fieldErrors,
+      })
+    }
+
+    const result = await updateSource(
+      params.sourceId,
+      payload.data,
+      authenticatedSession.user.role === 'admin'
+    )
+
+    if (!result) {
+      return response.notFound({ message: 'Source not found.' })
+    }
+
+    return response.ok(result)
   }
 }

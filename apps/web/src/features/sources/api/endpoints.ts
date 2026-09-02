@@ -3,6 +3,8 @@ import {
   createSourceResponseSchema,
   getSourceResponseSchema,
   listSourcesResponseSchema,
+  updateSourceRequestSchema,
+  updateSourceResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   CreateSourceRequest,
@@ -10,6 +12,8 @@ import type {
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
+  UpdateSourceRequest,
+  UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
@@ -110,6 +114,42 @@ export async function createSource(
   }
 
   return createSourceResponseSchema.parse(body)
+}
+
+export async function updateSource(
+  token: string,
+  sourceId: string,
+  payload: UpdateSourceRequest,
+): Promise<UpdateSourceResponse> {
+  const response = await fetch(
+    resolveApiUrl(`/sources/${encodeURIComponent(sourceId)}`),
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updateSourceRequestSchema.parse(payload)),
+    },
+  )
+  const body = await response.json()
+
+  if (!response.ok) {
+    const fieldErrors = readSourceFieldErrors(body)
+
+    if (fieldErrors) {
+      throw new SourceValidationError(
+        'Review the highlighted Source fields.',
+        fieldErrors,
+      )
+    }
+
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to save Source changes.'),
+    )
+  }
+
+  return updateSourceResponseSchema.parse(body)
 }
 
 function readSourceFieldErrors(body: unknown) {

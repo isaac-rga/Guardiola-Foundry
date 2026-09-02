@@ -63,7 +63,11 @@ describe('Source detail route', () => {
       'href',
       '/app/sources',
     )
-    expect(screen.queryByRole('button', { name: /edit|link|unlink|preferred/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Edit Source' })).toHaveAttribute(
+      'href',
+      '/app/sources/S-0001/edit',
+    )
+    expect(screen.queryByRole('button', { name: /link|unlink|preferred/i })).not.toBeInTheDocument()
   })
 
   it('explains loading and permission-safe missing states with a route back to the catalog', async () => {

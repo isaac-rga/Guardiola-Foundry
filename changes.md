@@ -1,105 +1,69 @@
-# Create a Source From the Catalog
+# Edit Source Data and Vendor Shades
 
-This slice completes Sources issue 06. Admins and Operators can now start from the authoritative Sources catalog, enter the commercial core plus any known optional details, and save a new Active Source without fabricating provenance or calculating Landed Unit Cost.
+This slice completes Sources issue 07. Admins and Operators can now correct an existing Source's commercial, technical, future-costing, manual Landed Unit Cost, and Vendor Shade data without changing application identity or import provenance.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/06-create-source-from-catalog.md](.scratch/sources/issues/06-create-source-from-catalog.md). It defines two public seams: authenticated `POST /sources` and the `/app/sources/new` catalog workflow. The implementation and tests stay within those boundaries.
+Read [.scratch/sources/issues/07-edit-source-and-vendor-shades.md](.scratch/sources/issues/07-edit-source-and-vendor-shades.md). The implementation is limited to authenticated Source editing through `PUT /sources/:sourceId` and `/app/sources/$sourceId/edit`.
 
-## Follow the Shared Create Contract
+## Follow the Shared Update Contract
 
-Open [packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts), then [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts).
+[packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts) and [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts) reuse the existing complete Source write contract for editing.
 
-`CreateSourceRequest` covers:
+The contract includes the required commercial core plus optional technical data, manual Landed Unit Cost, future-costing inputs, and Vendor Shade names or codes. It does not include Source ID, legacy Source ID, Source Status, Normalized Unit, or Material relationships, so those values cannot be changed through editing.
 
-- the required commercial core: Source Name, Vendor, Textile Family, Purchase Presentation, Purchase Unit, Minimum Purchase Quantity, Purchase Price, Price Date, and Vendor Currency;
-- optional fixed-piece length and manual Landed Unit Cost;
-- optional commercial and technical details;
-- optional future-costing inputs;
-- zero or more Vendor Shade names or codes.
+The same Zod rules used during creation trim text, normalize blank optional fields to `null`, enforce controlled values, require positive quantities, reject negative cent amounts, validate ISO Price Date, bound IGI from 0 through 100, and reject blank or duplicate Vendor Shades.
 
-The shared Zod schema trims text, normalizes blank optional text to `null`, enforces the controlled Source values, requires positive quantities, rejects negative cent amounts, validates the ISO Price Date, bounds IGI from 0 through 100, and rejects blank or duplicate Vendor Shades. The same schema protects the API boundary and drives field-level validation in the web form.
+## Trace the Authenticated Update
 
-The response reuses the existing `{ source: SourceDetail }` contract. A successful create therefore returns the same complete, validated representation that the detail route reads.
+[apps/api/start/routes.ts](apps/api/start/routes.ts) registers `PUT /sources/:sourceId` behind the existing bearer-authentication middleware. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) validates the request, returns field-keyed `422` errors, applies the same role-aware visibility as Source detail, and delegates the update.
 
-## Trace the Authenticated Create Endpoint
+[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) saves the Source and reconciles Vendor Shades in one database transaction:
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) registers `POST /sources` behind the existing bearer-authentication middleware. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) remains a thin HTTP boundary: it validates the body, returns field-keyed `422` errors, delegates creation, and responds with `201 Created`.
+1. Existing shade names remain unchanged and keep their stable row IDs.
+2. A changed shade name reuses an unmatched existing shade when possible, preserving linked Material context.
+3. New shade names create new rows.
+4. Removed shades are deleted. If a Material relationship referenced a removed shade, only that optional shade reference is cleared; the Material-Source relationship remains intact.
 
-[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) owns persistence:
+The service never merges public ID, legacy provenance, status, normalized unit, or relationship data. It reloads the updated Source through the existing detail serializer, so attention states and linked-Material context come from one authoritative path.
 
-1. It creates the Source and any Vendor Shades in one database transaction.
-2. PostgreSQL allocates the next stable `S-` public ID; the service refreshes the row to read that database-owned value.
-3. App-created Sources store `legacySourceId: null`, default to Active, and normalize Landed Unit Cost to MXN per meter.
-4. Optional fields remain `null` when unknown rather than receiving invented values.
-5. The created record is reloaded through the existing detail serializer, so IVA, attention states, Vendor Shades, and linked-Material summaries have one authoritative representation.
+## Edit From Source Detail
 
-There is no Currency Conversion Rate lookup in the create path. A USD Source remains valid when that later global setting is absent because this slice performs no currency conversion.
+[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) now links to the typed `/app/sources/$sourceId/edit` route. [apps/web/src/features/sources/source-edit-page.tsx](apps/web/src/features/sources/source-edit-page.tsx) loads the same role-aware Source detail and then uses the established Source form.
 
-## Start Creation From the Catalog
+[apps/web/src/features/sources/source-create-page.tsx](apps/web/src/features/sources/source-create-page.tsx) now supports both create and edit modes without duplicating field definitions. Edit mode initializes the form from the Source detail, displays Source ID and legacy Source ID as read-only metadata, preserves user input when the server returns field errors, and shows a confirmation after a successful save.
 
-[apps/web/src/features/sources/sources-page.tsx](apps/web/src/features/sources/sources-page.tsx) now exposes a typed **Create Source** link. [apps/web/src/routes/app.sources.new.tsx](apps/web/src/routes/app.sources.new.tsx) owns the stable `/app/sources/new` route and post-create navigation; the feature page reports the created Source ID back to that route.
+Create and edit now present Commercial data, Technical data, Future costing inputs, and Vendor Shades as separate sibling cards matching the Source detail view. Commercial and Technical data share a two-column row on wide screens and stack on narrower screens; the remaining cards stay full width.
 
-[apps/web/src/features/sources/source-create-page.tsx](apps/web/src/features/sources/source-create-page.tsx) groups the workflow into four readable areas:
+The form continues to state that future-costing inputs do not calculate or update Landed Unit Cost. A USD Source can be edited without consulting or requiring the later global Currency Conversion Rate setting.
 
-1. **Commercial data** captures the required core, optional fixed-piece length, manual Landed Unit Cost, Vendor SKU, and Vendor URL.
-2. **Technical data** captures description, manufacturer, fiber, composition, GSM, width, finish, weave, presentation notes, origin, and comments.
-3. **Future costing inputs** captures estimated shipping and IGI beside the fixed 16 percent IVA rule. The page states explicitly that these inputs do not calculate or update Landed Unit Cost.
-4. **Vendor Shades** accepts one Vendor shade name or code per line.
+## Refresh Detail and Catalog Data
 
-Money inputs are displayed in normal currency units and converted to integer cents at the request boundary. The form allows Landed Unit Cost to remain blank and explains that the resulting Active Source will show `Cost needs attention`. Missing optional details may produce `Data needs attention`, but neither condition blocks creation.
-
-## Preserve Values Through Validation
-
-[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates outbound and inbound payloads. API field errors are retained as structured Source validation errors instead of being collapsed into one generic message.
-
-[apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) owns the create mutation and invalidates Source queries after success. The form maps server errors back beside the relevant controls without resetting entered values. On success, TanStack Router navigates with the returned `sourceId` path parameter to `/app/sources/$sourceId`.
+[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates update requests and responses and retains field-level server errors. [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) replaces the cached detail with the successful update response and invalidates Source list queries so returning to the catalog reloads current names, prices, costs, and attention states.
 
 ## Read the Tests as Specifications
 
-[apps/api/tests/functional/sources/create_source.spec.ts](apps/api/tests/functional/sources/create_source.spec.ts) proves:
+[apps/api/tests/functional/sources/update_source.spec.ts](apps/api/tests/functional/sources/update_source.spec.ts) proves both-role editing, immutable identity and provenance, complete field persistence, Vendor Shade rename/add/remove behavior, safe removal of a referenced shade, attention-state changes, no automatic Landed Unit Cost calculation, field-level validation, authentication, and permission-safe not-found behavior.
 
-- authenticated Admin and Operator creation;
-- unauthenticated rejection;
-- sequential database-owned identity and nullable legacy provenance;
-- Active defaults, complete optional-field persistence, and transactional Vendor Shades;
-- required-field, controlled-value, numeric-bound, and Price Date validation with no partial record on failure;
-- creation without Landed Unit Cost or a Currency Conversion Rate;
-- derived cost/data attention without automatic cost calculation.
-
-[apps/web/src/routes/-source-create.test.tsx](apps/web/src/routes/-source-create.test.tsx) proves:
-
-- the complete create route, stable post-create navigation, and both derived attention indicators;
-- money-to-cents conversion, optional future inputs, and multiword Vendor Shades;
-- the no-calculation explanation;
-- client and server field-level validation;
-- preservation of the user's entered values after validation failure.
-
-[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) also protects the catalog entry point to `/app/sources/new`.
+[apps/web/src/routes/-source-edit.test.tsx](apps/web/src/routes/-source-edit.test.tsx) proves read-only identity display, form initialization, Source and Vendor Shade editing, money conversion, successful detail replacement, catalog refresh, attention display, field-level server errors, and preservation of unsaved values. Existing create, detail, and catalog route tests protect the shared form and navigation seams.
 
 ## Verification
 
-Focused verification passed:
+Passed:
 
-- Source creation API suite: 3 tests;
-- Sources list, create, and detail web route suites: 11 tests;
-- strict typechecks for the API, web, shared types, and shared validation packages.
-
-The complete repository gate also passed:
-
-- lint and strict typechecking across all four packages;
-- 66 API tests and 48 web tests across 10 web test files;
+- focused Source editing API suite: 3 tests;
+- focused Sources edit, detail, create, and catalog web route suites: 13 tests across 4 files;
+- workspace lint across API, web, shared types, and shared validation;
+- workspace strict typechecking across API, web, shared types, and shared validation;
+- complete API suite: 69 tests;
+- complete web suite: 50 tests across 11 files;
 - production builds for the API, web, shared types, and shared validation packages;
 - whitespace validation with `git diff --check`.
 
-Independent Standards and Spec reviews were rerun after their findings were addressed. Both finished with no remaining findings.
-
-The globally active pnpm 11.9.0 tried to reinstall the repository-pinned pnpm 11.8.0 and then retried blocked registry downloads. Dependency links were restored from the existing local store with an offline frozen-lockfile install, and the same package lint, typecheck, test, and build commands were run directly with the installed workspace binaries. No dependency or lockfile changes are part of this slice.
-
 ## Scope Boundaries
 
-Issue 06 does not add Source editing, lifecycle actions, Currency Conversion Rate display, Material dialogs, relationship mutations, Preferred Source replacement, or Landed Unit Cost calculation. Those remain assigned to later Sources issues.
+Issue 07 does not add Source retirement or restoration, global Currency Conversion Rate display or editing, Material relationship dialogs, Source link/unlink behavior, Preferred Source replacement, automatic Landed Unit Cost calculation, or Vendor Shade lifecycle state. Those remain assigned to later Sources issues.
 
 ## What Comes Next
 
-Issue 07 is the next incomplete slice: edit Source commercial, technical, shade, future-input, and manual Landed Unit Cost data while preserving Source identity and provenance.
+Issue 08 is the next incomplete slice: display the database-managed global Currency Conversion Rate and Effective Date above the Sources catalog without using it to calculate Landed Unit Cost.

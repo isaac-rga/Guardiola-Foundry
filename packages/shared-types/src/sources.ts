@@ -148,3 +148,7 @@ export interface CreateSourceRequest {
 }
 
 export type CreateSourceResponse = GetSourceResponse
+
+export type UpdateSourceRequest = CreateSourceRequest
+
+export type UpdateSourceResponse = GetSourceResponse

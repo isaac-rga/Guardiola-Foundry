@@ -61,9 +61,19 @@ function SourceRecord({ source }: { source: SourceDetail }) {
         title={source.name}
         description="Inspect the complete vendor offering and its read-only Material usage context."
         action={
-          <Button asChild variant="outline">
-            <Link to="/app/sources">Back to Sources</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link
+                to="/app/sources/$sourceId/edit"
+                params={{ sourceId: source.id }}
+              >
+                Edit Source
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/app/sources">Back to Sources</Link>
+            </Button>
+          </div>
         }
       />
 

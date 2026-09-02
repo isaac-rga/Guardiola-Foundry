@@ -17,6 +17,8 @@ import type {
   SourceLinkedMaterialSummary,
   SourceSummary,
   SourceVendorShade,
+  UpdateSourceRequest,
+  UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 import {
@@ -185,3 +187,9 @@ export const createSourceRequestSchema = z.object({
 
 export const createSourceResponseSchema =
   getSourceResponseSchema satisfies z.ZodType<CreateSourceResponse>
+
+export const updateSourceRequestSchema =
+  createSourceRequestSchema satisfies z.ZodType<UpdateSourceRequest>
+
+export const updateSourceResponseSchema =
+  getSourceResponseSchema satisfies z.ZodType<UpdateSourceResponse>
