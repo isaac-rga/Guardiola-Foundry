@@ -1,3 +1,5 @@
+import type { MaterialColor, MaterialUnit, MaterialUse } from './materials.js'
+
 export const TEXTILE_FAMILIES = [
   'Chiffon',
   'Crepe',
@@ -56,4 +58,61 @@ export interface SourceSummary {
 
 export interface ListSourcesResponse {
   sources: SourceSummary[]
+}
+
+export interface SourceVendorShade {
+  id: number
+  nameOrCode: string
+}
+
+export interface SourceLinkedMaterialSummary {
+  id: string
+  name: string
+  materialColor: MaterialColor
+  materialUse: MaterialUse
+  relationship: 'preferred' | 'alternate'
+  relationshipStatus: 'active' | 'historical'
+  vendorShade: SourceVendorShade | null
+}
+
+export interface SourceDetail {
+  id: string
+  legacySourceId: string | null
+  name: string
+  vendor: string
+  textileFamily: TextileFamily
+  purchasePresentation: PurchasePresentation | null
+  fixedPieceLength: number | null
+  purchaseUnit: PurchaseUnit
+  minimumPurchaseQuantity: number | null
+  purchasePriceCents: number | null
+  priceDate: string | null
+  vendorCurrency: VendorCurrency | null
+  landedUnitCostCents: number | null
+  sourceStatus: SourceStatus
+  normalizedUnit: MaterialUnit
+  vendorSku: string | null
+  url: string | null
+  description: string | null
+  manufacturer: string | null
+  fiber: string | null
+  composition: string | null
+  gsmGramsPerSquareMeter: number | null
+  widthCentimeters: number | null
+  finish: string | null
+  weave: string | null
+  presentationNotes: string | null
+  countryOfOrigin: string | null
+  comments: string | null
+  estimatedShippingUsdPerKilogramCents: number | null
+  igiPercentage: number | null
+  ivaPercentage: 16
+  costNeedsAttention: boolean
+  dataNeedsAttention: boolean
+  vendorShades: SourceVendorShade[]
+  linkedMaterials: SourceLinkedMaterialSummary[]
+}
+
+export interface GetSourceResponse {
+  source: SourceDetail
 }

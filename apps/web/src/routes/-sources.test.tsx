@@ -24,6 +24,19 @@ describe('sources route', () => {
     vi.restoreAllMocks()
   })
 
+  it('opens a Source row through its stable app-owned Source ID route', async () => {
+    mockAuthenticatedSources({ sources: [sourceSummary()] })
+    seedStoredSession('operator')
+
+    renderSourcesRoute('/app/sources')
+
+    expect(
+      await screen.findByRole('link', {
+        name: 'S-0001 Ivory Silk Crepe',
+      }, { timeout: 5_000 }),
+    ).toHaveAttribute('href', '/app/sources/S-0001')
+  })
+
   it('renders sibling navigation and the complete operational Source table', async () => {
     const fetchSpy = mockAuthenticatedSources({
       sources: Array.from({ length: 156 }, (_, index) =>

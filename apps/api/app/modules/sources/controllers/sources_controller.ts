@@ -1,4 +1,4 @@
-import { listSources } from '#modules/sources/services/sources_service'
+import { getSource, listSources } from '#modules/sources/services/sources_service'
 import { listSourcesQuerySchema } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -18,5 +18,15 @@ export default class SourcesController {
     }
 
     return response.ok(await listSources(parsedFilters.data))
+  }
+
+  async show({ authenticatedSession, params, response }: HttpContext) {
+    const result = await getSource(params.sourceId, authenticatedSession.user.role === 'admin')
+
+    if (!result) {
+      return response.notFound({ message: 'Source not found.' })
+    }
+
+    return response.ok(result)
   }
 }

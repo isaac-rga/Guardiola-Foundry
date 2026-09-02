@@ -3,6 +3,7 @@ import type {
   PurchaseUnit,
   SourceSummary,
 } from '@guardiola-foundry/shared-types'
+import { Link } from '@tanstack/react-router'
 
 import { StatusBadge } from '@/components/app/status-badge'
 import {
@@ -33,8 +34,15 @@ export function SourcesTable({ sources }: { sources: SourceSummary[] }) {
       <TableBody>
         {sources.map((source) => (
           <TableRow key={source.id}>
-            <TableCell className="font-mono text-xs text-muted-foreground">
-              {source.id}
+            <TableCell className="font-mono text-xs">
+              <Link
+                aria-label={`${source.id} ${source.name}`}
+                className="text-primary underline-offset-4 hover:underline"
+                params={{ sourceId: source.id }}
+                to="/app/sources/$sourceId"
+              >
+                {source.id}
+              </Link>
             </TableCell>
             <TableCell className="max-w-[15rem] whitespace-normal font-medium">
               {source.name}

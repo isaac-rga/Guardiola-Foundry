@@ -1,5 +1,9 @@
-import { listSourcesResponseSchema } from '@guardiola-foundry/shared-validation'
+import {
+  getSourceResponseSchema,
+  listSourcesResponseSchema,
+} from '@guardiola-foundry/shared-validation'
 import type {
+  GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
 } from '@guardiola-foundry/shared-types'
@@ -37,4 +41,20 @@ export async function listSources(
   }
 
   return listSourcesResponseSchema.parse(body)
+}
+
+export async function getSource(token: string, sourceId: string): Promise<GetSourceResponse> {
+  const response = await fetch(resolveApiUrl(`/sources/${encodeURIComponent(sourceId)}`), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to load Source.'))
+  }
+
+  return getSourceResponseSchema.parse(body)
 }

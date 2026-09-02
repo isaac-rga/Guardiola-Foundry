@@ -19,7 +19,9 @@ import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppBillsOfMaterialsRouteImport } from './routes/app.bills-of-materials'
+import { Route as AppSourcesIndexRouteImport } from './routes/app.sources.index'
 import { Route as AppProductsIndexRouteImport } from './routes/app.products.index'
+import { Route as AppSourcesSourceIdRouteImport } from './routes/app.sources.$sourceId'
 import { Route as AppProductsProductIdRouteImport } from './routes/app.products.$productId'
 
 const SignInRoute = SignInRouteImport.update({
@@ -72,10 +74,20 @@ const AppBillsOfMaterialsRoute = AppBillsOfMaterialsRouteImport.update({
   path: '/bills-of-materials',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSourcesIndexRoute = AppSourcesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSourcesRoute,
+} as any)
 const AppProductsIndexRoute = AppProductsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppProductsRoute,
+} as any)
+const AppSourcesSourceIdRoute = AppSourcesSourceIdRouteImport.update({
+  id: '/$sourceId',
+  path: '/$sourceId',
+  getParentRoute: () => AppSourcesRoute,
 } as any)
 const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
   id: '/$productId',
@@ -91,11 +103,13 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
-  '/app/sources': typeof AppSourcesRoute
+  '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
   '/app/products/': typeof AppProductsIndexRoute
+  '/app/sources/': typeof AppSourcesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -103,11 +117,12 @@ export interface FileRoutesByTo {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
-  '/app/sources': typeof AppSourcesRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
   '/app/products': typeof AppProductsIndexRoute
+  '/app/sources': typeof AppSourcesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -118,11 +133,13 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
-  '/app/sources': typeof AppSourcesRoute
+  '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
   '/app/products/': typeof AppProductsIndexRoute
+  '/app/sources/': typeof AppSourcesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -138,7 +155,9 @@ export interface FileRouteTypes {
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
     | '/app/products/'
+    | '/app/sources/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -146,11 +165,12 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
-    | '/app/sources'
     | '/app/user-settings'
     | '/app'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
     | '/app/products'
+    | '/app/sources'
   id:
     | '__root__'
     | '/'
@@ -164,7 +184,9 @@ export interface FileRouteTypes {
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
     | '/app/products/'
+    | '/app/sources/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -245,12 +267,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsOfMaterialsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/sources/': {
+      id: '/app/sources/'
+      path: '/'
+      fullPath: '/app/sources/'
+      preLoaderRoute: typeof AppSourcesIndexRouteImport
+      parentRoute: typeof AppSourcesRoute
+    }
     '/app/products/': {
       id: '/app/products/'
       path: '/'
       fullPath: '/app/products/'
       preLoaderRoute: typeof AppProductsIndexRouteImport
       parentRoute: typeof AppProductsRoute
+    }
+    '/app/sources/$sourceId': {
+      id: '/app/sources/$sourceId'
+      path: '/$sourceId'
+      fullPath: '/app/sources/$sourceId'
+      preLoaderRoute: typeof AppSourcesSourceIdRouteImport
+      parentRoute: typeof AppSourcesRoute
     }
     '/app/products/$productId': {
       id: '/app/products/$productId'
@@ -276,12 +312,26 @@ const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(
   AppProductsRouteChildren,
 )
 
+interface AppSourcesRouteChildren {
+  AppSourcesSourceIdRoute: typeof AppSourcesSourceIdRoute
+  AppSourcesIndexRoute: typeof AppSourcesIndexRoute
+}
+
+const AppSourcesRouteChildren: AppSourcesRouteChildren = {
+  AppSourcesSourceIdRoute: AppSourcesSourceIdRoute,
+  AppSourcesIndexRoute: AppSourcesIndexRoute,
+}
+
+const AppSourcesRouteWithChildren = AppSourcesRoute._addFileChildren(
+  AppSourcesRouteChildren,
+)
+
 interface AppRouteChildren {
   AppBillsOfMaterialsRoute: typeof AppBillsOfMaterialsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
-  AppSourcesRoute: typeof AppSourcesRoute
+  AppSourcesRoute: typeof AppSourcesRouteWithChildren
   AppUserSettingsRoute: typeof AppUserSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -291,7 +341,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppMaterialsRoute: AppMaterialsRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
-  AppSourcesRoute: AppSourcesRoute,
+  AppSourcesRoute: AppSourcesRouteWithChildren,
   AppUserSettingsRoute: AppUserSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }
