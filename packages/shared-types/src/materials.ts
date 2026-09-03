@@ -28,3 +28,29 @@ export interface MaterialSummary {
 export interface ListMaterialsResponse {
   materials: MaterialSummary[]
 }
+
+export interface MaterialSourceRelationshipSummary {
+  id: string
+  name: string
+  vendor: string
+  relationship: 'preferred' | 'alternate'
+  relationshipStatus: 'active' | 'historical'
+  vendorShade: {
+    id: number
+    nameOrCode: string
+  } | null
+}
+
+export interface MaterialDetail {
+  id: string
+  name: string
+  materialColor: MaterialColor
+  materialUse: MaterialUse
+  materialUnit: MaterialUnit
+  comments: string | null
+  sourceRelationships: MaterialSourceRelationshipSummary[]
+}
+
+export interface GetMaterialResponse {
+  material: MaterialDetail
+}

@@ -1,77 +1,73 @@
-# Display the Global Currency Conversion Rate
+# Open the Material Relationship Dialog
 
-This slice completes Sources issue 08. Authenticated users can now see the application's single database-managed currency assumption above the Sources catalog without implying that Source prices are converted or that the setting can be edited here.
+This slice completes Sources issue 09. Users can now open a Material from the Materials table, inspect its read-only identity and Source relationships, and move between Material and Source context without gaining any Material or relationship mutation controls.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/08-display-global-currency-rate.md](.scratch/sources/issues/08-display-global-currency-rate.md). The implementation is limited to persisting and reading one optional global Currency Conversion Rate, then presenting it as read-only context on `/app/sources`.
+Read [.scratch/sources/issues/09-open-material-relationship-dialog.md](.scratch/sources/issues/09-open-material-relationship-dialog.md). The implementation is limited to Material relationship inspection, URL-backed dialog state, and bidirectional navigation. Source linking, unlinking, Preferred Source replacement, Source creation inside the Dialog, and Material lifecycle controls remain outside this slice.
 
-## Persist One Global Assumption
+## Read Material Relationships Through a Dedicated Contract
 
-[apps/api/database/migrations/1788394486000_create_currency_conversion_rates.ts](apps/api/database/migrations/1788394486000_create_currency_conversion_rates.ts) creates `currency_conversion_rates` independently from `material_sources`.
+[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define and validate the Material detail response. It includes the Material's stable identity, comments, and Source relationship summaries with:
 
-The table permits only the singleton ID `1`. Its `usd_to_mxn_rate` and `effective_date` columns are nullable so an absent row represents missing configuration and incomplete or nonpositive database-managed values can be reported as invalid instead of being displayed as trustworthy numbers.
+- Preferred or alternate relationship role;
+- active or historical relationship status;
+- Source identity and Vendor;
+- the selected Vendor Shade when one is recorded.
 
-[apps/api/app/modules/sources/models/currency_conversion_rate.ts](apps/api/app/modules/sources/models/currency_conversion_rate.ts) maps the decimal value to a number and the Effective Date to the existing Luxon date convention.
+[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) owns the Material-side composition. It loads Source relationships including soft-deleted Sources, classifies Retired or soft-deleted Sources as historical, and orders the response as Preferred Source, active alternates, then historical alternates.
 
-[apps/api/database/seeders/currency_conversion_rate_seeder.ts](apps/api/database/seeders/currency_conversion_rate_seeder.ts) provides the deterministic development assumption `1 USD = 17 MXN`, effective `2026-09-02`. It updates or creates singleton ID `1`, so repeated seed runs converge on the same value.
+[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) and [apps/api/start/routes.ts](apps/api/start/routes.ts) expose `GET /materials/:materialId` behind the existing bearer-authentication middleware. Historical Materials already referenced by Source detail can reopen their read-only relationship context, while an unknown Material returns `Material not found.` The endpoint adds no mutation route.
 
-## Read Through a Dedicated Contract
+## Keep the Dialog in the Materials Route
 
-[packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts) and [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts) define one discriminated response contract:
+[apps/web/src/routes/app.materials.tsx](apps/web/src/routes/app.materials.tsx) validates the optional `materialId` search parameter and treats it as dialog state. A URL such as `/app/materials?materialId=M-0001` can therefore be refreshed or entered directly and still reopens the intended Material context.
 
-- `configured` includes `usdToMxnRate`, its derived `mxnToUsdRate`, and `effectiveDate`;
-- `missing` means no singleton row exists;
-- `invalid` means the stored rate or Effective Date cannot be presented safely.
+[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts), [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts), and [apps/web/src/features/materials/query-keys.ts](apps/web/src/features/materials/query-keys.ts) keep the relationship request and cache behavior in the Materials data layer.
 
-[apps/api/app/modules/sources/services/currency_conversion_rate_service.ts](apps/api/app/modules/sources/services/currency_conversion_rate_service.ts) reads the singleton row. It returns only a positive finite configured rate, derives `MXN:USD` as `1 / USD:MXN`, and serializes the Effective Date without changing any Source value.
+[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) renders:
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) and [apps/api/app/modules/sources/controllers/currency_conversion_rates_controller.ts](apps/api/app/modules/sources/controllers/currency_conversion_rates_controller.ts) expose `GET /currency-conversion-rate` behind the existing bearer-authentication middleware. There is no POST, PUT, PATCH, or DELETE contract for this setting.
+- read-only Material ID, name, Material Color, Material Use, Material Unit, and comments;
+- a dedicated Preferred Source section;
+- active alternate Sources;
+- historical Retired Source relationships;
+- Vendor Shade context and links to each Source detail page;
+- loading, missing-record, permission, service-error, and retry states inside the Dialog.
 
-## Display the Rate Without Blocking Sources
+The Materials table remains mounted behind every dialog state. Closing the Dialog removes only `materialId` from the route state.
 
-[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates the dedicated response, and [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) keeps it in an independent TanStack Query cache entry.
+## Navigate in Both Directions
 
-[apps/web/src/features/sources/sources-page.tsx](apps/web/src/features/sources/sources-page.tsx) renders a read-only Currency Conversion Rate region above the Source filters and table:
+[apps/web/src/features/materials/materials-page.tsx](apps/web/src/features/materials/materials-page.tsx) opens the Dialog from the Material name and links the compact Preferred Source reference directly to Source detail. A trailing arrow distinguishes this cross-view navigation from the Material name's in-page Dialog action.
 
-- configured data shows `USD:MXN`, reciprocal `MXN:USD`, and the Effective Date;
-- missing, invalid, or unavailable data shows informational copy instead of a numeric value;
-- every state says or preserves the fact that Source prices remain unchanged and Landed Unit Cost remains manual;
-- Vendor Price displays its original `USD` or `MXN` currency code in both the catalog and Source detail;
-- the region contains no editing control.
-
-Because the rate and Source catalog use separate queries, rate absence or failure does not suppress the table, Create Source link, filters, or existing edit workflows.
+[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) turns every linked Material name into a link back to `/app/materials?materialId=…`, so Source detail can reopen the relevant Material Dialog in one step. Source links in the Dialog and Material backlinks use the same trailing-arrow affordance for navigation to another view.
 
 ## Read the Tests as Specifications
 
-[apps/api/tests/functional/sources/currency_conversion_rate.spec.ts](apps/api/tests/functional/sources/currency_conversion_rate.spec.ts) proves singleton persistence, idempotent deterministic seeding, configured serialization, exact reciprocal derivation, missing and invalid states, authenticated access, and the absence of write routes.
+[apps/api/tests/functional/materials/show_material.spec.ts](apps/api/tests/functional/materials/show_material.spec.ts) covers unauthenticated rejection, Material identity, Preferred and alternate summaries, Vendor Shade context, Retired Source history, reopening a historical Material from Source context, and the missing response for an unknown Material.
 
-[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) proves the read-only configured display, formatted reciprocal and Effective Date, explicit Vendor Price currency, missing and invalid informational messages, and continued catalog/Create Source availability. [apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) proves the same explicit Vendor Price currency on Source detail.
+[apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers authenticated route access, opening and restoring the Dialog through URL state, read-only identity, relationship grouping, Source navigation, and loading, missing, permission, and service-error states while the Materials page remains mounted.
 
-The existing focused Source creation and editing API tests continue to prove that a USD Source can be created or edited without a configured rate. The Source edit route fixture now supplies the independent missing-rate response while exercising the existing catalog-to-edit journey.
+[apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) covers the linked-Material route back to the active Material Dialog.
 
 ## Verification
 
 Passed:
 
-- focused Currency Conversion Rate API suite: 4 tests;
-- focused Source create and edit API regression suites: 6 tests across 2 files;
-- focused Sources and Source detail route suites: 11 tests across 2 files;
-- complete API suite: 73 tests;
-- complete web suite: 53 tests;
-- lint for API, web, shared types, and shared validation;
-- strict typechecking for API, web, shared types, and shared validation;
+- focused Material detail API suite: 4 tests;
+- focused Materials and Source-detail web route suites: 12 tests across 2 files;
+- repository lint for API, web, shared types, and shared validation;
+- repository strict typechecking for API, web, shared types, and shared validation;
+- complete API and web test suites through the repository quality gate;
 - builds for API, web, shared types, and shared validation;
-- database seed execution with the configured `17` rate and `2026-09-02` Effective Date;
-- local migration application and migration-status verification;
 - whitespace validation with `git diff --check`.
 
-The complete suites were run after implementation approval. The first full web run exposed the older Source edit journey's missing mock for the new independent rate request; adding the supported `missing` response restored that regression suite before the final 53-test web pass.
+The complete repository quality gate passed after implementation approval and the review refinements.
 
 ## Scope Boundaries
 
-Issue 08 does not add Currency Conversion Rate management UI or mutation endpoints, Banxico integration, automatic conversion of Purchase Price, Landed Unit Cost calculation, Source retirement/restoration, Material relationship dialogs, link/unlink behavior, or Preferred Source replacement.
+Issue 09 does not add Material create/edit/retire/restore, Source creation inside the Dialog, Source link/unlink, Vendor Shade assignment changes, Preferred Source replacement, Source retirement/restoration, or any write endpoint.
 
 ## What Comes Next
 
-Issue 09 is the next incomplete Sources slice: open the Material relationship dialog from Source detail while preserving the later link, unlink, and Preferred Source mutation boundaries.
+Issue 10 can build on this read-only Dialog to add controlled alternate Source linking and unlinking with Vendor Shade selection and Preferred Source protection.

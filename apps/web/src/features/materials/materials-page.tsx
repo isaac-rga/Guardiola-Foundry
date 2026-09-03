@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { ArrowRightIcon } from 'lucide-react'
 
 import { PageHeader } from '@/components/app/page-header'
 import { StatusBadge } from '@/components/app/status-badge'
@@ -12,9 +13,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { useMaterialList } from '@/features/materials/api/queries'
 import { MaterialsAreaNavigation } from '@/features/materials/components/materials-area-navigation'
-import { listMaterials } from '@/features/materials/api/endpoints'
-import { materialListQueryKey } from '@/features/materials/query-keys'
+import { MaterialRelationshipDialog } from '@/features/materials/components/material-relationship-dialog'
 import type {
   MaterialColor,
   MaterialSummary,
@@ -22,12 +23,15 @@ import type {
   MaterialUse,
 } from '@guardiola-foundry/shared-types'
 
-export function MaterialsPage() {
+export function MaterialsPage({
+  onSelectedMaterialChange,
+  selectedMaterialId,
+}: {
+  onSelectedMaterialChange: (materialId: string | undefined) => void
+  selectedMaterialId: string | undefined
+}) {
   const { session } = useAppShell()
-  const materialsQuery = useQuery({
-    queryKey: materialListQueryKey,
-    queryFn: () => listMaterials(session.token),
-  })
+  const materialsQuery = useMaterialList(session.token)
   const materials = materialsQuery.data?.materials ?? []
 
   return (
@@ -89,27 +93,49 @@ export function MaterialsPage() {
               </TableHeader>
               <TableBody>
                 {materials.map((material) => (
-                  <MaterialRow key={material.id} material={material} />
+                  <MaterialRow
+                    key={material.id}
+                    material={material}
+                    onOpen={() => onSelectedMaterialChange(material.id)}
+                  />
                 ))}
               </TableBody>
             </Table>
           ) : null}
         </CardContent>
       </Card>
+
+      <MaterialRelationshipDialog
+        materialId={selectedMaterialId}
+        onOpenChange={(open) => {
+          if (!open) onSelectedMaterialChange(undefined)
+        }}
+      />
     </div>
   )
 }
 
-function MaterialRow({ material }: { material: MaterialSummary }) {
+function MaterialRow({
+  material,
+  onOpen,
+}: {
+  material: MaterialSummary
+  onOpen: () => void
+}) {
   return (
     <TableRow>
       <TableCell className="py-3 align-top font-mono text-xs text-muted-foreground">
         {material.id}
       </TableCell>
       <TableCell className="max-w-[16rem] py-3 align-top whitespace-normal">
-        <p className="text-sm font-medium leading-5 text-foreground">
+        <button
+          aria-label={`Open ${material.name}`}
+          className="text-left text-sm font-medium leading-5 text-primary underline-offset-4 hover:underline"
+          onClick={onOpen}
+          type="button"
+        >
           {material.name}
-        </p>
+        </button>
       </TableCell>
       <TableCell className="py-3 align-top">
         <StatusBadge
@@ -128,9 +154,17 @@ function MaterialRow({ material }: { material: MaterialSummary }) {
       </TableCell>
       <TableCell className="max-w-[14rem] py-3 align-top whitespace-normal">
         <div className="space-y-1">
-          <p className="text-sm font-medium leading-5 text-foreground">
+          <Link
+            className="text-sm font-medium leading-5 text-primary underline-offset-4 hover:underline"
+            params={{ sourceId: material.preferredSource.id }}
+            to="/app/sources/$sourceId"
+          >
             {material.preferredSource.name}
-          </p>
+            <ArrowRightIcon
+              aria-hidden="true"
+              className="ml-1 inline size-3.5 align-[-0.125em]"
+            />
+          </Link>
           <p className="text-xs leading-5 text-muted-foreground">
             {material.preferredSource.provider}
           </p>

@@ -53,7 +53,11 @@ describe('Source detail route', () => {
     expect(costing).toHaveTextContent('IVA 16% fixed business rule')
 
     const materials = screen.getByRole('region', { name: 'Linked Materials' })
-    expect(within(materials).getByText('Ivory Silk Crepe')).toBeInTheDocument()
+    const linkedMaterial = within(materials).getByRole('link', {
+      name: 'Ivory Silk Crepe',
+    })
+    expect(linkedMaterial).toHaveAttribute('href', '/app/materials?materialId=M-0001')
+    expect(linkedMaterial.querySelector('.lucide-arrow-right')).toBeInTheDocument()
     expect(within(materials).getByText('Champagne Crepe')).toBeInTheDocument()
     expect(within(materials).getByText('Preferred')).toBeInTheDocument()
     expect(within(materials).getByText('Alternate')).toBeInTheDocument()

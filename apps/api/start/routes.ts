@@ -15,6 +15,7 @@ router.post('/auth/logout', [AuthController, 'logout'])
 router.post('/auth/change-password', [AuthController, 'changePassword'])
 router.get('/auth/me', [AuthController, 'me'])
 router.get('/materials', [MaterialsController, 'index'])
+router.get('/materials/:materialId', [MaterialsController, 'show']).use(middleware.bearerAuth())
 router
   .get('/currency-conversion-rate', [CurrencyConversionRatesController, 'show'])
   .use(middleware.bearerAuth())

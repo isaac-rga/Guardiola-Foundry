@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { SourceDetail, SourceLinkedMaterialSummary } from '@guardiola-foundry/shared-types'
 import { Link } from '@tanstack/react-router'
+import { ArrowRightIcon } from 'lucide-react'
 
 import { PageHeader } from '@/components/app/page-header'
 import { StatusBadge } from '@/components/app/status-badge'
@@ -239,7 +240,17 @@ function LinkedMaterialsCard({ materials }: { materials: SourceLinkedMaterialSum
             {materials.map((material) => (
               <TableRow key={material.id}>
                 <TableCell>
-                  <span className="block font-medium">{material.name}</span>
+                  <Link
+                    className="block font-medium text-primary underline-offset-4 hover:underline"
+                    to="/app/materials"
+                    search={{ materialId: material.id }}
+                  >
+                    {material.name}
+                    <ArrowRightIcon
+                      aria-hidden="true"
+                      className="ml-1 inline size-3.5 align-[-0.125em]"
+                    />
+                  </Link>
                   <span className="font-mono text-xs text-muted-foreground">{material.id}</span>
                 </TableCell>
                 <TableCell>

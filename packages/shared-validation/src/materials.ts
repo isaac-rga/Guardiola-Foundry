@@ -1,6 +1,9 @@
 import type {
+  GetMaterialResponse,
   ListMaterialsResponse,
+  MaterialDetail,
   MaterialPreferredSourceSummary,
+  MaterialSourceRelationshipSummary,
   MaterialSummary,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
@@ -35,3 +38,31 @@ export const materialSummarySchema = z.object({
 export const listMaterialsResponseSchema = z.object({
   materials: z.array(materialSummarySchema),
 }) satisfies z.ZodType<ListMaterialsResponse>
+
+export const materialSourceRelationshipSummarySchema = z.object({
+  id: z.string().regex(/^S-\d{4,}$/),
+  name: z.string().min(1),
+  vendor: z.string().min(1),
+  relationship: z.enum(['preferred', 'alternate']),
+  relationshipStatus: z.enum(['active', 'historical']),
+  vendorShade: z
+    .object({
+      id: z.number().int().positive(),
+      nameOrCode: z.string().min(1),
+    })
+    .nullable(),
+}) satisfies z.ZodType<MaterialSourceRelationshipSummary>
+
+export const materialDetailSchema = z.object({
+  id: z.string().regex(/^M-\d{4,}$/),
+  name: z.string().min(1),
+  materialColor: materialColorSchema,
+  materialUse: materialUseSchema,
+  materialUnit: materialUnitSchema,
+  comments: z.string().nullable(),
+  sourceRelationships: z.array(materialSourceRelationshipSummarySchema),
+}) satisfies z.ZodType<MaterialDetail>
+
+export const getMaterialResponseSchema = z.object({
+  material: materialDetailSchema,
+}) satisfies z.ZodType<GetMaterialResponse>

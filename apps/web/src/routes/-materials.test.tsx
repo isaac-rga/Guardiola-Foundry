@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUTH_SESSION_STORAGE_KEY } from '@/lib/auth/session-storage'
@@ -11,6 +12,20 @@ describe('materials route', () => {
     cleanup()
     localStorage.clear()
     vi.restoreAllMocks()
+  })
+
+  it('redirects unauthenticated direct relationship entry before loading Materials', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    const { router } = renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to guardiola foundry/i,
+      }),
+    ).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/sign-in')
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('renders the persisted lean Materials table with one row per Material', async () => {
@@ -305,13 +320,133 @@ describe('materials route', () => {
       within(attentionRow!).queryByRole('button', { name: /delete|restore|edit|change/i })
     ).not.toBeInTheDocument()
   })
+
+  it('opens a read-only relationship Dialog and preserves it in route state', async () => {
+    const user = userEvent.setup()
+    mockAuthenticatedMaterialsJourney()
+    seedStoredSession()
+
+    const { router } = renderMaterialsRoute()
+
+    const preferredSourceLink = await screen.findByRole('link', {
+      name: 'Italian Silk Crepe',
+    })
+    expect(preferredSourceLink).toHaveAttribute('href', '/app/sources/S-0001')
+    expect(preferredSourceLink.querySelector('.lucide-arrow-right')).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Open Ivory Silk Crepe' }),
+    )
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Ivory Silk Crepe',
+    })
+    expect(router.state.location.search).toEqual({ materialId: 'M-0001' })
+    expect(within(dialog).getByText('M-0001')).toBeInTheDocument()
+    expect(within(dialog).getByText('Ivory')).toBeInTheDocument()
+    expect(within(dialog).getByText('Base Fabric')).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('region', { name: 'Preferred Source' }),
+    ).toHaveTextContent('Italian Silk Crepe')
+    expect(
+      within(dialog).getByRole('region', { name: 'Active alternates' }),
+    ).toHaveTextContent('Ivory Crepe Backup')
+    expect(
+      within(dialog).getByRole('region', { name: 'Historical relationships' }),
+    ).toHaveTextContent('Retired Crepe')
+    expect(
+      within(dialog).getAllByRole('link', { name: /open source/i }),
+    ).toHaveLength(3)
+    const dialogSourceLink = within(dialog).getByRole('link', {
+      name: 'Open Source Italian Silk Crepe',
+    })
+    expect(dialogSourceLink).toHaveAttribute('href', '/app/sources/S-0001')
+    expect(dialogSourceLink.querySelector('.lucide-arrow-right')).toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', {
+        name: /create|edit|retire|restore|link|unlink/i,
+      }),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(router.state.location.search).toEqual({}))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('reopens the Material Dialog on direct entry and retains the list for failure states', async () => {
+    let detailState: 'loading' | 'missing' = 'loading'
+    let resolveDetail!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-9999') && init?.method === 'GET') {
+        if (detailState === 'loading') {
+          detailState = 'missing'
+          return await new Promise<Response>((resolve) => {
+            resolveDetail = resolve
+          })
+        }
+        return jsonResponse({ message: 'Material not found.' }, { status: 404 })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+
+    renderMaterialsRoute('/app/materials?materialId=M-9999')
+
+    expect(
+      await screen.findByText('Loading Material relationships...'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('table', { hidden: true }),
+    ).toBeInTheDocument()
+
+    resolveDetail(
+      jsonResponse({ message: 'Material not found.' }, { status: 404 }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Material not found.',
+    )
+    expect(screen.getByRole('table', { hidden: true })).toBeInTheDocument()
+  })
+
+  it.each([
+    [403, 'You do not have permission to inspect this Material.'],
+    [503, 'Material relationship service unavailable.'],
+  ])(
+    'explains a %s relationship-detail failure while retaining the Materials view',
+    async (status, message) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input)
+        if (url.endsWith('/auth/me')) return sessionResponse()
+        if (url.endsWith('/materials') && init?.method === 'GET') {
+          return jsonResponse(materialsListResponse())
+        }
+        if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+          return jsonResponse({ message }, { status })
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+      seedStoredSession()
+
+      renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(screen.getByRole('table', { hidden: true })).toBeInTheDocument()
+    },
+  )
 })
 
-function renderMaterialsRoute() {
+function renderMaterialsRoute(initialEntry = '/app/materials') {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
-      initialEntries: ['/app/materials'],
+      initialEntries: [initialEntry],
     }),
   })
   const queryClient = new QueryClient({
@@ -330,6 +465,94 @@ function renderMaterialsRoute() {
       </QueryClientProvider>
     ),
   }
+}
+
+function mockAuthenticatedMaterialsJourney() {
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(materialDetailResponse())
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+}
+
+function materialsListResponse() {
+  return {
+    materials: [
+      {
+        id: 'M-0001',
+        name: 'Ivory Silk Crepe',
+        materialColor: 'ivory',
+        materialUse: 'base-fabric',
+        materialUnit: 'meter',
+        preferredSource: {
+          id: 'S-0001',
+          name: 'Italian Silk Crepe',
+          provider: 'Casa Tessile',
+          normalizedUnitCostCents: 4200,
+          normalizedUnit: 'meter',
+          needsAttention: false,
+        },
+        derivedUnitCostCents: 4200,
+        alternateSourceCount: 2,
+        comments: 'Primary dress fabric.',
+      },
+    ],
+  }
+}
+
+function materialDetailResponse() {
+  return {
+    material: {
+      id: 'M-0001',
+      name: 'Ivory Silk Crepe',
+      materialColor: 'ivory',
+      materialUse: 'base-fabric',
+      materialUnit: 'meter',
+      comments: 'Primary dress fabric.',
+      sourceRelationships: [
+        {
+          id: 'S-0001',
+          name: 'Italian Silk Crepe',
+          vendor: 'Casa Tessile',
+          relationship: 'preferred',
+          relationshipStatus: 'active',
+          vendorShade: { id: 1, nameOrCode: 'Ivory 100' },
+        },
+        {
+          id: 'S-0002',
+          name: 'Ivory Crepe Backup',
+          vendor: 'Milan Textiles',
+          relationship: 'alternate',
+          relationshipStatus: 'active',
+          vendorShade: null,
+        },
+        {
+          id: 'S-0003',
+          name: 'Retired Crepe',
+          vendor: 'Archive Textiles',
+          relationship: 'alternate',
+          relationshipStatus: 'historical',
+          vendorShade: null,
+        },
+      ],
+    },
+  }
+}
+
+function sessionResponse() {
+  return jsonResponse({
+    tokenType: 'Bearer',
+    expiresAt: '2026-07-28T18:33:00.000Z',
+    user: { id: 1, email: 'admin@example.com', role: 'admin', active: true },
+  })
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
