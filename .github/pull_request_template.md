@@ -5,10 +5,7 @@
 
 ## Verification
 
-- [ ] `pnpm lint`
-- [ ] `pnpm typecheck`
-- [ ] `pnpm test`
-- [ ] `pnpm build`
+- [ ] `pnpm quality`
 
 List any narrower checks you ran during development and the result.
 

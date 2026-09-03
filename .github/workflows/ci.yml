@@ -55,9 +55,5 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
       - run: pnpm db:status
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm quality

@@ -59,7 +59,7 @@ When implementing or modifying code, you MUST fetch exact syntax using these spe
 
 ### 2. Context Ingestion Mapping
 Do not browse randomly. Use specific subpaths directly based on the architectural layer you are touching:
-- **Routing/Controllers/Validation:** Map to `@context7 /adonisjs/v7-docs/guides/basics/`
+- **Routing/Controllers/Validation:** Map to `@context7 /adonisjs/v7-docs/guides/basics/`. Prefer current v7 patterns such as route groups, group middleware, resource routes, `.only()`, `.except()`, and `.params()`.
 - **Authentication/Guards:** Map to `@context7 /adonisjs/v7-docs/guides/auth/`
 - **Database/Migrations/Lucid:** Map to `@context7 /adonisjs/v7-docs/guides/database/` or Lucid primary source.
 - **Test Doubles/API Tests:** Map to `@context7 /adonisjs/v7-docs/guides/testing/` or Japa primary source.
@@ -67,7 +67,7 @@ Do not browse randomly. Use specific subpaths directly based on the architectura
 
 ### 3. Verification Protocol (Definition of Done)
 Before marking any task as complete, you must explicitly output a confirmation in your thought process:
-"Verified implementation against [Source Path] to ensure compliance with AdonisJS v7 end-to-end type safety standards."
+"Verified implementation against [Source Path] to ensure compliance with AdonisJS v7 end-to-end standards."
 
 ## Security & Configuration
 Copy each app's `.env.example` to its local environment file. Never commit secrets or generated `APP_KEY` values; document new variables in the corresponding example file.

@@ -76,12 +76,14 @@ The health endpoint is a liveness check. It intentionally does not query Postgre
 
 ## Quality Commands
 
+The final quality gate is run by the human locally and by CI:
+
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm quality
 ```
+
+It validates the required runtime versions, source diff hygiene, linting, type safety,
+tests, and the production build. PostgreSQL must be available for the API test suite.
 
 ## Database Commands
 

@@ -59,10 +59,6 @@ Use Node.js 24+ and the pnpm version pinned in `package.json`.
 *   **Run local development environment (Full Stack):** `pnpm dev` (Runs both `@guardiola-foundry/web` and `@guardiola-foundry/api` in parallel).
 *   **Run Web app only:** `pnpm dev:web`
 *   **Run API app only:** `pnpm dev:api`
-*   **Compile / Production Build:** `pnpm build`
-*   **Code Quality Verification (Linting):** `pnpm lint`
-*   **Static Type Checking:** `pnpm typecheck`
-*   **Run Test Suite:** `pnpm test`
 
 ### Database & Environment Control
 *   **Spin up Postgres Container:** `pnpm db:up` (Do not run raw `docker compose` manually unless specified).
@@ -71,6 +67,13 @@ Use Node.js 24+ and the pnpm version pinned in `package.json`.
 *   **Rollback Last Migration:** `pnpm db:rollback`
 *   **Check Migration Status:** `pnpm db:status`
 *   **Seed Database:** `pnpm db:seed`
+
+### Database Changes (If Applicable)
+
+If the task modifies models or schema
+1. Run pending migrations to apply changes.
+2. Check Migration Status
+3. Seed database only recently added seed (if applicable)
 
 ## Testing Guidelines
 
@@ -92,19 +95,9 @@ Prefer comments that explain:
 - Important side effects.
 - Avoid comments that simply describe what the code already says.
 
-## Execution Hooks & Verification Protocol (Definition of Done)
-You must execute these verification loops locally before declaring any task as finished.
+## Quality Gate
 
-### Step 1: Quality & Compile Guardrails
-Before outputting code to the user, run these two tasks in the background:
-1. Fix any ESLint/Prettier discrepancies: `pnpm lint`
-2. Ensure strict TypeScript compilation with Static Type Checking: `pnpm typecheck`
-
-### Step 2: Database Changes (If Applicable)
-If the task modifies models or schema
-1. Run pending migrations to apply changes.
-2. Check Migration Status
-3. Seed database only recently added seed (if applicable)
+The final `pnpm quality` gate belongs to the human and CI. Run it only when explicitly requested. During implementation, run only the focused checks needed for the change. Treat gate failures shared by the user as input for correction.
 
 ## Agent skills
 
