@@ -39,6 +39,17 @@ export class CollectionSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class CurrencyConversionRateSchema extends BaseModel {
+  static $columns = ['effectiveDate', 'id', 'usdToMxnRate'] as const
+  $columns = CurrencyConversionRateSchema.$columns
+  @column.date()
+  declare effectiveDate: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare usdToMxnRate: string | null
+}
+
 export class LoginAttemptSchema extends BaseModel {
   static $columns = ['createdAt', 'email', 'failureCount', 'id', 'lockedUntil', 'updatedAt'] as const
   $columns = LoginAttemptSchema.$columns

@@ -58,7 +58,10 @@ export function SourcesTable({ sources }: { sources: SourceSummary[] }) {
               {formatUnit(source.purchaseUnit)}
             </TableCell>
             <TableCell className="text-right">
-              {formatMoney(source.purchasePriceCents, source.vendorCurrency)}
+              {formatVendorMoney(
+                source.purchasePriceCents,
+                source.vendorCurrency,
+              )}
             </TableCell>
             <TableCell className="text-right">
               {source.landedUnitCostCents === null
@@ -109,4 +112,17 @@ function formatMoney(cents: number | null, currency: 'USD' | 'MXN' | null) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
     cents / 100,
   )
+}
+
+function formatVendorMoney(
+  cents: number | null,
+  currency: 'USD' | 'MXN' | null,
+) {
+  if (cents === null || currency === null) return 'Not recorded'
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'code',
+  }).format(cents / 100)
 }

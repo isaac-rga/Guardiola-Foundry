@@ -36,7 +36,7 @@ describe('Source detail route', () => {
     expect(commercial).toHaveTextContent('Crepe')
     expect(commercial).toHaveTextContent('Roll')
     expect(commercial).toHaveTextContent('Yard')
-    expect(commercial).toHaveTextContent('$36.00')
+    expect(commercial).toHaveTextContent('USD 36.00')
     expect(commercial).toHaveTextContent('MX$42.00 / meter')
     expect(commercial).toHaveTextContent('July 1, 2026')
 

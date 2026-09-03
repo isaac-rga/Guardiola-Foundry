@@ -1,6 +1,7 @@
 import {
   createSourceRequestSchema,
   createSourceResponseSchema,
+  getCurrencyConversionRateResponseSchema,
   getSourceResponseSchema,
   listSourcesResponseSchema,
   updateSourceRequestSchema,
@@ -9,6 +10,7 @@ import {
 import type {
   CreateSourceRequest,
   CreateSourceResponse,
+  GetCurrencyConversionRateResponse,
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
@@ -17,6 +19,26 @@ import type {
 } from '@guardiola-foundry/shared-types'
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+
+export async function getCurrencyConversionRate(
+  token: string,
+): Promise<GetCurrencyConversionRateResponse> {
+  const response = await fetch(resolveApiUrl('/currency-conversion-rate'), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to load Currency Conversion Rate.'),
+    )
+  }
+
+  return getCurrencyConversionRateResponseSchema.parse(body)
+}
 
 export async function listSources(
   token: string,

@@ -7,12 +7,14 @@ import type {
 
 import {
   createSource,
+  getCurrencyConversionRate,
   getSource,
   listSources,
   updateSource,
 } from '@/features/sources/api/endpoints'
 
 const sourceListQueryKey = ['sources', 'list'] as const
+const currencyConversionRateQueryKey = ['currency-conversion-rate'] as const
 
 function sourceDetailQueryKey(sourceId: string) {
   return ['sources', 'detail', sourceId] as const
@@ -22,6 +24,13 @@ export function useSourceList(token: string, filters: ListSourcesQuery) {
   return useQuery({
     queryKey: [...sourceListQueryKey, filters],
     queryFn: () => listSources(token, filters),
+  })
+}
+
+export function useCurrencyConversionRate(token: string) {
+  return useQuery({
+    queryKey: currencyConversionRateQueryKey,
+    queryFn: () => getCurrencyConversionRate(token),
   })
 }
 

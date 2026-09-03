@@ -10,6 +10,7 @@ import {
 import type {
   CreateSourceRequest,
   CreateSourceResponse,
+  GetCurrencyConversionRateResponse,
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
@@ -65,6 +66,17 @@ export const sourceSummarySchema = z.object({
 export const listSourcesResponseSchema = z.object({
   sources: z.array(sourceSummarySchema),
 }) satisfies z.ZodType<ListSourcesResponse>
+
+export const getCurrencyConversionRateResponseSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('configured'),
+    usdToMxnRate: z.number().positive(),
+    mxnToUsdRate: z.number().positive(),
+    effectiveDate: z.string().date(),
+  }),
+  z.object({ state: z.literal('missing') }),
+  z.object({ state: z.literal('invalid') }),
+]) satisfies z.ZodType<GetCurrencyConversionRateResponse>
 
 export const sourceVendorShadeSchema = z.object({
   id: z.number().int().positive(),

@@ -35,6 +35,9 @@ describe('Source edit route', () => {
       .mockImplementation(async (input, init) => {
         const url = String(input)
         if (url.endsWith('/auth/me')) return sessionResponse('operator')
+        if (url.endsWith('/currency-conversion-rate')) {
+          return jsonResponse({ state: 'missing' })
+        }
         if (
           new URL(url).pathname.endsWith('/sources') &&
           init?.method === 'GET'

@@ -106,7 +106,13 @@ function SourceRecord({ source }: { source: SourceDetail }) {
               ['Fixed Piece Length', formatMeasurement(source.fixedPieceLength, source.purchaseUnit)],
               ['Purchase Unit', formatTitle(source.purchaseUnit)],
               ['Minimum Purchase Quantity', formatQuantity(source.minimumPurchaseQuantity, source.purchaseUnit)],
-              ['Vendor Price', formatMoney(source.purchasePriceCents, source.vendorCurrency)],
+              [
+                'Vendor Price',
+                formatVendorMoney(
+                  source.purchasePriceCents,
+                  source.vendorCurrency,
+                ),
+              ],
               ['Price Date', formatDate(source.priceDate)],
               ['Landed Unit Cost', formatLandedCost(source.landedUnitCostCents)],
               ['Normalized Unit', formatTitle(source.normalizedUnit)],
@@ -288,6 +294,15 @@ function formatNumber(value: number) {
 function formatMoney(cents: number | null, currency: 'USD' | 'MXN' | null) {
   if (cents === null || currency === null) return 'Not recorded'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100)
+}
+
+function formatVendorMoney(cents: number | null, currency: 'USD' | 'MXN' | null) {
+  if (cents === null || currency === null) return 'Not recorded'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'code',
+  }).format(cents / 100)
 }
 
 function formatLandedCost(cents: number | null) {

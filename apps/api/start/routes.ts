@@ -6,6 +6,8 @@ const HealthController = () => import('#modules/health/controllers/health_contro
 const MaterialsController = () => import('#modules/materials/controllers/materials_controller')
 const ProductsController = () => import('#modules/products/controllers/products_controller')
 const SourcesController = () => import('#modules/sources/controllers/sources_controller')
+const CurrencyConversionRatesController = () =>
+  import('#modules/sources/controllers/currency_conversion_rates_controller')
 
 router.get('/health', [HealthController, 'show'])
 router.post('/auth/login', [AuthController, 'login'])
@@ -13,6 +15,9 @@ router.post('/auth/logout', [AuthController, 'logout'])
 router.post('/auth/change-password', [AuthController, 'changePassword'])
 router.get('/auth/me', [AuthController, 'me'])
 router.get('/materials', [MaterialsController, 'index'])
+router
+  .get('/currency-conversion-rate', [CurrencyConversionRatesController, 'show'])
+  .use(middleware.bearerAuth())
 router.get('/sources', [SourcesController, 'index']).use(middleware.bearerAuth())
 router.post('/sources', [SourcesController, 'store']).use(middleware.bearerAuth())
 router.get('/sources/:sourceId', [SourcesController, 'show']).use(middleware.bearerAuth())

@@ -1,69 +1,77 @@
-# Edit Source Data and Vendor Shades
+# Display the Global Currency Conversion Rate
 
-This slice completes Sources issue 07. Admins and Operators can now correct an existing Source's commercial, technical, future-costing, manual Landed Unit Cost, and Vendor Shade data without changing application identity or import provenance.
+This slice completes Sources issue 08. Authenticated users can now see the application's single database-managed currency assumption above the Sources catalog without implying that Source prices are converted or that the setting can be edited here.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/07-edit-source-and-vendor-shades.md](.scratch/sources/issues/07-edit-source-and-vendor-shades.md). The implementation is limited to authenticated Source editing through `PUT /sources/:sourceId` and `/app/sources/$sourceId/edit`.
+Read [.scratch/sources/issues/08-display-global-currency-rate.md](.scratch/sources/issues/08-display-global-currency-rate.md). The implementation is limited to persisting and reading one optional global Currency Conversion Rate, then presenting it as read-only context on `/app/sources`.
 
-## Follow the Shared Update Contract
+## Persist One Global Assumption
 
-[packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts) and [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts) reuse the existing complete Source write contract for editing.
+[apps/api/database/migrations/1788394486000_create_currency_conversion_rates.ts](apps/api/database/migrations/1788394486000_create_currency_conversion_rates.ts) creates `currency_conversion_rates` independently from `material_sources`.
 
-The contract includes the required commercial core plus optional technical data, manual Landed Unit Cost, future-costing inputs, and Vendor Shade names or codes. It does not include Source ID, legacy Source ID, Source Status, Normalized Unit, or Material relationships, so those values cannot be changed through editing.
+The table permits only the singleton ID `1`. Its `usd_to_mxn_rate` and `effective_date` columns are nullable so an absent row represents missing configuration and incomplete or nonpositive database-managed values can be reported as invalid instead of being displayed as trustworthy numbers.
 
-The same Zod rules used during creation trim text, normalize blank optional fields to `null`, enforce controlled values, require positive quantities, reject negative cent amounts, validate ISO Price Date, bound IGI from 0 through 100, and reject blank or duplicate Vendor Shades.
+[apps/api/app/modules/sources/models/currency_conversion_rate.ts](apps/api/app/modules/sources/models/currency_conversion_rate.ts) maps the decimal value to a number and the Effective Date to the existing Luxon date convention.
 
-## Trace the Authenticated Update
+[apps/api/database/seeders/currency_conversion_rate_seeder.ts](apps/api/database/seeders/currency_conversion_rate_seeder.ts) provides the deterministic development assumption `1 USD = 17 MXN`, effective `2026-09-02`. It updates or creates singleton ID `1`, so repeated seed runs converge on the same value.
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) registers `PUT /sources/:sourceId` behind the existing bearer-authentication middleware. [apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) validates the request, returns field-keyed `422` errors, applies the same role-aware visibility as Source detail, and delegates the update.
+## Read Through a Dedicated Contract
 
-[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) saves the Source and reconciles Vendor Shades in one database transaction:
+[packages/shared-types/src/sources.ts](packages/shared-types/src/sources.ts) and [packages/shared-validation/src/sources.ts](packages/shared-validation/src/sources.ts) define one discriminated response contract:
 
-1. Existing shade names remain unchanged and keep their stable row IDs.
-2. A changed shade name reuses an unmatched existing shade when possible, preserving linked Material context.
-3. New shade names create new rows.
-4. Removed shades are deleted. If a Material relationship referenced a removed shade, only that optional shade reference is cleared; the Material-Source relationship remains intact.
+- `configured` includes `usdToMxnRate`, its derived `mxnToUsdRate`, and `effectiveDate`;
+- `missing` means no singleton row exists;
+- `invalid` means the stored rate or Effective Date cannot be presented safely.
 
-The service never merges public ID, legacy provenance, status, normalized unit, or relationship data. It reloads the updated Source through the existing detail serializer, so attention states and linked-Material context come from one authoritative path.
+[apps/api/app/modules/sources/services/currency_conversion_rate_service.ts](apps/api/app/modules/sources/services/currency_conversion_rate_service.ts) reads the singleton row. It returns only a positive finite configured rate, derives `MXN:USD` as `1 / USD:MXN`, and serializes the Effective Date without changing any Source value.
 
-## Edit From Source Detail
+[apps/api/start/routes.ts](apps/api/start/routes.ts) and [apps/api/app/modules/sources/controllers/currency_conversion_rates_controller.ts](apps/api/app/modules/sources/controllers/currency_conversion_rates_controller.ts) expose `GET /currency-conversion-rate` behind the existing bearer-authentication middleware. There is no POST, PUT, PATCH, or DELETE contract for this setting.
 
-[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) now links to the typed `/app/sources/$sourceId/edit` route. [apps/web/src/features/sources/source-edit-page.tsx](apps/web/src/features/sources/source-edit-page.tsx) loads the same role-aware Source detail and then uses the established Source form.
+## Display the Rate Without Blocking Sources
 
-[apps/web/src/features/sources/source-create-page.tsx](apps/web/src/features/sources/source-create-page.tsx) now supports both create and edit modes without duplicating field definitions. Edit mode initializes the form from the Source detail, displays Source ID and legacy Source ID as read-only metadata, preserves user input when the server returns field errors, and shows a confirmation after a successful save.
+[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates the dedicated response, and [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) keeps it in an independent TanStack Query cache entry.
 
-Create and edit now present Commercial data, Technical data, Future costing inputs, and Vendor Shades as separate sibling cards matching the Source detail view. Commercial and Technical data share a two-column row on wide screens and stack on narrower screens; the remaining cards stay full width.
+[apps/web/src/features/sources/sources-page.tsx](apps/web/src/features/sources/sources-page.tsx) renders a read-only Currency Conversion Rate region above the Source filters and table:
 
-The form continues to state that future-costing inputs do not calculate or update Landed Unit Cost. A USD Source can be edited without consulting or requiring the later global Currency Conversion Rate setting.
+- configured data shows `USD:MXN`, reciprocal `MXN:USD`, and the Effective Date;
+- missing, invalid, or unavailable data shows informational copy instead of a numeric value;
+- every state says or preserves the fact that Source prices remain unchanged and Landed Unit Cost remains manual;
+- Vendor Price displays its original `USD` or `MXN` currency code in both the catalog and Source detail;
+- the region contains no editing control.
 
-## Refresh Detail and Catalog Data
-
-[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) validates update requests and responses and retains field-level server errors. [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) replaces the cached detail with the successful update response and invalidates Source list queries so returning to the catalog reloads current names, prices, costs, and attention states.
+Because the rate and Source catalog use separate queries, rate absence or failure does not suppress the table, Create Source link, filters, or existing edit workflows.
 
 ## Read the Tests as Specifications
 
-[apps/api/tests/functional/sources/update_source.spec.ts](apps/api/tests/functional/sources/update_source.spec.ts) proves both-role editing, immutable identity and provenance, complete field persistence, Vendor Shade rename/add/remove behavior, safe removal of a referenced shade, attention-state changes, no automatic Landed Unit Cost calculation, field-level validation, authentication, and permission-safe not-found behavior.
+[apps/api/tests/functional/sources/currency_conversion_rate.spec.ts](apps/api/tests/functional/sources/currency_conversion_rate.spec.ts) proves singleton persistence, idempotent deterministic seeding, configured serialization, exact reciprocal derivation, missing and invalid states, authenticated access, and the absence of write routes.
 
-[apps/web/src/routes/-source-edit.test.tsx](apps/web/src/routes/-source-edit.test.tsx) proves read-only identity display, form initialization, Source and Vendor Shade editing, money conversion, successful detail replacement, catalog refresh, attention display, field-level server errors, and preservation of unsaved values. Existing create, detail, and catalog route tests protect the shared form and navigation seams.
+[apps/web/src/routes/-sources.test.tsx](apps/web/src/routes/-sources.test.tsx) proves the read-only configured display, formatted reciprocal and Effective Date, explicit Vendor Price currency, missing and invalid informational messages, and continued catalog/Create Source availability. [apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) proves the same explicit Vendor Price currency on Source detail.
+
+The existing focused Source creation and editing API tests continue to prove that a USD Source can be created or edited without a configured rate. The Source edit route fixture now supplies the independent missing-rate response while exercising the existing catalog-to-edit journey.
 
 ## Verification
 
 Passed:
 
-- focused Source editing API suite: 3 tests;
-- focused Sources edit, detail, create, and catalog web route suites: 13 tests across 4 files;
-- workspace lint across API, web, shared types, and shared validation;
-- workspace strict typechecking across API, web, shared types, and shared validation;
-- complete API suite: 69 tests;
-- complete web suite: 50 tests across 11 files;
-- production builds for the API, web, shared types, and shared validation packages;
+- focused Currency Conversion Rate API suite: 4 tests;
+- focused Source create and edit API regression suites: 6 tests across 2 files;
+- focused Sources and Source detail route suites: 11 tests across 2 files;
+- complete API suite: 73 tests;
+- complete web suite: 53 tests;
+- lint for API, web, shared types, and shared validation;
+- strict typechecking for API, web, shared types, and shared validation;
+- builds for API, web, shared types, and shared validation;
+- database seed execution with the configured `17` rate and `2026-09-02` Effective Date;
+- local migration application and migration-status verification;
 - whitespace validation with `git diff --check`.
+
+The complete suites were run after implementation approval. The first full web run exposed the older Source edit journey's missing mock for the new independent rate request; adding the supported `missing` response restored that regression suite before the final 53-test web pass.
 
 ## Scope Boundaries
 
-Issue 07 does not add Source retirement or restoration, global Currency Conversion Rate display or editing, Material relationship dialogs, Source link/unlink behavior, Preferred Source replacement, automatic Landed Unit Cost calculation, or Vendor Shade lifecycle state. Those remain assigned to later Sources issues.
+Issue 08 does not add Currency Conversion Rate management UI or mutation endpoints, Banxico integration, automatic conversion of Purchase Price, Landed Unit Cost calculation, Source retirement/restoration, Material relationship dialogs, link/unlink behavior, or Preferred Source replacement.
 
 ## What Comes Next
 
-Issue 08 is the next incomplete slice: display the database-managed global Currency Conversion Rate and Effective Date above the Sources catalog without using it to calculate Landed Unit Cost.
+Issue 09 is the next incomplete Sources slice: open the Material relationship dialog from Source detail while preserving the later link, unlink, and Preferred Source mutation boundaries.

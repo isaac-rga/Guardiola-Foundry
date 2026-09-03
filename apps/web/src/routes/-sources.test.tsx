@@ -88,6 +88,7 @@ describe('sources route', () => {
     }
     expect(within(table).getAllByText('Cost needs attention')).toHaveLength(156)
     expect(within(table).getAllByText('Data needs attention')).toHaveLength(156)
+    expect(table).toHaveTextContent('USD 18.00')
     expect(
       screen.queryByRole('columnheader', {
         name: /gsm|width|composition|finish/i,
@@ -109,6 +110,65 @@ describe('sources route', () => {
       )
     })
   })
+
+  it('displays the configured global rate, reciprocal, and Effective Date as read-only context', async () => {
+    mockAuthenticatedSources(
+      { sources: [sourceSummary()] },
+      {
+        state: 'configured',
+        usdToMxnRate: 17.125,
+        mxnToUsdRate: 1 / 17.125,
+        effectiveDate: '2026-08-31',
+      },
+    )
+    seedStoredSession('operator')
+
+    renderSourcesRoute('/app/sources')
+
+    const rateContext = await screen.findByRole('region', {
+      name: 'Currency Conversion Rate',
+    })
+    await waitFor(() => {
+      expect(rateContext).toHaveTextContent('USD:MXN17.125')
+      expect(rateContext).toHaveTextContent('MXN:USD0.058394')
+      expect(rateContext).toHaveTextContent('Effective DateAug 31, 2026')
+    })
+    expect(rateContext).toHaveTextContent(
+      'Informational only · no Source price or Landed Unit Cost conversion.',
+    )
+    expect(
+      screen.getByRole('navigation', { name: 'Materials area views' })
+        .nextElementSibling,
+    ).toBe(rateContext)
+    expect(within(rateContext).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(rateContext).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      'missing',
+      'Not configured. Source catalog work is still available.',
+    ],
+    [
+      'invalid',
+      'Invalid configuration. Source catalog work is still available.',
+    ],
+  ])(
+    'keeps the Source catalog available when rate configuration is %s',
+    async (state, message) => {
+      mockAuthenticatedSources({ sources: [sourceSummary()] }, { state })
+      seedStoredSession('admin')
+
+      renderSourcesRoute('/app/sources')
+
+      expect(await screen.findByText(message)).toBeInTheDocument()
+      expect(await screen.findByRole('table')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Create Source' })).toHaveAttribute(
+        'href',
+        '/app/sources/new',
+      )
+    },
+  )
 
   it('hydrates filters from the URL and keeps changes synchronized with it', async () => {
     const user = userEvent.setup()
@@ -173,6 +233,8 @@ describe('sources route', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/auth/me')) return sessionResponse('operator')
+      if (url.endsWith('/currency-conversion-rate'))
+        return jsonResponse({ state: 'missing' })
       if (url.includes('/sources') && init?.method === 'GET')
         return sourceResponse
       throw new Error(`Unexpected request: ${url}`)
@@ -208,6 +270,8 @@ describe('sources route', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/auth/me')) return sessionResponse('admin')
+      if (url.endsWith('/currency-conversion-rate'))
+        return jsonResponse({ state: 'missing' })
       if (url.includes('/sources') && init?.method === 'GET') {
         return await new Promise<Response>((resolve) => {
           resolveSourcesRequest = resolve
@@ -253,12 +317,17 @@ function renderSourcesRoute(initialEntry: string) {
   }
 }
 
-function mockAuthenticatedSources(body: unknown) {
+function mockAuthenticatedSources(
+  body: unknown,
+  currencyRate: unknown = { state: 'missing' },
+) {
   return vi
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/auth/me')) return sessionResponse('admin')
+      if (url.endsWith('/currency-conversion-rate'))
+        return jsonResponse(currencyRate)
       if (url.includes('/sources') && init?.method === 'GET')
         return jsonResponse(body)
       throw new Error(`Unexpected request: ${url}`)

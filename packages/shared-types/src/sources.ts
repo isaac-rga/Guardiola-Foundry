@@ -60,6 +60,16 @@ export interface ListSourcesResponse {
   sources: SourceSummary[]
 }
 
+export type GetCurrencyConversionRateResponse =
+  | {
+      state: 'configured'
+      usdToMxnRate: number
+      mxnToUsdRate: number
+      effectiveDate: string
+    }
+  | { state: 'missing' }
+  | { state: 'invalid' }
+
 export interface SourceVendorShade {
   id: number
   nameOrCode: string
