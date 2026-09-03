@@ -1,46 +1,58 @@
 ---
 type: Domain Reference
 title: Guardiola Foundry Domain Concepts
-description: Canonical business and product-domain reference for Guardiola Foundry, including identity roles, Product records, Product statuses, collections, images, soft deletion, and unimplemented ERP concepts.
-tags: [domain, products, auth, erp]
+description: Canonical business-domain reference for Guardiola Foundry, including identity roles, Products, Materials, Sources, soft deletion, controlled values, and deferred ERP concepts.
+tags: [domain, products, materials, auth, erp]
 ---
 
 # Guardiola Foundry Domain Concepts
 
-The canonical vocabulary lives in `CONTEXT.md`; this page summarizes the concepts that are implemented or already visible in code. Keep changes aligned with [Product workflows](workflows.md#product-management-workflows) and shared contracts in `packages/shared-types` / `packages/shared-validation`.
+The canonical vocabulary lives in `CONTEXT.md`. This page summarizes the concepts that are implemented, planned, or important for current code. Keep changes aligned with [Workflows](./workflows.md), [Architecture](./architecture.md), and shared contracts in `packages/shared-types` / `packages/shared-validation`.
 
-## Identity and access concepts
+## Identity and access
 
-A **User** signs in with an Email Address and has a role. Email Address matching is case-insensitive because `User.normalizeEmailAddress` trims and lowercases values before persistence and lookup.
+A **User** signs in with an Email Address. Email matching is case-insensitive because the `User` model normalizes email addresses before persistence and lookup. An **Active User** can authenticate; inactive users remain as records but cannot sign in.
 
-Roles are currently `admin` and `operator`. Admin is an authorization role, not a separate identity type; it is required for restoring deleted Products and can include deleted Products in list responses. Operator is a normal authenticated user role and can create, list, edit, and soft-delete Products but cannot restore deleted Products.
+Roles are `admin` and `operator`. Admin can include deleted Products in list responses and is required for Product restore. Operator is a normal authenticated user role that can use implemented app workflows except admin-only restore. The [authentication workflow](./workflows.md#authentication-and-session-workflow) carries role and active state in the session contract.
 
-An **Active User** is allowed to authenticate. Inactive users remain as records but cannot sign in. Password Change is an authenticated flow that requires the current password and revokes active tokens after success; do not confuse it with future Password Recovery.
+A **Password Change** is authenticated and requires the current password. It is distinct from future **Password Recovery**, which is not implemented.
 
-## Product concepts
+## Product model
 
-A **Product** is a bridal design record moving through development from concept to manufacturing readiness. It is distinct from Materials, Inventory, and sellable SKUs. In source, the `Product` model persists the record and `ProductSummary`, `ProductDetail`, and `DeletedProductDetail` describe API shapes.
+A **Product** is a bridal design record moving from concept toward manufacturing readiness. Products are distinct from Materials consumed to produce them and from any later sellable SKU.
 
-A **Product ID** is a short generated public identifier such as `P-AB12CD`. It is stable, read-only to users, used in routes, and distinct from the editable Product Name.
+Important Product fields and rules:
 
-A **Product Name** is required and human-readable. Names are trimmed but not unique: duplicate names are allowed, and the UI warns case-insensitively for active Product matches instead of blocking creation or editing. Duplicate warnings intentionally ignore soft-deleted Products.
+- **Product ID** is an app-generated public ID with a `P-` prefix and six-character token.
+- **Product Name** is required, may repeat, and uses warning-only duplicate matching in the web app.
+- **Collection** is an optional annual grouping seeded in the database and returned with Product list/detail responses.
+- **Product Category** is `dress`, `accessory`, `other`, or null. Null means no category assigned; `other` is intentional.
+- **Lifecycle Status** tracks product-development stage; **Product Status** tracks active/inactive availability.
+- **Product Image** is optional and currently limited to one stored image reference on Product detail.
+- **Created By** and **Created At** are immutable registration metadata surfaced in Product summaries/details.
 
-A **Lifecycle Status** describes product-development stage. The current allowed values are `concept`, `fabric-trim-selection`, `design-and-prototyping`, `testing`, `approved`, `on-documentation`, and `finished`; new Products default to `concept`.
+Product [workflows](./workflows.md#product-management-workflows) are backed by shared contracts, Lucid models, feature-local web endpoint adapters, and route-level tests.
 
-A **Product Status** is operational availability, currently `active` or `inactive`. It is separate from Lifecycle Status, defaults to `active`, becomes `inactive` on soft-delete, and remains `inactive` when an admin restores the Product.
+## Product deletion semantics
 
-A **Product Category** is optional and can be `dress`, `accessory`, or `other`. `other` is an intentional category; `null` means no category has been assigned yet.
+Product deletion is soft deletion, not hard deletion. The `SoftDelete` mixin hides deleted rows from ordinary queries while retaining recoverability and history. Deleting a Product sets `deletedAt` and forces Product Status to inactive. Deleted Products are hidden from default Product lists, but admins can request `includeDeleted=true` and restore deleted Products.
 
-A **Collection** is an annual design grouping such as `2025`, `2026`, or `2027`. Products may have no Collection in the current scope. Collections are listed with Product responses but are not casually created during normal Product editing.
+`GET /products/:productId` returns a discriminated response: `state: 'active'` with editable detail and collections, or `state: 'deleted'` with read-only deleted detail. Unknown IDs still return not found. This distinction is central to the Product page states described in [Workflows](./workflows.md#product-management-workflows).
 
-A **Product Image** is a single optional primary reference image. The current implementation stores file metadata on the Product and stores uploaded files under API `tmp/product-images`; there is not yet provider-backed storage or galleries.
+## Materials and Sources
 
-**Created By** and **Created At** are immutable registration metadata shown on the edit page. They identify who initially registered a Product and when, not future change history.
+The Materials domain is grounded in `docs/adr/0002-separate-materials-and-supplies.md`, `.scratch/materials/PRD.md`, current `changes.md`, and the implemented Materials source files.
 
-## Soft deletion and recovery
+A **Material** is a stable textile input that can later be referenced by Bills of Materials. It is not a Product, Supply, Tool, Source, or generic item. Material identity includes app-owned public Material ID (`M-` prefix), legacy spreadsheet Material ID, name, controlled Material Color, controlled Material Use, normalized Meter unit, compact comments, and soft deletion.
 
-Soft-deleted Products are preserved with `deletedAt` rather than physically removed. The `SoftDelete` Lucid mixin excludes deleted rows from normal queries and provides `queryWithDeleted()` for explicit recovery/listing flows. This lifecycle is surfaced by [Product workflows](workflows.md#soft-delete-and-restore-products): deleted Products are read-only in the web UI until an admin restores them.
+A **Source** is a vendor-specific purchasing offering. For Materials, persisted Source data includes app-owned public Source ID (`MS-`), legacy spreadsheet Source ID, name, provider, textile family, purchase unit, normalized unit cost, normalized unit, and soft deletion. Source technical fields and Source detail screens are intentionally not exposed in the first Materials table.
 
-## Adjacent ERP concepts not yet implemented
+A **Preferred Source** is the default purchasing and cost basis for a Material. The first imported linked Source becomes Preferred Source; remaining links become alternate Sources. Material cost is derived from the Preferred Source normalized cost, not copied onto Material. If a Preferred Source is soft-deleted, the Material remains visible and `preferredSource.needsAttention` becomes true.
 
-`CONTEXT.md` also defines Material, Inventory, Warehouse Position, and Bill of Materials. The authenticated shell has placeholder navigation for Materials, Inventory, and Bills of Materials, but the API and domain workflows for those areas are not implemented yet. Keep them in the [Quickstart backlog](quickstart.md#backlog) until source code establishes real behavior.
+The read-only Materials list is Material-first: one row per Material, not one row per Source. This domain rule is enforced by the Materials [workflow](./workflows.md#materials-import-and-list-workflow), shared Materials contracts, API tests, and web route tests.
+
+## Deferred ERP concepts
+
+**Supply** is a separate future concept for non-textile production inputs such as boning, thread, zippers, buttons, cups, trims, and similar consumables. Supplies are intentionally separate from Materials because units, purchasing process, and inventory handling differ.
+
+**Inventory** is the future on-hand stock position for Material, tracked by warehouse positions and movements. **Bill of Materials** is a future Product-structure concept for defining inputs needed to build a Product. Both are present in vocabulary and app-shell navigation, but current source only has placeholder pages. See the [Quickstart backlog](./quickstart.md#backlog) before folding these concepts into Materials.

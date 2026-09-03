@@ -46,7 +46,7 @@ Failure to follow these rules will result in broken imports and linting errors.
 
 ## Testing Guidelines
 
-Japa test files must end in `*.spec.ts`. Functional tests should call the HTTP endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Run the targeted suite while developing.
+Japa test files must end in `*.spec.ts`. Functional tests verify application behavior through a public boundary using real infrastructure. HTTP-facing behavior should call the endpoint and assert status codes and response bodies, following `tests/functional/health.spec.ts`. Database-backed behavior without an HTTP endpoint, such as importers, migrations, and persistence constraints, may be exercised through its public application or persistence boundary. Keep unit tests for isolated logic that does not require infrastructure. Run the targeted suite while developing.
 
 ## Framework Documentation & Tactical Alignment
 CRITICAL: This project runs on **AdonisJS v7**. Do not use deprecated v5/v6 syntax (e.g., old routing decorators or custom dotenv loaders).

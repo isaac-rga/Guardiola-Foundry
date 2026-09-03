@@ -86,7 +86,7 @@ run_stage "runtime versions" check_runtime
 run_stage "source diff" check_diff
 run_stage "lint" pnpm lint
 run_stage "typecheck" pnpm typecheck
-run_stage "tests" pnpm test
 run_stage "build" pnpm build
+run_stage "tests" pnpm test
 
 printf '[quality] all checks passed\n'

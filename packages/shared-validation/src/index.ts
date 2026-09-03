@@ -18,6 +18,9 @@ import type {
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
+export * from './materials.js'
+export * from './sources.js'
+
 export const healthResponseSchema = z.object({
   status: z.literal('ok'),
 }) satisfies z.ZodType<HealthResponse>
@@ -127,17 +130,15 @@ export const createProductRequestSchema = z.object({
 
 export const updateProductRequestSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required.'),
-  shortDescription: z
-    .union([z.string(), z.null()])
-    .transform((value) => {
-      if (value === null) {
-        return null
-      }
+  shortDescription: z.union([z.string(), z.null()]).transform((value) => {
+    if (value === null) {
+      return null
+    }
 
-      const normalizedValue = value.trim()
+    const normalizedValue = value.trim()
 
-      return normalizedValue.length > 0 ? normalizedValue : null
-    }),
+    return normalizedValue.length > 0 ? normalizedValue : null
+  }),
   lifecycleStatus: productLifecycleStatusSchema,
   productStatus: productStatusSchema,
   productCategory: productCategorySchema.nullable(),

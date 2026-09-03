@@ -14,12 +14,17 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppUserSettingsRouteImport } from './routes/app.user-settings'
+import { Route as AppSourcesRouteImport } from './routes/app.sources'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppBillsOfMaterialsRouteImport } from './routes/app.bills-of-materials'
+import { Route as AppSourcesIndexRouteImport } from './routes/app.sources.index'
 import { Route as AppProductsIndexRouteImport } from './routes/app.products.index'
+import { Route as AppSourcesNewRouteImport } from './routes/app.sources.new'
+import { Route as AppSourcesSourceIdRouteImport } from './routes/app.sources.$sourceId'
 import { Route as AppProductsProductIdRouteImport } from './routes/app.products.$productId'
+import { Route as AppSourcesSourceIdEditRouteImport } from './routes/app.sources.$sourceId_.edit'
 
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
@@ -46,6 +51,11 @@ const AppUserSettingsRoute = AppUserSettingsRouteImport.update({
   path: '/user-settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSourcesRoute = AppSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProductsRoute = AppProductsRouteImport.update({
   id: '/products',
   path: '/products',
@@ -66,15 +76,35 @@ const AppBillsOfMaterialsRoute = AppBillsOfMaterialsRouteImport.update({
   path: '/bills-of-materials',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSourcesIndexRoute = AppSourcesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSourcesRoute,
+} as any)
 const AppProductsIndexRoute = AppProductsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppProductsRoute,
 } as any)
+const AppSourcesNewRoute = AppSourcesNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppSourcesRoute,
+} as any)
+const AppSourcesSourceIdRoute = AppSourcesSourceIdRouteImport.update({
+  id: '/$sourceId',
+  path: '/$sourceId',
+  getParentRoute: () => AppSourcesRoute,
+} as any)
 const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
   id: '/$productId',
   path: '/$productId',
   getParentRoute: () => AppProductsRoute,
+} as any)
+const AppSourcesSourceIdEditRoute = AppSourcesSourceIdEditRouteImport.update({
+  id: '/$sourceId_/edit',
+  path: '/$sourceId/edit',
+  getParentRoute: () => AppSourcesRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -85,10 +115,15 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
+  '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
+  '/app/sources/new': typeof AppSourcesNewRoute
   '/app/products/': typeof AppProductsIndexRoute
+  '/app/sources/': typeof AppSourcesIndexRoute
+  '/app/sources/$sourceId/edit': typeof AppSourcesSourceIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -99,7 +134,11 @@ export interface FileRoutesByTo {
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
+  '/app/sources/new': typeof AppSourcesNewRoute
   '/app/products': typeof AppProductsIndexRoute
+  '/app/sources': typeof AppSourcesIndexRoute
+  '/app/sources/$sourceId/edit': typeof AppSourcesSourceIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -110,10 +149,15 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
   '/app/products': typeof AppProductsRouteWithChildren
+  '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app/': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
+  '/app/sources/$sourceId': typeof AppSourcesSourceIdRoute
+  '/app/sources/new': typeof AppSourcesNewRoute
   '/app/products/': typeof AppProductsIndexRoute
+  '/app/sources/': typeof AppSourcesIndexRoute
+  '/app/sources/$sourceId_/edit': typeof AppSourcesSourceIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -125,10 +169,15 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/materials'
     | '/app/products'
+    | '/app/sources'
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
+    | '/app/sources/new'
     | '/app/products/'
+    | '/app/sources/'
+    | '/app/sources/$sourceId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -139,7 +188,11 @@ export interface FileRouteTypes {
     | '/app/user-settings'
     | '/app'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
+    | '/app/sources/new'
     | '/app/products'
+    | '/app/sources'
+    | '/app/sources/$sourceId/edit'
   id:
     | '__root__'
     | '/'
@@ -149,10 +202,15 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/materials'
     | '/app/products'
+    | '/app/sources'
     | '/app/user-settings'
     | '/app/'
     | '/app/products/$productId'
+    | '/app/sources/$sourceId'
+    | '/app/sources/new'
     | '/app/products/'
+    | '/app/sources/'
+    | '/app/sources/$sourceId_/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -198,6 +256,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/sources': {
+      id: '/app/sources'
+      path: '/sources'
+      fullPath: '/app/sources'
+      preLoaderRoute: typeof AppSourcesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/products': {
       id: '/app/products'
       path: '/products'
@@ -226,6 +291,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsOfMaterialsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/sources/': {
+      id: '/app/sources/'
+      path: '/'
+      fullPath: '/app/sources/'
+      preLoaderRoute: typeof AppSourcesIndexRouteImport
+      parentRoute: typeof AppSourcesRoute
+    }
     '/app/products/': {
       id: '/app/products/'
       path: '/'
@@ -233,12 +305,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsIndexRouteImport
       parentRoute: typeof AppProductsRoute
     }
+    '/app/sources/new': {
+      id: '/app/sources/new'
+      path: '/new'
+      fullPath: '/app/sources/new'
+      preLoaderRoute: typeof AppSourcesNewRouteImport
+      parentRoute: typeof AppSourcesRoute
+    }
+    '/app/sources/$sourceId': {
+      id: '/app/sources/$sourceId'
+      path: '/$sourceId'
+      fullPath: '/app/sources/$sourceId'
+      preLoaderRoute: typeof AppSourcesSourceIdRouteImport
+      parentRoute: typeof AppSourcesRoute
+    }
     '/app/products/$productId': {
       id: '/app/products/$productId'
       path: '/$productId'
       fullPath: '/app/products/$productId'
       preLoaderRoute: typeof AppProductsProductIdRouteImport
       parentRoute: typeof AppProductsRoute
+    }
+    '/app/sources/$sourceId_/edit': {
+      id: '/app/sources/$sourceId_/edit'
+      path: '/$sourceId/edit'
+      fullPath: '/app/sources/$sourceId/edit'
+      preLoaderRoute: typeof AppSourcesSourceIdEditRouteImport
+      parentRoute: typeof AppSourcesRoute
     }
   }
 }
@@ -257,11 +350,30 @@ const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(
   AppProductsRouteChildren,
 )
 
+interface AppSourcesRouteChildren {
+  AppSourcesSourceIdRoute: typeof AppSourcesSourceIdRoute
+  AppSourcesNewRoute: typeof AppSourcesNewRoute
+  AppSourcesIndexRoute: typeof AppSourcesIndexRoute
+  AppSourcesSourceIdEditRoute: typeof AppSourcesSourceIdEditRoute
+}
+
+const AppSourcesRouteChildren: AppSourcesRouteChildren = {
+  AppSourcesSourceIdRoute: AppSourcesSourceIdRoute,
+  AppSourcesNewRoute: AppSourcesNewRoute,
+  AppSourcesIndexRoute: AppSourcesIndexRoute,
+  AppSourcesSourceIdEditRoute: AppSourcesSourceIdEditRoute,
+}
+
+const AppSourcesRouteWithChildren = AppSourcesRoute._addFileChildren(
+  AppSourcesRouteChildren,
+)
+
 interface AppRouteChildren {
   AppBillsOfMaterialsRoute: typeof AppBillsOfMaterialsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
+  AppSourcesRoute: typeof AppSourcesRouteWithChildren
   AppUserSettingsRoute: typeof AppUserSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -271,6 +383,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppMaterialsRoute: AppMaterialsRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
+  AppSourcesRoute: AppSourcesRouteWithChildren,
   AppUserSettingsRoute: AppUserSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }

@@ -1,53 +1,64 @@
 ---
 type: Source Map
 title: Guardiola Foundry Source Map
-description: Compact source navigation map for Guardiola Foundry, linking major repository areas to architecture, workflows, domain concepts, operations, and tests.
+description: Practical source navigation map for Guardiola Foundry, connecting repository areas, domains, routes, tests, and operational files to the code wiki concepts.
 tags: [source-map, navigation, repository]
 ---
 
 # Guardiola Foundry Source Map
 
-Use this map to move from the generated wiki to source files. It complements [Architecture](architecture.md), [Workflows](workflows.md), [Domain Concepts](domain.md), and [Operations and Testing](operations-testing.md).
+Use this map to move from the wiki to source files. It complements [Architecture](./architecture.md), [Domain Concepts](./domain.md), [Workflows](./workflows.md), and [Operations and Testing](./operations-testing.md).
 
 ## Root and repository policy
 
-- `package.json` — workspace engine requirements and root scripts for dev, build, lint, typecheck, test, and database operations.
+- `README.md` — setup and run instructions; prefer current source and tests for detailed module status.
+- `package.json` — root scripts for dev, build, lint, typecheck, tests, and database commands.
 - `pnpm-workspace.yaml` — workspace package discovery.
-- `AGENTS.md` — repository coding, architecture, verification, issue tracker, and OpenWiki guidance.
-- `docs/adr/architecture-policy.md` — layered-vs-hexagonal decision policy.
-- `docs/architecture/shared-types-and-validation.md` — shared contract organization rules.
-- `.scratch/` — local PRDs and issues; see [workflow notes](workflows.md#local-issue-workflow).
-- `.github/workflows/openwiki-update.yml` — scheduled/manual OpenWiki PR generation.
+- `changes.md` — latest slice handoff note; recent branch commits contain earlier snapshots that explain Product and Materials progression.
+- `CONTEXT.md` — canonical business vocabulary summarized in [Domain Concepts](./domain.md).
+- `docs/adr/0001-token-based-auth.md` — auth/session design.
+- `docs/adr/0002-separate-materials-and-supplies.md` — Materials vs Supplies and Preferred Source decisions.
+- `docs/adr/architecture-policy.md` — layered-vs-hexagonal policy used by [Architecture](./architecture.md).
+- `docs/architecture/shared-types-and-validation.md` — shared package organization rules.
+- `.scratch/` — local PRDs and issues; see the local issue workflow in [Workflows](./workflows.md).
 
-## API app
+## API application
 
-- `apps/api/start/routes.ts` — HTTP route table for health, auth, and Products.
-- `apps/api/app/modules/auth/auth_service.ts` and `controllers/auth_controller.ts` — sign-in, token, logout, password-change, and session behavior.
-- `apps/api/app/modules/products/products_service.ts` and `controllers/products_controller.ts` — Product list/create/show/update/delete/restore behavior.
-- `apps/api/app/models/product.ts`, `collection.ts`, `user.ts`, `access_token.ts`, `login_attempt.ts` — Lucid models behind the implemented domain.
-- `apps/api/app/mixins/soft_delete.ts` — reusable soft-delete query filter and restore behavior.
-- `apps/api/database/migrations/` and `apps/api/database/schema.ts` — database schema history/generated schema.
-- `apps/api/tests/functional/products/create_products.spec.ts` — main Product API regression suite.
+- `apps/api/start/routes.ts` — route table for health, auth, Materials, and Products.
+- `apps/api/app/modules/auth/` — auth controller, bearer-token parsing, sign-in/session/password-change service.
+- `apps/api/app/modules/products/` — Product controller and service for list/create/show/update/delete/restore workflows.
+- `apps/api/app/modules/materials/` — Materials controller, list service, and spreadsheet-row importer.
+- `apps/api/app/models/` — Lucid models for User, AccessToken, LoginAttempt, Collection, Product, Material, MaterialSource, and MaterialSourceLink.
+- `apps/api/app/mixins/soft_delete.ts` — reusable soft-delete behavior described by [Architecture](./architecture.md) and used in Product/Materials [Workflows](./workflows.md).
+- `apps/api/database/migrations/` — database migrations for users, tokens, login attempts, collections, products, product image/soft-delete fields, and materials tables.
+- `apps/api/database/fixtures/materials_import_fixture.ts` — spreadsheet-shaped Materials/Source fixture used by importer, seeder, and tests.
+- `apps/api/tests/functional/` — API tests for auth, Products, Materials list, and Materials importer.
 
-## Web app
+## Web application
 
-- `apps/web/src/routes/app.tsx` — authenticated app route loader and shell wiring.
-- `apps/web/src/features/app-shell/authenticated-app-shell.tsx` — sidebar navigation, account menu, session context, sign-out, and settings entry.
-- `apps/web/src/routes/app.products.tsx`, `app.products.index.tsx`, `app.products.$productId.tsx` — Product route composition and search-param feedback.
-- `apps/web/src/features/products/product-management-page.tsx` — Product list, create dialog, filters, duplicate warning, and include-deleted toggle.
-- `apps/web/src/features/products/product-edit-page.tsx` — Product edit, image state, unsaved-change guard, delete, deleted-read-only view, and restore actions.
-- `apps/web/src/features/products/api/endpoints.ts` — Product-specific HTTP helpers and shared-schema parsing.
-- `apps/web/src/lib/api/transport.ts` — cross-feature API URL and error-message helpers.
-- `apps/web/src/routes/-products.test.tsx` — Product route/UI regression tests.
+- `apps/web/src/router.tsx` and `apps/web/src/routeTree.gen.ts` — TanStack Router setup and generated route tree.
+- `apps/web/src/routes/app.tsx` — authenticated `/app` boundary and app-shell session bootstrap.
+- `apps/web/src/routes/sign-in.tsx` and `apps/web/src/features/auth/sign-in-page.tsx` — sign-in route and UI.
+- `apps/web/src/features/app-shell/authenticated-app-shell.tsx` — shared authenticated shell, navigation, account menu, shell context.
+- `apps/web/src/features/products/product-management-page.tsx` — Product list, filters, include-deleted toggle for admins, create dialog, duplicate-name warning, create feedback.
+- `apps/web/src/features/products/product-edit-page.tsx` — Product detail/edit, deleted-record page state, image handling, delete/restore flows.
+- `apps/web/src/features/products/api/endpoints.ts` — feature-local Product endpoint adapter.
+- `apps/web/src/features/materials/materials-page.tsx` — lean read-only Materials table and route states.
+- `apps/web/src/features/materials/api/endpoints.ts` and `query-keys.ts` — Materials endpoint adapter and query key.
+- `apps/web/src/features/app-shell/workspace-pages.tsx` — placeholder pages for Home, Inventory, and Bills of Materials.
+- `apps/web/src/lib/api/transport.ts` — shared URL/error helper reused by auth and feature endpoint adapters.
+- `apps/web/src/lib/auth/` — localStorage session persistence and current-session bootstrap.
+- `apps/web/src/routes/-*.test.tsx` — route-level Vitest coverage for app shell, sign-in, Products, and Materials.
 
-## Shared packages and domain language
+## Shared packages
 
-- `packages/shared-types/src/index.ts` — API/web TypeScript contracts for health, auth sessions, Products, and request/response DTOs.
-- `packages/shared-validation/src/index.ts` — Zod schemas for those contracts.
-- `CONTEXT.md` — canonical business terms for Users, roles, Product, Collection, Product Category, Product Image, Product Name, Product ID, lifecycle/status, Materials, Inventory, Warehouse Position, and Bills of Materials.
+- `packages/shared-types/src/index.ts` — health, auth, Product contracts plus Materials re-export.
+- `packages/shared-types/src/materials.ts` — Materials table-summary contracts and controlled Material values.
+- `packages/shared-validation/src/index.ts` — Zod schemas for health, auth, Product contracts plus Materials re-export.
+- `packages/shared-validation/src/materials.ts` — Materials Zod schemas.
 
-## Operational files
+When changing shared contracts, update both packages and then follow the [Operations and Testing](./operations-testing.md) guidance for API, web, typecheck, and route/functional tests.
 
-- `compose.yaml` and `docker/` — local Postgres setup.
-- `apps/api/.env.example` and `apps/web/.env.example` — non-secret configuration templates.
-- `apps/api/package.json` and `apps/web/package.json` — app-specific build/test/lint/typecheck commands.
+## Test map
+
+API tests live under `apps/api/tests/functional` for auth, Products, Materials list, and Materials importer. Web route tests live in `apps/web/src/routes/-app.test.tsx`, `-sign-in.test.tsx`, `-products.test.tsx`, and `-materials.test.tsx`.

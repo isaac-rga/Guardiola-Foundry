@@ -113,3 +113,6 @@ export interface UpdateProductRequest {
   productCategory: ProductCategory | null
   collectionId: number | null
 }
+
+export * from './materials.js'
+export * from './sources.js'

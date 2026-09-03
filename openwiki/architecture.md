@@ -1,51 +1,53 @@
 ---
 type: Architecture Overview
 title: Guardiola Foundry Architecture
-description: Explains the Guardiola Foundry monorepo architecture, including the AdonisJS API, React authenticated shell, shared contract packages, authentication boundary, Product data flow, and web API transport refactor.
+description: Explains the Guardiola Foundry monorepo architecture, including the AdonisJS API, React app shell, shared contracts, auth boundary, persistence model, and layered architecture policy.
 tags: [architecture, api, web, contracts, auth]
 ---
 
 # Guardiola Foundry Architecture
 
-The system uses a simple layered monorepo architecture. The root workspace coordinates `apps/api`, `apps/web`, `packages/shared-types`, and `packages/shared-validation`; this structure is governed by `AGENTS.md` and `docs/adr/architecture-policy.md`, which prefer direct layered implementations for CRUD/MVP flows and reserve hexagonal or DDD seams for richer business-rule or integration complexity.
+Guardiola Foundry uses a simple layered monorepo architecture. The root `package.json` coordinates `apps/api`, `apps/web`, `packages/shared-types`, and `packages/shared-validation`; `pnpm-workspace.yaml` declares the workspace packages. The architecture policy in `docs/adr/architecture-policy.md` says CRUD/MVP slices should stay direct and layered, while hexagonal or DDD structure is reserved for flows with interacting business rules, strict lifecycle transitions, core operational logic, or external integrations that need insulation.
+
+[Workflows](./workflows.md) are implemented through these layers, and [Domain Concepts](./domain.md) define the language that shared contracts and UI labels should preserve.
 
 ## Runtime shape
 
-- `apps/api` is an AdonisJS 7 API with Lucid ORM and PostgreSQL. Routes are registered in `apps/api/start/routes.ts` and dispatch to modules under `apps/api/app/modules`.
-- `apps/web` is a React 19/Vite client using TanStack Router and Query. File routes under `apps/web/src/routes` compose feature components under `apps/web/src/features`.
-- `packages/shared-types` defines cross-boundary TypeScript contracts such as auth session responses and Product DTOs.
-- `packages/shared-validation` defines Zod schemas used by both the API and web client to parse or validate those contracts.
+- `apps/api` is an AdonisJS 7 API with Lucid ORM and PostgreSQL. `apps/api/start/routes.ts` registers health, auth, Materials, and Products endpoints and dispatches to controllers under `apps/api/app/modules`.
+- `apps/web` is a React 19/Vite client using TanStack Router, TanStack Query, TanStack Table, React Hook Form, Zod, Tailwind CSS, and shadcn-style UI primitives. File routes under `apps/web/src/routes` compose feature components under `apps/web/src/features`.
+- `packages/shared-types` defines cross-boundary TypeScript contracts for health, auth, Products, and Materials.
+- `packages/shared-validation` defines Zod schemas used by the API controllers and web endpoint adapters to validate/parse the same contracts.
 
-[Product workflows](workflows.md#product-management-workflows) are the best current example of this architecture: API routes call `ProductsController`, the controller validates request payloads with shared Zod schemas, the service uses Lucid models, and the web feature consumes typed endpoint helpers.
+The [Source Map](./source-map.md) lists the main files for each runtime area.
 
-## API modules and routes
+## API structure
 
-`apps/api/start/routes.ts` exposes:
+The API currently exposes `GET /health`, auth endpoints, `GET /materials`, and Product list/create/show/update/delete/restore endpoints. Controllers authenticate bearer tokens directly where needed. Product and Material controllers use shared validation/contracts but keep framework and ORM access in the layered service/model path. This intentionally matches the architecture policy: current Product and Materials slices are operationally simple enough that direct Lucid usage in services is acceptable.
 
-- `GET /health`
-- `POST /auth/login`, `POST /auth/logout`, `POST /auth/change-password`, `GET /auth/me`
-- `GET /products`, `POST /products`, `GET /products/:productId`, `PUT /products/:productId`, `DELETE /products/:productId`, `POST /products/:productId/restore`
+## Web structure
 
-The API currently uses per-controller authentication checks rather than global middleware for Product routes. `ProductsController` extracts bearer tokens, calls `getCurrentSession`, loads the `User`, and returns `401` when no valid session exists. Restore is additionally role-gated to admins in `ProductsController.restore`.
+TanStack Router is initialized in `apps/web/src/router.tsx` from generated route tree code. The `/app` route in `apps/web/src/routes/app.tsx` is the protected boundary: its loader calls `requireCurrentAuthSession()`, which bootstraps the stored session through `GET /auth/me` or redirects to `/sign-in`.
+
+`AuthenticatedAppShell` in `apps/web/src/features/app-shell/authenticated-app-shell.tsx` owns navigation and shell context. It exposes the session through `useAppShell()`, which feature pages use to send bearer tokens to API endpoint adapters. Products and Materials demonstrate the intended pattern: route file registers the URL, feature page owns UI/query state, feature-local `api/endpoints.ts` owns HTTP details.
+
+## Shared contract architecture
+
+`docs/architecture/shared-types-and-validation.md` says shared code should be organized by business domain, not technical category. The current code is midway through that direction: Product and auth contracts still live primarily in package indexes, while Materials contracts have been split into `materials.ts` files and re-exported.
+
+[Domain Concepts](./domain.md) are encoded through these contracts. [Workflows](./workflows.md) depend on them because API responses are serialized in services/controllers and parsed again by web endpoint adapters before UI code consumes them.
 
 ## Authentication boundary
 
-Authentication is implemented in `apps/api/app/modules/auth`. `auth_service.ts` normalizes email addresses, tracks failed login attempts, locks out after five failures for 15 minutes, hashes access tokens with SHA-256 before persistence, uses 30-day bearer tokens, and revokes all active tokens after password change. `AuthController` maps service outcomes to HTTP responses.
+The auth design is documented in `docs/adr/0001-token-based-auth.md` and implemented in `apps/api/app/modules/auth/auth_service.ts`. Sign-in issues an opaque bearer token to the client but stores only a SHA-256 hash server-side in `access_tokens`. Tokens expire after 30 days; logout revokes the presented token; password change revokes all active tokens for the user.
 
-The web route `/app` depends on [domain role concepts](domain.md#identity-and-access-concepts): `apps/web/src/routes/app.tsx` loads a current auth session before rendering `AuthenticatedAppShell`, and the shell exposes session, sign-out, and password-change handlers through `useAppShell`.
+The web app stores the returned session in localStorage through `apps/web/src/lib/auth/session-storage.ts`, validates it with shared Zod schemas, and refreshes current user data during `/app` route loading. Product and Materials [workflows](./workflows.md) depend on the app-shell session and bearer token rather than global implicit auth.
 
-## Product data flow
+## Persistence and soft deletion
 
-Product persistence centers on `Product` and `Collection` Lucid models. `Product` composes the reusable `SoftDelete` mixin, stores a generated `publicId`, lifecycle/product status, optional category, optional collection, immutable creator metadata, optional image file metadata, and timestamps. `products_service.ts` generates `P-` IDs, loads relations, serializes shared DTOs, writes image files under `tmp/product-images`, and uses `queryWithDeleted()` only where deleted records are intentionally included.
+Lucid models live in `apps/api/app/models`. Database structure is defined by migrations under `apps/api/database/migrations`, with generated schema snapshots in `apps/api/database/schema.ts`.
 
-This flow depends on [Domain Concepts](domain.md#product-concepts) for business meaning: Product ID is stable and read-only, Product Name may duplicate, Product Status is separate from Lifecycle Status, and soft-deleted products leave normal views but can be recovered by admins.
+`apps/api/app/mixins/soft_delete.ts` adds a repository-wide soft-delete pattern for Product, Material, and MaterialSource models. It registers hooks that hide `deleted_at` rows by default and provides `queryWithDeleted()`, `includeDeleted()`, `softDelete()`, and `restore()` for explicit deleted-aware behavior. Product workflows use this for recoverable deletion; Materials use it so future BOM/Inventory references are not threatened by hard deletes.
 
-## Web feature boundaries and API transport
+## Integration points
 
-A recent refactor moved Product HTTP helpers from `apps/web/src/lib/api/products.ts` into `apps/web/src/features/products/api/endpoints.ts` and extracted shared transport helpers into `apps/web/src/lib/api/transport.ts`. The feature-level endpoint module owns Product-specific routes, request construction, schema parsing, and cache-facing return types; `transport.ts` owns cross-cutting URL resolution and response error-message extraction.
-
-That split supports the repository DRY guidance in `AGENTS.md`: isolate systemic concerns such as API URL construction and error extraction at an architectural boundary, while keeping Product-specific API knowledge in the Product feature. Future feature endpoints should reuse `resolveApiUrl` and `getResponseErrorMessage` rather than reimplementing them.
-
-## Shared contracts
-
-`packages/shared-types/src/index.ts` and `packages/shared-validation/src/index.ts` currently hold all shared contracts in single files. `docs/architecture/shared-types-and-validation.md` says future shared code should be organized by business domain, keep common concepts small, and prefer schemas as the source of truth when practical. Because [Product workflows](workflows.md#product-management-workflows) parse API responses with shared schemas on the web and validate request payloads in the API, contract changes should be coordinated with tests on both sides.
+Current integrations are local and first-party: PostgreSQL through Docker Compose and Lucid, browser `fetch` from feature-local endpoint adapters, local filesystem storage for Product images under the API app temp path, and workspace packages for shared types and validation. There are no external vendor APIs, queues, or background workers in the inspected source. If those arrive, revisit the architecture policy before adding direct integration logic to controllers or UI components.

@@ -1,6 +1,6 @@
 # Guardiola Foundry ERP
 
-Initial monorepo foundation for the Guardiola Foundry ERP. It contains a React single-page application, an AdonisJS API, shared TypeScript contracts, and shared Zod validation. No ERP business modules are implemented yet.
+Initial monorepo foundation for the Guardiola Foundry ERP. It contains a React single-page application, an AdonisJS API, shared TypeScript contracts, and shared Zod validation.
 
 ## Technology
 

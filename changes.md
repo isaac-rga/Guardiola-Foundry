@@ -1,59 +1,65 @@
-# Product endpoint locality and shared transport helpers
+# Non-Destructive Future Source Imports
 
-This slice is the first step in the Product data cache refactor. It does not introduce Product data hooks yet. It moves the Product endpoint adapter to the Product feature area and extracts only the shared web API transport behavior that Product and auth already duplicated.
+This slice completes Sources issue 13. Later catalog imports can still add genuinely new Sources and refresh untouched imported facts, while application-managed commercial decisions and Material relationships remain authoritative.
 
-The Product list, create, edit, delete, and restore workflows are intended to behave exactly as before.
+## Start With the Issue
 
-## Start with the new shared transport helper
+Read [.scratch/sources/issues/13-protect-user-managed-data-from-imports.md](.scratch/sources/issues/13-protect-user-managed-data-from-imports.md). The implementation is limited to future-import protection. It does not add conflict-resolution UI, overwrite controls, new Source fields, or new relationship mutations.
 
-The shared transport behavior now lives in [apps/web/src/lib/api/transport.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/transport.ts).
+## Remember the Last Imported State
 
-That file owns:
+[apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts](apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts) adds two private JSON snapshots:
 
-- `resolveApiUrl`, including `VITE_API_URL` handling
-- `ensureTrailingSlash`, so absolute API base URLs compose consistently
-- `getResponseErrorMessage`, with endpoint-specific fallback text
+- each Source remembers its last successfully imported field values and Vendor Shades;
+- each Material remembers its last successfully imported ordered Source relationships, Preferred choice, and Vendor Shade selections.
 
-This is intentionally narrow. It does not introduce a generic authenticated fetch wrapper, shared request builders, or schema parsing helpers.
+[apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts) and [apps/api/app/models/material.ts](apps/api/app/models/material.ts) persist those snapshots without exposing them through API serialization. The snapshots are importer bookkeeping, not user-facing domain fields.
 
-## Then follow the auth adapter reuse
+## Protect Source Decisions Per Record
 
-The auth adapter remains in [apps/web/src/lib/api/auth.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/auth.ts).
+[apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts) now locks and processes each valid Source inside one managed transaction.
 
-It now imports `resolveApiUrl` and `getResponseErrorMessage` from the shared transport helper. Auth still owns its endpoint bodies, headers, request payload parsing, and response schema parsing. The fallback auth error copy remains local to the auth adapter.
+For a new legacy Source, the importer creates the Source, records its import snapshot, imports unique Vendor Shades, and keeps database-owned `S-####` allocation unchanged. For an existing imported Source, the importer compares the live record to its last imported snapshot:
 
-## Next read the Product endpoint adapter in its feature home
+- fields still equal to their prior imported values may accept refreshed workbook values;
+- any field changed through application management is reported as protected, and the entire Source update is skipped;
+- Source Status is never changed by an import, so a Retired Source cannot be restored;
+- Vendor Shade imports remain additive, while application-edited Vendor Shades make the record conflict instead of being overwritten;
+- protected conflicts still return the current Source and shade lookup to downstream validation without counting the Source as imported.
 
-Product endpoint calls now live in [apps/web/src/features/products/api/endpoints.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/api/endpoints.ts).
+Invalid commercial fields and protected-field conflicts use the existing structured exclusion report. Their corrective guidance tells the migration operator to keep the application-managed values or make the workbook agree before rerunning. Any exclusion keeps the overall result non-successful, while independent safe Source records still commit.
 
-That adapter still owns the Product-specific details:
+## Preserve Material–Source Relationships
 
-- Product request and response schema parsing
-- explicit bearer auth headers
-- list query-string construction for `includeDeleted`
-- multipart `FormData` construction for Product image updates
-- endpoint-specific fallback messages
+[apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) compares each existing Material's live Source relationships with its last imported relationship snapshot before writing anything.
 
-The old generic [apps/web/src/lib/api/products.ts](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/lib/api/products.ts) file was removed because Product endpoints are no longer a generic web API concern.
+If application work changed linked Sources, order, the Preferred Source, or a relationship Vendor Shade, the Material is skipped atomically and the changed relationship dimensions appear in the migration report. The importer does not replace, remove, or recreate those links. Identical reruns also avoid deleting and recreating unchanged links.
 
-## Then check the Product screen imports
+When relationships are still untouched, a valid imported relationship refresh remains allowed inside the existing Material transaction. Existing Material public IDs are no longer recomputed from the current success counter, so an earlier protected exclusion cannot reassign or collide with a later Material's ID.
 
-The Product screens now import endpoint functions from the Product feature API area:
+## Read the Focused Test as the Scenario
 
-- [apps/web/src/features/products/product-management-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-management-page.tsx)
-- [apps/web/src/features/products/product-edit-page.tsx](/Users/isaacruiz/Development/gub/Guardiola-Foundry/apps/web/src/features/products/product-edit-page.tsx)
+[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) first imports realistic Sources and Materials, then uses the application services to:
 
-The screens still own their current TanStack Query calls and cache updates. That is deliberate: Product data hooks are the next issue, not this one.
+- edit Source commercial data, Landed Unit Cost, comments, and Vendor Shades;
+- add a Material–Source relationship;
+- replace the Preferred Source;
+- retire an imported Source.
 
-## End at the tracker and verification
+A later import attempts to reverse those decisions while also refreshing an untouched Source and adding a new Source. The test proves the managed decisions remain unchanged, protected records are reported, safe records persist, the result remains non-successful, the new Source receives the next stable public ID, and reruns do not duplicate Sources, Vendor Shades, or relationships.
 
-The completed issue is [.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md](/Users/isaacruiz/Development/gub/Guardiola-Foundry/.scratch/product-data-cache-refactor/issues/01-move-product-endpoints-and-extract-shared-web-api-helpers.md).
+## Verification
 
-Verification run for this slice:
+Passed with Node 24:
 
-- `pnpm --dir apps/web test -- src/routes/-products.test.tsx`
-- `pnpm --dir apps/web typecheck`
+- focused database-backed importer suite: 20 tests;
+- adjacent Source-edit and Material relationship suites: 14 tests;
+- API ESLint;
+- API strict TypeScript typecheck;
+- whitespace validation with `git diff --check`.
 
-## Scope note
+The complete API and web test suites and repository quality gate were not run, per the review boundary. The implementation remains uncommitted.
 
-This slice is a locality cleanup only. It does not change backend behavior, Product route behavior, cache ownership, Product visual list projection, optimistic updates, auth contracts, or Product API contracts.
+## Scope Boundaries
+
+Issue 13 does not add interactive import conflict review, explicit overwrite controls, Material field edit tracking, Source comparison UI, new lifecycle states, new relationship endpoints, or a broader authentication refactor.

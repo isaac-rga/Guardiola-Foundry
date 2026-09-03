@@ -39,6 +39,17 @@ export class CollectionSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class CurrencyConversionRateSchema extends BaseModel {
+  static $columns = ['effectiveDate', 'id', 'usdToMxnRate'] as const
+  $columns = CurrencyConversionRateSchema.$columns
+  @column.date()
+  declare effectiveDate: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare usdToMxnRate: string | null
+}
+
 export class LoginAttemptSchema extends BaseModel {
   static $columns = ['createdAt', 'email', 'failureCount', 'id', 'lockedUntil', 'updatedAt'] as const
   $columns = LoginAttemptSchema.$columns
@@ -52,6 +63,142 @@ export class LoginAttemptSchema extends BaseModel {
   declare id: number
   @column.dateTime()
   declare lockedUntil: DateTime | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class MaterialSourceLinkSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'isPreferred', 'materialId', 'materialSourceId', 'sortOrder', 'updatedAt', 'vendorShadeId'] as const
+  $columns = MaterialSourceLinkSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare isPreferred: boolean
+  @column()
+  declare materialId: number
+  @column()
+  declare materialSourceId: number
+  @column()
+  declare sortOrder: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare vendorShadeId: number | null
+}
+
+export class MaterialSourceVendorShadeSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'materialSourceId', 'nameOrCode', 'updatedAt'] as const
+  $columns = MaterialSourceVendorShadeSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare materialSourceId: number
+  @column()
+  declare nameOrCode: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class MaterialSourceSchema extends BaseModel {
+  static $columns = ['comments', 'composition', 'countryOfOrigin', 'createdAt', 'deletedAt', 'description', 'estimatedShippingUsdPerKilogramCents', 'fiber', 'finish', 'fixedPieceLength', 'gsmGramsPerSquareMeter', 'id', 'igiPercentage', 'landedUnitCostCents', 'legacySourceId', 'manufacturer', 'minimumPurchaseQuantity', 'name', 'normalizedUnit', 'presentationNotes', 'priceDate', 'publicId', 'purchasePresentation', 'purchasePriceCents', 'purchaseUnit', 'sourceStatus', 'textileFamily', 'updatedAt', 'url', 'vendor', 'vendorCurrency', 'vendorSku', 'weave', 'widthCentimeters'] as const
+  $columns = MaterialSourceSchema.$columns
+  @column()
+  declare comments: string | null
+  @column()
+  declare composition: string | null
+  @column()
+  declare countryOfOrigin: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare description: string | null
+  @column()
+  declare estimatedShippingUsdPerKilogramCents: number | null
+  @column()
+  declare fiber: string | null
+  @column()
+  declare finish: string | null
+  @column()
+  declare fixedPieceLength: string | null
+  @column()
+  declare gsmGramsPerSquareMeter: string | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare igiPercentage: string | null
+  @column()
+  declare landedUnitCostCents: number | null
+  @column()
+  declare legacySourceId: string | null
+  @column()
+  declare manufacturer: string | null
+  @column()
+  declare minimumPurchaseQuantity: string | null
+  @column()
+  declare name: string
+  @column()
+  declare normalizedUnit: string
+  @column()
+  declare presentationNotes: string | null
+  @column.date()
+  declare priceDate: DateTime | null
+  @column()
+  declare publicId: string
+  @column()
+  declare purchasePresentation: string | null
+  @column()
+  declare purchasePriceCents: number | null
+  @column()
+  declare purchaseUnit: string
+  @column()
+  declare sourceStatus: string
+  @column()
+  declare textileFamily: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column()
+  declare url: string | null
+  @column()
+  declare vendor: string
+  @column()
+  declare vendorCurrency: string | null
+  @column()
+  declare vendorSku: string | null
+  @column()
+  declare weave: string | null
+  @column()
+  declare widthCentimeters: string | null
+}
+
+export class MaterialSchema extends BaseModel {
+  static $columns = ['comments', 'createdAt', 'deletedAt', 'id', 'legacyMaterialId', 'materialColor', 'materialUnit', 'materialUse', 'name', 'publicId', 'updatedAt'] as const
+  $columns = MaterialSchema.$columns
+  @column()
+  declare comments: string | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare legacyMaterialId: string
+  @column()
+  declare materialColor: string
+  @column()
+  declare materialUnit: string
+  @column()
+  declare materialUse: string
+  @column()
+  declare name: string
+  @column()
+  declare publicId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }
