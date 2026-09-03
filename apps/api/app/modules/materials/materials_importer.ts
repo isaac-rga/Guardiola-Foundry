@@ -1,4 +1,5 @@
 import Material from '#models/material'
+import MaterialSource from '#models/material_source'
 import MaterialSourceLink from '#models/material_source_link'
 import {
   importSourceCatalogRows,
@@ -16,6 +17,12 @@ interface MaterialImportExclusion {
   recordType: 'Material'
   invalidFields: string[]
   correctiveGuidance: string
+}
+
+interface SourceLinkImportSnapshot {
+  legacySourceId: string
+  isPreferred: boolean
+  vendorShade: string | null
 }
 
 export type ImportExclusion = SourceImportExclusion | MaterialImportExclusion
@@ -50,6 +57,34 @@ export async function importMaterialsFromRows(
   let skippedCount = 0
 
   for (const materialRow of materialRows) {
+    const incomingRelationshipSnapshot = sourceLinkImportSnapshotFromRow(materialRow)
+    const existingMaterial = await findImportedMaterial(materialRow.legacyMaterialId)
+    const currentRelationshipSnapshot = existingMaterial
+      ? sourceLinkImportSnapshotFromModel(existingMaterial)
+      : []
+    const previousRelationshipSnapshot = existingMaterial?.sourceLinksImportSnapshot as
+      | SourceLinkImportSnapshot[]
+      | null
+      | undefined
+    const protectedRelationshipFields = existingMaterial
+      ? changedRelationshipFields(
+          previousRelationshipSnapshot ?? incomingRelationshipSnapshot,
+          currentRelationshipSnapshot
+        )
+      : []
+
+    if (protectedRelationshipFields.length > 0) {
+      exclusions.push({
+        legacyId: materialRow.legacyMaterialId,
+        recordType: 'Material',
+        invalidFields: protectedRelationshipFields,
+        correctiveGuidance:
+          'Keep the application-managed Source relationships or update the workbook to match them before rerunning the import.',
+      })
+      skippedCount += 1
+      continue
+    }
+
     const linkedSources = materialRow.sourceLinks.map((sourceLink) => ({
       ...sourceLink,
       source: sourcesByLegacyId.get(sourceLink.legacySourceId),
@@ -90,7 +125,16 @@ export async function importMaterialsFromRows(
     }
 
     await db.transaction(async (trx) => {
-      const material = await upsertMaterial(materialRow, importedCount, trx)
+      const material = await upsertMaterial(
+        materialRow,
+        importedCount,
+        incomingRelationshipSnapshot,
+        trx
+      )
+
+      if (equalImportValue(currentRelationshipSnapshot, incomingRelationshipSnapshot)) {
+        return
+      }
 
       await MaterialSourceLink.query({ client: trx }).where('materialId', material.id).delete()
 
@@ -124,6 +168,7 @@ export async function importMaterialsFromRows(
 async function upsertMaterial(
   materialRow: ImportedMaterialRow,
   materialIndex: number,
+  sourceLinksImportSnapshot: SourceLinkImportSnapshot[],
   trx: TransactionClientContract
 ) {
   const materialQuery = Material.query({ client: trx })
@@ -132,23 +177,99 @@ async function upsertMaterial(
     .where('legacyMaterialId', materialRow.legacyMaterialId)
     .first()
   const materialAttributes = {
-    publicId: materialPublicIdForIndex(materialIndex),
     legacyMaterialId: materialRow.legacyMaterialId,
     name: materialRow.name,
     materialColor: materialRow.materialColor,
     materialUse: materialRow.materialUse,
     materialUnit: 'meter' as const,
     comments: materialRow.comments,
+    sourceLinksImportSnapshot,
   }
 
   if (!material) {
-    return Material.create(materialAttributes, { client: trx })
+    return Material.create(
+      { publicId: materialPublicIdForIndex(materialIndex), ...materialAttributes },
+      { client: trx }
+    )
   }
 
   material.merge(materialAttributes)
   await material.save()
 
   return material
+}
+
+async function findImportedMaterial(legacyMaterialId: string) {
+  const query = Material.queryWithDeleted().where('legacyMaterialId', legacyMaterialId)
+  const material = await query.first()
+
+  if (!material) {
+    return null
+  }
+
+  await material.load('sourceLinks', (sourceLinkQuery) => {
+    sourceLinkQuery
+      .preload('materialSource', (sourceQuery) => MaterialSource.includeDeleted(sourceQuery))
+      .preload('vendorShade')
+      .orderBy('sortOrder', 'asc')
+  })
+
+  return material
+}
+
+function sourceLinkImportSnapshotFromRow(materialRow: ImportedMaterialRow) {
+  return materialRow.sourceLinks.map((sourceLink) => ({
+    legacySourceId: sourceLink.legacySourceId,
+    isPreferred: sourceLink.isPreferred,
+    vendorShade: sourceLink.vendorShade ?? null,
+  }))
+}
+
+function sourceLinkImportSnapshotFromModel(material: Material): SourceLinkImportSnapshot[] {
+  return material.sourceLinks.map((sourceLink) => ({
+    legacySourceId:
+      sourceLink.materialSource.legacySourceId ??
+      `application:${sourceLink.materialSource.publicId}`,
+    isPreferred: sourceLink.isPreferred,
+    vendorShade: sourceLink.vendorShade?.nameOrCode ?? null,
+  }))
+}
+
+function changedRelationshipFields(
+  previousSnapshot: SourceLinkImportSnapshot[],
+  currentSnapshot: SourceLinkImportSnapshot[]
+) {
+  const changedFields: string[] = []
+  const previousSourceIds = previousSnapshot.map((link) => link.legacySourceId)
+  const currentSourceIds = currentSnapshot.map((link) => link.legacySourceId)
+
+  if (!equalImportValue(previousSourceIds, currentSourceIds)) {
+    changedFields.push('sourceLinks')
+  }
+
+  if (
+    previousSnapshot.find((link) => link.isPreferred)?.legacySourceId !==
+    currentSnapshot.find((link) => link.isPreferred)?.legacySourceId
+  ) {
+    changedFields.push('preferredSource')
+  }
+
+  const currentLinksBySourceId = new Map(currentSnapshot.map((link) => [link.legacySourceId, link]))
+  const sharedVendorShadeChanged = previousSnapshot.some((previousLink) => {
+    const currentLink = currentLinksBySourceId.get(previousLink.legacySourceId)
+
+    return currentLink && currentLink.vendorShade !== previousLink.vendorShade
+  })
+
+  if (sharedVendorShadeChanged) {
+    changedFields.push('vendorShade')
+  }
+
+  return changedFields
+}
+
+function equalImportValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function materialPublicIdForIndex(index: number) {

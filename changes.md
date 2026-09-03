@@ -1,62 +1,65 @@
-# Safe Source Retirement and Restoration
+# Non-Destructive Future Source Imports
 
-This slice completes Sources issue 12. Admins and Operators can retire unavailable offerings without deleting sourcing history or invalidating an Active Material's Preferred Source. Admins can restore a Retired Source without silently reinstating an old purchasing choice.
+This slice completes Sources issue 13. Later catalog imports can still add genuinely new Sources and refresh untouched imported facts, while application-managed commercial decisions and Material relationships remain authoritative.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/12-retire-and-restore-sources.md](.scratch/sources/issues/12-retire-and-restore-sources.md). The implementation is limited to Source lifecycle behavior. Import protection remains issue 13; Material-field lifecycle and broader purchasing workflows remain outside this slice.
+Read [.scratch/sources/issues/13-protect-user-managed-data-from-imports.md](.scratch/sources/issues/13-protect-user-managed-data-from-imports.md). The implementation is limited to future-import protection. It does not add conflict-resolution UI, overwrite controls, new Source fields, or new relationship mutations.
 
-## Use the Existing Source Detail Workflow
+## Remember the Last Imported State
 
-[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) adds lifecycle actions to the existing detail page. Retiring an Active Source opens a confirmation Dialog and lists every linked Active Material. Historical Materials remain visible in the underlying relationship table but are excluded from current retirement impact.
+[apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts](apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts) adds two private JSON snapshots:
 
-If any affected Active Material uses the Source as Preferred, the Dialog identifies it and explains that an eligible replacement is required. A server-side conflict caused by newer relationship data keeps the Dialog open and replaces the impact list with the server's current affected Materials. Unlinked and alternate Sources can be confirmed for retirement.
+- each Source remembers its last successfully imported field values and Vendor Shades;
+- each Material remembers its last successfully imported ordered Source relationships, Preferred choice, and Vendor Shade selections.
 
-Admins viewing a Retired Source can restore it in place. Existing Admin editing remains available. Operators return to the Active catalog after a successful retirement because Retired detail remains intentionally hidden from them.
+[apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts) and [apps/api/app/models/material.ts](apps/api/app/models/material.ts) persist those snapshots without exposing them through API serialization. The snapshots are importer bookkeeping, not user-facing domain fields.
 
-## Keep Server State at the Sources Boundary
+## Protect Source Decisions Per Record
 
-[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) owns the retirement and restoration transports and parses structured Preferred-retirement conflicts. [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) replaces committed Source detail and invalidates Source and Material queries so catalog membership, relationship status, active alternate counts, and eligibility refetch together.
+[apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts) now locks and processes each valid Source inside one managed transaction.
 
-## Enforce Lifecycle Rules Transactionally
+For a new legacy Source, the importer creates the Source, records its import snapshot, imports unique Vendor Shades, and keeps database-owned `S-####` allocation unchanged. For an existing imported Source, the importer compares the live record to its last imported snapshot:
 
-[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) implements retirement and restoration as managed transactions:
+- fields still equal to their prior imported values may accept refreshed workbook values;
+- any field changed through application management is reported as protected, and the entire Source update is skipped;
+- Source Status is never changed by an import, so a Retired Source cannot be restored;
+- Vendor Shade imports remain additive, while application-edited Vendor Shades make the record conflict instead of being overwritten;
+- protected conflicts still return the current Source and shade lookup to downstream validation without counting the Source as imported.
 
-- retirement locks the Active Source, loads Preferred relationships for Active Materials only, and blocks with every affected Material when replacements are still required;
-- allowed retirement changes only Source Status, preserving all Material links and Preferred flags as historical context;
-- restoration changes only Source Status back to Active, preserving links without promoting any alternate relationship;
-- restored Sources immediately return to Active link choices, while the existing Landed Unit Cost rule continues to determine Preferred eligibility.
+Invalid commercial fields and protected-field conflicts use the existing structured exclusion report. Their corrective guidance tells the migration operator to keep the application-managed values or make the workbook agree before rerunning. Any exclusion keeps the overall result non-successful, while independent safe Source records still commit.
 
-The existing Material link and Preferred-replacement operations now lock their selected Source row before checking status. That synchronization prevents a concurrent link or promotion from racing a retirement and leaving an Active Material pointed at a Retired Preferred Source.
+## Preserve Material–Source Relationships
 
-[apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) exposes business-language lifecycle responses through authenticated `DELETE /sources/:sourceId` and `POST /sources/:sourceId/restore`. Restoration rejects Operators before touching lifecycle state. Preferred-retirement conflicts return both guidance and the affected Material IDs and names defined in the shared Source contract.
+[apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) compares each existing Material's live Source relationships with its last imported relationship snapshot before writing anything.
 
-## Read the Focused Tests as Specifications
+If application work changed linked Sources, order, the Preferred Source, or a relationship Vendor Shade, the Material is skipped atomically and the changed relationship dimensions appear in the migration report. The importer does not replace, remove, or recreate those links. Identical reruns also avoid deleting and recreating unchanged links.
 
-[apps/api/tests/functional/sources/retire_restore_source.spec.ts](apps/api/tests/functional/sources/retire_restore_source.spec.ts) covers unauthenticated rejection, both retirement roles, Unlinked and alternate retirement, historical Preferred usage, preserved relationships, active selection exclusions, Preferred blocking with every affected Active Material, exact-one-Preferred protection, Admin-only restoration, no automatic promotion, cost-based eligibility, immediate link availability, and failure states.
+When relationships are still untouched, a valid imported relationship refresh remains allowed inside the existing Material transaction. Existing Material public IDs are no longer recomputed from the current success counter, so an earlier protected exclusion cannot reassign or collide with a later Material's ID.
 
-[apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) covers confirmation, Active Material impact, known Preferred blocking, current server conflict details, Operator navigation, and Admin restoration in the existing Source detail route.
+## Read the Focused Test as the Scenario
+
+[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) first imports realistic Sources and Materials, then uses the application services to:
+
+- edit Source commercial data, Landed Unit Cost, comments, and Vendor Shades;
+- add a Material–Source relationship;
+- replace the Preferred Source;
+- retire an imported Source.
+
+A later import attempts to reverse those decisions while also refreshing an untouched Source and adding a new Source. The test proves the managed decisions remain unchanged, protected records are reported, safe records persist, the result remains non-successful, the new Source receives the next stable public ID, and reruns do not duplicate Sources, Vendor Shades, or relationships.
 
 ## Verification
 
 Passed with Node 24:
 
-- focused Source lifecycle API suite: 6 tests;
-- focused Material relationship API suite: 11 tests;
-- focused Source detail API suite: 3 tests;
-- focused Source list API suite: 5 tests;
-- focused Source detail route web suite: 7 tests;
-- lint for API, web, shared types, and shared validation;
-- strict typechecking for API, web, shared types, and shared validation;
-- shared contract builds required by runtime package resolution;
+- focused database-backed importer suite: 20 tests;
+- adjacent Source-edit and Material relationship suites: 14 tests;
+- API ESLint;
+- API strict TypeScript typecheck;
 - whitespace validation with `git diff --check`.
 
-The complete API suite and repository quality gate were not run, per the review boundary. One early web command unintentionally expanded to all web test files during the red phase; that failing red-phase run is not completion evidence, and subsequent web verification used only the focused Source detail route file. A clean complete web suite remains pending approval. The implementation remains uncommitted.
+The complete API and web test suites and repository quality gate were not run, per the review boundary. The implementation remains uncommitted.
 
 ## Scope Boundaries
 
-Issue 12 does not add Source deletion, Material-field editing, automatic Preferred replacement, new Source links from Source detail, importer overwrite protection, Source availability beyond Active/Retired, or a broader authentication refactor.
-
-## What Comes Next
-
-Issue 13 can protect user-managed Source fields, lifecycle status, Landed Unit Cost, links, and Preferred choices from later catalog imports.
+Issue 13 does not add interactive import conflict review, explicit overwrite controls, Material field edit tracking, Source comparison UI, new lifecycle states, new relationship endpoints, or a broader authentication refactor.

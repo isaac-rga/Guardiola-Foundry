@@ -43,6 +43,17 @@ export default class Material extends compose(BaseModel, SoftDelete) {
   })
   declare comments: string | null
 
+  @column({
+    columnName: 'source_links_import_snapshot',
+    serializeAs: null,
+    prepare: (value) => (value === null ? null : JSON.stringify(value)),
+  })
+  declare sourceLinksImportSnapshot: Array<{
+    legacySourceId: string
+    isPreferred: boolean
+    vendorShade: string | null
+  }> | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

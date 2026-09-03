@@ -10,8 +10,11 @@ import {
 import { SOURCE_CATALOG_IMPORT_FIXTURE } from '#database/fixtures/source_catalog_import_fixture'
 import AdoptStableSourceIdentity from '#database/migrations/1786680000000_adopt_stable_source_identity'
 import { importMaterialsFromRows } from '#modules/materials/materials_importer'
+import { linkMaterialSource, replacePreferredSource } from '#modules/materials/materials_service'
 import { deriveSourceAttention, IVA_PERCENTAGE } from '#modules/sources/source_catalog'
 import type { ImportedSourceCatalogRow } from '#modules/sources/source_catalog_importer'
+import VendorShade from '#modules/sources/models/vendor_shade'
+import { retireSource, updateSource } from '#modules/sources/services/sources_service'
 import { test } from '@japa/runner'
 
 test.group('Materials importer', (group) => {
@@ -701,6 +704,129 @@ test.group('Materials importer', (group) => {
     assert.equal(source.publicId, 'S-0001')
     assert.equal(source.vendor, 'Casa Tessile Updated')
     assert.equal(source.landedUnitCostCents, 4500)
+  })
+
+  test('keeps user-managed Source data and relationships authoritative during later imports', async ({
+    assert,
+  }) => {
+    const retireableSource = {
+      ...commercialSourceRow(),
+      legacySourceId: 'SRC-500',
+      name: 'Retireable Imported Source',
+      vendor: 'Lifecycle Vendor',
+      landedUnitCostCents: 5200,
+    }
+    await importMaterialsFromRows(
+      [...MATERIAL_SOURCE_IMPORT_FIXTURE, retireableSource],
+      MATERIAL_IMPORT_FIXTURE
+    )
+
+    const importedSource = MATERIAL_SOURCE_IMPORT_FIXTURE[0]
+    await updateSource(
+      'S-0001',
+      {
+        ...importedSource,
+        vendor: 'Application Managed Vendor',
+        landedUnitCostCents: 9900,
+        comments: 'Application-managed commercial decision.',
+        vendorShades: ['Application Ivory'],
+      } as Parameters<typeof updateSource>[1],
+      true
+    )
+    await linkMaterialSource('M-0001', { sourceId: 'S-0003', vendorShadeId: null })
+    await replacePreferredSource('M-0001', { sourceId: 'S-0002' })
+    await retireSource('S-0005')
+
+    const laterSources = [
+      {
+        ...importedSource,
+        vendor: 'Later Workbook Vendor',
+        landedUnitCostCents: 4300,
+        comments: 'Later workbook comment.',
+        vendorShades: ['Workbook Ivory'],
+      },
+      MATERIAL_SOURCE_IMPORT_FIXTURE[1],
+      MATERIAL_SOURCE_IMPORT_FIXTURE[2],
+      {
+        ...MATERIAL_SOURCE_IMPORT_FIXTURE[3],
+        vendor: 'Untouched Source Refresh',
+        description: 'New imported detail for an untouched Source.',
+      },
+      retireableSource,
+      {
+        ...commercialSourceRow(),
+        legacySourceId: 'SRC-600',
+        name: 'New Additive Source',
+        vendor: 'New Vendor',
+        landedUnitCostCents: 6100,
+      },
+    ]
+
+    const result = await importMaterialsFromRows(laterSources, MATERIAL_IMPORT_FIXTURE)
+    const managedSource = await MaterialSource.findByOrFail('publicId', 'S-0001')
+    const retiredSource = await MaterialSource.findByOrFail('publicId', 'S-0005')
+    const refreshedSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-300')
+    const additiveSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-600')
+    const managedMaterial = await Material.query()
+      .where('publicId', 'M-0001')
+      .preload('sourceLinks', (query) => {
+        query.preload('materialSource').preload('vendorShade').orderBy('sortOrder', 'asc')
+      })
+      .firstOrFail()
+
+    assert.isFalse(result.successful)
+    assert.equal(result.importedSourceCount, 4)
+    assert.equal(result.importedCount, 2)
+    assert.equal(result.skippedCount, 2)
+    assert.includeDeepMembers(result.exclusions, [
+      {
+        legacyId: 'SRC-100',
+        recordType: 'Source',
+        invalidFields: ['vendor', 'landedUnitCostCents', 'comments', 'vendorShades'],
+        correctiveGuidance:
+          'Keep the application-managed Source values or update the workbook to match them before rerunning the import.',
+      },
+      {
+        legacyId: 'SRC-500',
+        recordType: 'Source',
+        invalidFields: ['sourceStatus'],
+        correctiveGuidance:
+          'Keep the application-managed Source values or update the workbook to match them before rerunning the import.',
+      },
+      {
+        legacyId: 'MAT-001',
+        recordType: 'Material',
+        invalidFields: ['sourceLinks', 'preferredSource', 'vendorShade'],
+        correctiveGuidance:
+          'Keep the application-managed Source relationships or update the workbook to match them before rerunning the import.',
+      },
+    ])
+    assert.equal(managedSource.vendor, 'Application Managed Vendor')
+    assert.equal(managedSource.landedUnitCostCents, 9900)
+    assert.equal(managedSource.comments, 'Application-managed commercial decision.')
+    assert.deepEqual(
+      await VendorShade.query()
+        .where('materialSourceId', managedSource.id)
+        .orderBy('nameOrCode', 'asc')
+        .then((shades) => shades.map((shade) => shade.nameOrCode)),
+      ['Application Ivory']
+    )
+    assert.equal(retiredSource.sourceStatus, 'retired')
+    assert.equal(refreshedSource.vendor, 'Untouched Source Refresh')
+    assert.equal(refreshedSource.description, 'New imported detail for an untouched Source.')
+    assert.equal(additiveSource.publicId, 'S-0006')
+    assert.deepEqual(
+      managedMaterial.sourceLinks.map((link) => ({
+        sourceId: link.materialSource.publicId,
+        isPreferred: link.isPreferred,
+        vendorShade: link.vendorShade?.nameOrCode ?? null,
+      })),
+      [
+        { sourceId: 'S-0001', isPreferred: false, vendorShade: 'Application Ivory' },
+        { sourceId: 'S-0002', isPreferred: true, vendorShade: null },
+        { sourceId: 'S-0003', isPreferred: false, vendorShade: null },
+      ]
+    )
   })
 
   test('keeps Source IDs stable when import rows are reordered and allocates the next ID', async ({

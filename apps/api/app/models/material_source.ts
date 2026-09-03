@@ -127,6 +127,13 @@ export default class MaterialSource extends compose(BaseModel, SoftDelete) {
   })
   declare igiPercentage: number | null
 
+  @column({
+    columnName: 'source_import_snapshot',
+    serializeAs: null,
+    prepare: (value) => (value === null ? null : JSON.stringify(value)),
+  })
+  declare sourceImportSnapshot: Record<string, unknown> | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
