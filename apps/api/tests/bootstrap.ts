@@ -4,6 +4,7 @@ import app from '@adonisjs/core/services/app'
 import type { Config } from '@japa/runner/types'
 import { pluginAdonisJS } from '@japa/plugin-adonisjs'
 import testUtils from '@adonisjs/core/services/test_utils'
+import { spec, dot } from '@japa/runner/reporters'
 
 /**
  * This file is imported by the "bin/test.ts" entrypoint file
@@ -35,4 +36,9 @@ export const configureSuite: Config['configureSuite'] = (suite) => {
   if (['browser', 'functional', 'e2e'].includes(suite.name)) {
     return suite.setup(() => testUtils.httpServer().start())
   }
+}
+
+export const reporters: Config['reporters'] = {
+  list: [spec(), dot()],
+  activated: ['dot'], // Default reporter to use when no CLI flag is passed
 }

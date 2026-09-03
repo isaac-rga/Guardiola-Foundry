@@ -13,6 +13,10 @@ export default defineConfig({
     },
   },
   test: {
+    globals: true,
+    reporters: [
+      'dot'
+    ],
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
   },

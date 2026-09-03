@@ -19,8 +19,12 @@ cleanup() {
 
 trap cleanup EXIT
 
+strip_ansi() {
+  node -e 'process.stdout.write(require("node:fs").readFileSync(0, "utf8").replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, ""))'
+}
+
 print_stage_log() {
-  sed -E $'s/\033\\[[0-?]*[ -\\/]*[@-~]//g' "$stage_log" >&2
+  strip_ansi <"$stage_log" >&2
 }
 
 save_failure_log() {
@@ -30,7 +34,7 @@ save_failure_log() {
   local failure_log="$failure_log_dir/${safe_stage_name}-$(date -u '+%Y%m%dT%H%M%SZ')-$$.log"
 
   mkdir -p "$failure_log_dir"
-  sed -E $'s/\033\\[[0-?]*[ -\\/]*[@-~]//g' "$stage_log" >"$failure_log"
+  strip_ansi <"$stage_log" >"$failure_log"
   printf '[quality] log: %s\n' "$failure_log" >&2
 }
 

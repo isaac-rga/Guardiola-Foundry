@@ -77,6 +77,9 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.4
+      reporters:
+        specifier: link:@japa/runner/reporters
+        version: link:@japa/runner/reporters
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
