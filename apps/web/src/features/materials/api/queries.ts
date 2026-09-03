@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { LinkMaterialSourceRequest } from '@guardiola-foundry/shared-types'
+import type {
+  LinkMaterialSourceRequest,
+  ReplacePreferredSourceRequest,
+} from '@guardiola-foundry/shared-types'
 
 import {
   getMaterial,
   linkMaterialSource,
   listMaterials,
+  replacePreferredSource,
   unlinkMaterialSource,
 } from '@/features/materials/api/endpoints'
 import {
@@ -48,6 +52,22 @@ export function useUnlinkMaterialSource(token: string, materialId: string) {
   return useMutation({
     mutationFn: (sourceId: string) =>
       unlinkMaterialSource(token, materialId, sourceId),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(materialDetailQueryKey(materialId), response)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: materialListQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ['sources'] }),
+      ])
+    },
+  })
+}
+
+export function useReplacePreferredSource(token: string, materialId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (payload: ReplacePreferredSourceRequest) =>
+      replacePreferredSource(token, materialId, payload),
     onSuccess: async (response) => {
       queryClient.setQueryData(materialDetailQueryKey(materialId), response)
       await Promise.all([

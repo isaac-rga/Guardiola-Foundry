@@ -18,17 +18,24 @@ test.group('Material Source relationships', (group) => {
     await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
   })
 
-  test('rejects unauthenticated link and unlink requests', async ({ client }) => {
+  test('rejects unauthenticated link, unlink, and Preferred replacement requests', async ({
+    client,
+  }) => {
     const linkResponse = await client.post('/materials/M-0001/sources').json({
       sourceId: 'S-0003',
       vendorShadeId: null,
     })
     const unlinkResponse = await client.delete('/materials/M-0001/sources/S-0002')
+    const replaceResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .json({ sourceId: 'S-0002' })
 
     linkResponse.assertStatus(401)
     linkResponse.assertBodyContains({ message: 'Unauthorized' })
     unlinkResponse.assertStatus(401)
     unlinkResponse.assertBodyContains({ message: 'Unauthorized' })
+    replaceResponse.assertStatus(401)
+    replaceResponse.assertBodyContains({ message: 'Unauthorized' })
   })
 
   test('lets Admins and Operators link Active Sources with or without an owned Vendor Shade', async ({
@@ -64,6 +71,7 @@ test.group('Material Source relationships', (group) => {
         vendor: 'Casa Tessile',
         relationship: 'alternate',
         relationshipStatus: 'active',
+        preferredEligibility: 'eligible',
         vendorShade: {
           id: preferredSource.vendorShades[0].id,
           nameOrCode: 'Ivory 100',
@@ -77,6 +85,7 @@ test.group('Material Source relationships', (group) => {
         vendor: 'Atelier Supply',
         relationship: 'alternate',
         relationshipStatus: 'active',
+        preferredEligibility: 'eligible',
         vendorShade: null,
       },
     ])
@@ -215,6 +224,188 @@ test.group('Material Source relationships', (group) => {
         .where('isPreferred', true)
         .first()
     )
+  })
+
+  test('lets Admins and Operators replace the Preferred Source and refreshes derived Material values', async ({
+    assert,
+    client,
+  }) => {
+    const adminSession = await authenticateAs(client, 'admin')
+    const operatorSession = await authenticateAs(client, 'operator')
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    const retiredAlternate = await MaterialSource.findByOrFail('publicId', 'S-0004')
+
+    await MaterialSourceLink.create({
+      materialId: material.id,
+      materialSourceId: retiredAlternate.id,
+      sortOrder: 3,
+      isPreferred: false,
+      vendorShadeId: null,
+    })
+    retiredAlternate.sourceStatus = 'retired'
+    await retiredAlternate.save()
+
+    const adminResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${adminSession.token}`)
+      .json({ sourceId: 'S-0002' })
+
+    adminResponse.assertStatus(200)
+    assert.equal(adminResponse.body().material.id, 'M-0001')
+    assert.deepInclude(adminResponse.body().material.sourceRelationships[0], {
+      id: 'S-0002',
+      relationship: 'preferred',
+      relationshipStatus: 'active',
+      preferredEligibility: 'already-preferred',
+    })
+    assert.deepInclude(adminResponse.body().material.sourceRelationships[1], {
+      id: 'S-0001',
+      relationship: 'alternate',
+      relationshipStatus: 'active',
+      preferredEligibility: 'eligible',
+    })
+
+    const listResponse = await client
+      .get('/materials')
+      .header('Authorization', `Bearer ${adminSession.token}`)
+    const materialSummary = listResponse
+      .body()
+      .materials.find((summary: { id: string }) => summary.id === 'M-0001')
+
+    listResponse.assertStatus(200)
+    assert.equal(materialSummary.preferredSource.id, 'S-0002')
+    assert.equal(materialSummary.derivedUnitCostCents, 3900)
+    assert.equal(materialSummary.alternateSourceCount, 1)
+    assert.equal(
+      await MaterialSourceLink.query()
+        .where('materialId', material.id)
+        .where('isPreferred', true)
+        .count('* as total')
+        .then((rows) => Number(rows[0].$extras.total)),
+      1
+    )
+
+    const operatorResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${operatorSession.token}`)
+      .json({ sourceId: 'S-0001' })
+
+    operatorResponse.assertStatus(200)
+    assert.equal(operatorResponse.body().material.sourceRelationships[0].id, 'S-0001')
+  })
+
+  test('rejects ineligible Preferred Sources without changing the current Preferred relationship', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    const currentPreferred = await MaterialSource.findByOrFail('publicId', 'S-0001')
+    const alternate = await MaterialSource.findByOrFail('publicId', 'S-0002')
+
+    alternate.landedUnitCostCents = null
+    await alternate.save()
+
+    const missingCostResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ sourceId: 'S-0002' })
+
+    missingCostResponse.assertStatus(409)
+    missingCostResponse.assertBody({
+      message: 'Add Landed Unit Cost before selecting this Source as Preferred.',
+    })
+
+    alternate.landedUnitCostCents = 3900
+    alternate.sourceStatus = 'retired'
+    await alternate.save()
+
+    const retiredResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ sourceId: 'S-0002' })
+    const unlinkedResponse = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ sourceId: 'S-0004' })
+
+    retiredResponse.assertStatus(409)
+    retiredResponse.assertBody({ message: 'Only an Active Source can become Preferred.' })
+    unlinkedResponse.assertStatus(404)
+    unlinkedResponse.assertBody({
+      message: 'Only a linked alternate Source can become Preferred.',
+    })
+    assert.isNotNull(
+      await MaterialSourceLink.query()
+        .where('materialId', material.id)
+        .where('materialSourceId', currentPreferred.id)
+        .where('isPreferred', true)
+        .first()
+    )
+  })
+
+  test('rejects Preferred replacement for a historical Material', async ({ client }) => {
+    const session = await authenticateAs(client, 'admin')
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    await material.softDelete()
+
+    const response = await client
+      .put('/materials/M-0001/preferred-source')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ sourceId: 'S-0002' })
+
+    response.assertStatus(404)
+    response.assertBody({ message: 'Material not found.' })
+  })
+
+  test('rolls back a failed Preferred replacement and returns business-language guidance', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    const currentPreferred = await MaterialSource.findByOrFail('publicId', 'S-0001')
+
+    await db.rawQuery(`
+      CREATE FUNCTION reject_test_preferred_promotion()
+      RETURNS trigger AS $$
+      BEGIN
+        IF NEW.is_preferred = true AND OLD.is_preferred = false THEN
+          RAISE EXCEPTION 'Injected Preferred replacement failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      CREATE TRIGGER reject_test_preferred_promotion
+        BEFORE UPDATE ON material_source_links
+        FOR EACH ROW
+        EXECUTE FUNCTION reject_test_preferred_promotion();
+    `)
+
+    try {
+      const response = await client
+        .put('/materials/M-0001/preferred-source')
+        .header('Authorization', `Bearer ${session.token}`)
+        .json({ sourceId: 'S-0002' })
+
+      response.assertStatus(409)
+      response.assertBody({
+        message: 'Preferred Source could not be replaced. Please try again.',
+      })
+      assert.isNotNull(
+        await MaterialSourceLink.query()
+          .where('materialId', material.id)
+          .where('materialSourceId', currentPreferred.id)
+          .where('isPreferred', true)
+          .first()
+      )
+    } finally {
+      await db.rawQuery(`
+        DROP TRIGGER reject_test_preferred_promotion ON material_source_links;
+        DROP FUNCTION reject_test_preferred_promotion();
+      `)
+    }
   })
 })
 

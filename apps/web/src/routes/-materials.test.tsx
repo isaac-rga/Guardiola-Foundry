@@ -468,6 +468,111 @@ describe('materials route', () => {
     )
   })
 
+  it('replaces the Preferred Source, refreshes Material cost and Source catalog state, and keeps the Dialog open', async () => {
+    const user = userEvent.setup()
+    let replaced = false
+    let sourceListRequests = 0
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(replaced ? materialsListAfterReplacementResponse() : materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(replaced ? materialDetailAfterReplacementResponse() : materialDetailResponse())
+      }
+      if (url.endsWith('/sources') && init?.method === 'GET') {
+        sourceListRequests += 1
+        return jsonResponse({ sources: [eligibleSourceSummary()] })
+      }
+      if (url.endsWith('/materials/M-0001/preferred-source') && init?.method === 'PUT') {
+        expect(JSON.parse(String(init.body))).toEqual({ sourceId: 'S-0002' })
+        replaced = true
+        return jsonResponse(materialDetailAfterReplacementResponse())
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    await user.click(within(dialog).getByRole('button', { name: 'Link existing Source' }))
+    await waitFor(() => expect(sourceListRequests).toBe(1))
+    await user.click(within(dialog).getByRole('button', { name: 'Make Ivory Crepe Backup Preferred' }))
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole('region', { name: 'Preferred Source' })).toHaveTextContent(
+        'Ivory Crepe Backup',
+      )
+      expect(sourceListRequests).toBe(2)
+    })
+    const materialRow = within(screen.getByRole('table', { hidden: true })).getByRole('row', {
+      name: /M-0001 Ivory Silk Crepe/,
+      hidden: true,
+    })
+    expect(materialRow).toHaveTextContent('$39.00 / meter')
+    expect(materialRow).toHaveTextContent('1')
+    expect(dialog).toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/materials/M-0001/preferred-source',
+      expect.objectContaining({ method: 'PUT' }),
+    )
+  })
+
+  it('visibly disables Preferred replacement when an alternate lacks Landed Unit Cost', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(materialDetailWithMissingCostAlternateResponse())
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    expect(within(dialog).getByRole('button', { name: 'Make Budget Crepe Preferred' })).toBeDisabled()
+    expect(within(dialog).getByText('Landed Unit Cost required')).toBeInTheDocument()
+  })
+
+  it('keeps the Dialog open and explains a Preferred replacement failure', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(materialDetailResponse())
+      }
+      if (url.endsWith('/materials/M-0001/preferred-source') && init?.method === 'PUT') {
+        return jsonResponse(
+          { message: 'Preferred Source could not be replaced. Please try again.' },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    await user.click(within(dialog).getByRole('button', { name: 'Make Ivory Crepe Backup Preferred' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Preferred Source could not be replaced. Please try again.',
+    )
+    expect(within(dialog).getByRole('region', { name: 'Preferred Source' })).toHaveTextContent(
+      'Italian Silk Crepe',
+    )
+    expect(dialog).toBeInTheDocument()
+  })
+
   it.each([
     ['link', 'This Source is already linked to the Material.'],
     ['unlink', 'Material relationship service unavailable.'],
@@ -664,6 +769,7 @@ function materialDetailResponse() {
           vendor: 'Casa Tessile',
           relationship: 'preferred',
           relationshipStatus: 'active',
+          preferredEligibility: 'already-preferred',
           vendorShade: { id: 1, nameOrCode: 'Ivory 100' },
         },
         {
@@ -672,6 +778,7 @@ function materialDetailResponse() {
           vendor: 'Milan Textiles',
           relationship: 'alternate',
           relationshipStatus: 'active',
+          preferredEligibility: 'eligible',
           vendorShade: null,
         },
         {
@@ -680,6 +787,7 @@ function materialDetailResponse() {
           vendor: 'Archive Textiles',
           relationship: 'alternate',
           relationshipStatus: 'historical',
+          preferredEligibility: 'source-not-active',
           vendorShade: null,
         },
       ],
@@ -695,7 +803,57 @@ function materialDetailWithNewAlternateResponse() {
     vendor: 'Dentelle House',
     relationship: 'alternate',
     relationshipStatus: 'active',
+    preferredEligibility: 'eligible',
     vendorShade: { id: 41, nameOrCode: 'White 41' },
+  })
+  return response
+}
+
+function materialDetailAfterReplacementResponse() {
+  const response = materialDetailResponse()
+  const [preferred, alternate, historical] = response.material.sourceRelationships
+
+  response.material.sourceRelationships = [
+    {
+      ...alternate,
+      relationship: 'preferred',
+      preferredEligibility: 'already-preferred',
+    },
+    {
+      ...preferred,
+      relationship: 'alternate',
+      preferredEligibility: 'eligible',
+    },
+    historical,
+  ]
+  return response
+}
+
+function materialsListAfterReplacementResponse() {
+  const response = materialsListResponse()
+  response.materials[0].preferredSource = {
+    id: 'S-0002',
+    name: 'Ivory Crepe Backup',
+    provider: 'Milan Textiles',
+    normalizedUnitCostCents: 3900,
+    normalizedUnit: 'meter',
+    needsAttention: false,
+  }
+  response.materials[0].derivedUnitCostCents = 3900
+  response.materials[0].alternateSourceCount = 1
+  return response
+}
+
+function materialDetailWithMissingCostAlternateResponse() {
+  const response = materialDetailResponse()
+  response.material.sourceRelationships.push({
+    id: 'S-0005',
+    name: 'Budget Crepe',
+    vendor: 'Pending Cost Textiles',
+    relationship: 'alternate',
+    relationshipStatus: 'active',
+    preferredEligibility: 'missing-landed-unit-cost',
+    vendorShade: null,
   })
   return response
 }

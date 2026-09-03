@@ -7,6 +7,8 @@ import type {
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  ReplacePreferredSourceRequest,
+  ReplacePreferredSourceResponse,
   UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
@@ -48,6 +50,12 @@ export const materialSourceRelationshipSummarySchema = z.object({
   vendor: z.string().min(1),
   relationship: z.enum(['preferred', 'alternate']),
   relationshipStatus: z.enum(['active', 'historical']),
+  preferredEligibility: z.enum([
+    'eligible',
+    'already-preferred',
+    'missing-landed-unit-cost',
+    'source-not-active',
+  ]),
   vendorShade: z
     .object({
       id: z.number().int().positive(),
@@ -80,3 +88,10 @@ export const linkMaterialSourceResponseSchema =
 
 export const unlinkMaterialSourceResponseSchema =
   getMaterialResponseSchema satisfies z.ZodType<UnlinkMaterialSourceResponse>
+
+export const replacePreferredSourceRequestSchema = z.object({
+  sourceId: z.string().regex(/^S-\d{4,}$/),
+}) satisfies z.ZodType<ReplacePreferredSourceRequest>
+
+export const replacePreferredSourceResponseSchema =
+  getMaterialResponseSchema satisfies z.ZodType<ReplacePreferredSourceResponse>

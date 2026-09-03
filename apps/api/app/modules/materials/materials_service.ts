@@ -12,6 +12,8 @@ import type {
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  ReplacePreferredSourceRequest,
+  ReplacePreferredSourceResponse,
   UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
@@ -19,6 +21,8 @@ type MaterialRelationshipErrorCode =
   | 'duplicate-source'
   | 'material-not-found'
   | 'preferred-source'
+  | 'preferred-source-missing-cost'
+  | 'preferred-source-replacement-failed'
   | 'source-not-active'
   | 'source-not-found'
   | 'source-relationship-not-found'
@@ -189,6 +193,87 @@ export async function unlinkMaterialSource(
   return response
 }
 
+export async function replacePreferredSource(
+  materialId: string,
+  payload: ReplacePreferredSourceRequest
+): Promise<ReplacePreferredSourceResponse> {
+  try {
+    await db.transaction(async (trx) => {
+      const material = await Material.query({ client: trx }).where('publicId', materialId).first()
+
+      if (!material) {
+        throw new MaterialRelationshipError('material-not-found', 'Material not found.')
+      }
+
+      const source = await MaterialSource.query({ client: trx })
+        .where('publicId', payload.sourceId)
+        .first()
+
+      if (!source) {
+        throw new MaterialRelationshipError('source-not-found', 'Source not found.')
+      }
+
+      if (source.sourceStatus !== 'active') {
+        throw new MaterialRelationshipError(
+          'source-not-active',
+          'Only an Active Source can become Preferred.'
+        )
+      }
+
+      const sourceLink = await MaterialSourceLink.query({ client: trx })
+        .where('materialId', material.id)
+        .where('materialSourceId', source.id)
+        .first()
+
+      if (!sourceLink || sourceLink.isPreferred) {
+        throw new MaterialRelationshipError(
+          'source-relationship-not-found',
+          'Only a linked alternate Source can become Preferred.'
+        )
+      }
+
+      if (source.landedUnitCostCents === null) {
+        throw new MaterialRelationshipError(
+          'preferred-source-missing-cost',
+          'Add Landed Unit Cost before selecting this Source as Preferred.'
+        )
+      }
+
+      const currentPreferredLink = await MaterialSourceLink.query({ client: trx })
+        .where('materialId', material.id)
+        .where('isPreferred', true)
+        .first()
+
+      if (!currentPreferredLink) {
+        throw new Error(`Material ${material.publicId} requires a Preferred Source.`)
+      }
+
+      currentPreferredLink.isPreferred = false
+      await currentPreferredLink.save()
+
+      sourceLink.isPreferred = true
+      await sourceLink.save()
+    })
+  } catch (error) {
+    if (error instanceof MaterialRelationshipError) {
+      throw error
+    }
+
+    throw new MaterialRelationshipError(
+      'preferred-source-replacement-failed',
+      'Preferred Source could not be replaced. Please try again.'
+    )
+  }
+
+  const response = await getMaterial(materialId)
+
+  if (!response) {
+    throw new Error(`Updated Material ${materialId} could not be reloaded.`)
+  }
+
+  return response
+}
+
 function serializeMaterialSummary(material: Material): MaterialSummary {
   const preferredLink = material.sourceLinks.find((sourceLink) => sourceLink.isPreferred)
 
@@ -206,8 +291,12 @@ function serializeMaterialSummary(material: Material): MaterialSummary {
     materialUnit: material.materialUnit,
     preferredSource,
     derivedUnitCostCents: preferredSource.normalizedUnitCostCents,
-    alternateSourceCount: material.sourceLinks.filter((sourceLink) => !sourceLink.isPreferred)
-      .length,
+    alternateSourceCount: material.sourceLinks.filter(
+      (sourceLink) =>
+        !sourceLink.isPreferred &&
+        sourceLink.materialSource.sourceStatus === 'active' &&
+        sourceLink.materialSource.deletedAt === null
+    ).length,
     comments: material.comments,
   }
 }
@@ -263,6 +352,13 @@ function serializeSourceRelationship(
       materialIsHistorical || source.sourceStatus === 'retired' || source.deletedAt !== null
         ? 'historical'
         : 'active',
+    preferredEligibility: link.isPreferred
+      ? 'already-preferred'
+      : source.sourceStatus !== 'active' || source.deletedAt !== null
+        ? 'source-not-active'
+        : source.landedUnitCostCents === null
+          ? 'missing-landed-unit-cost'
+          : 'eligible',
     vendorShade: link.vendorShade
       ? { id: link.vendorShade.id, nameOrCode: link.vendorShade.nameOrCode }
       : null,

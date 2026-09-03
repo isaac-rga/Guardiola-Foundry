@@ -3,6 +3,8 @@ import {
   linkMaterialSourceRequestSchema,
   linkMaterialSourceResponseSchema,
   listMaterialsResponseSchema,
+  replacePreferredSourceRequestSchema,
+  replacePreferredSourceResponseSchema,
   unlinkMaterialSourceResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
@@ -10,6 +12,8 @@ import type {
   LinkMaterialSourceRequest,
   LinkMaterialSourceResponse,
   ListMaterialsResponse,
+  ReplacePreferredSourceRequest,
+  ReplacePreferredSourceResponse,
   UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
@@ -106,4 +110,31 @@ export async function unlinkMaterialSource(
   }
 
   return unlinkMaterialSourceResponseSchema.parse(body)
+}
+
+export async function replacePreferredSource(
+  token: string,
+  materialId: string,
+  payload: ReplacePreferredSourceRequest,
+): Promise<ReplacePreferredSourceResponse> {
+  const response = await fetch(
+    resolveApiUrl(`/materials/${encodeURIComponent(materialId)}/preferred-source`),
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(replacePreferredSourceRequestSchema.parse(payload)),
+    },
+  )
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to replace the Preferred Source.'),
+    )
+  }
+
+  return replacePreferredSourceResponseSchema.parse(body)
 }

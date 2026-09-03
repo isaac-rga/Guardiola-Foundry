@@ -23,6 +23,9 @@ router
   .delete('/materials/:materialId/sources/:sourceId', [MaterialsController, 'unlinkSource'])
   .use(middleware.bearerAuth())
 router
+  .put('/materials/:materialId/preferred-source', [MaterialsController, 'replacePreferredSource'])
+  .use(middleware.bearerAuth())
+router
   .get('/currency-conversion-rate', [CurrencyConversionRatesController, 'show'])
   .use(middleware.bearerAuth())
 router.get('/sources', [SourcesController, 'index']).use(middleware.bearerAuth())

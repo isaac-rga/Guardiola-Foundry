@@ -35,6 +35,11 @@ export interface MaterialSourceRelationshipSummary {
   vendor: string
   relationship: 'preferred' | 'alternate'
   relationshipStatus: 'active' | 'historical'
+  preferredEligibility:
+    | 'eligible'
+    | 'already-preferred'
+    | 'missing-landed-unit-cost'
+    | 'source-not-active'
   vendorShade: {
     id: number
     nameOrCode: string
@@ -63,3 +68,9 @@ export interface LinkMaterialSourceRequest {
 export type LinkMaterialSourceResponse = GetMaterialResponse
 
 export type UnlinkMaterialSourceResponse = GetMaterialResponse
+
+export interface ReplacePreferredSourceRequest {
+  sourceId: string
+}
+
+export type ReplacePreferredSourceResponse = GetMaterialResponse

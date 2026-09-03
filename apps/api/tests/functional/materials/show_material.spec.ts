@@ -54,6 +54,7 @@ test.group('Material detail', (group) => {
             vendor: 'Casa Tessile',
             relationship: 'preferred',
             relationshipStatus: 'active',
+            preferredEligibility: 'already-preferred',
             vendorShade: {
               id: response.body().material.sourceRelationships[0].vendorShade.id,
               nameOrCode: 'Ivory 100',
@@ -65,6 +66,7 @@ test.group('Material detail', (group) => {
             vendor: 'Milan Textiles',
             relationship: 'alternate',
             relationshipStatus: 'historical',
+            preferredEligibility: 'source-not-active',
             vendorShade: null,
           },
         ],

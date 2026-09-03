@@ -27,6 +27,7 @@ import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import {
   useLinkMaterialSource,
   useMaterialDetail,
+  useReplacePreferredSource,
   useUnlinkMaterialSource,
 } from '@/features/materials/api/queries'
 import { useSourceDetail, useSourceList } from '@/features/sources/api/queries'
@@ -105,6 +106,7 @@ function MaterialRelationshipRecord({
   const { session } = useAppShell()
   const [showLinkPanel, setShowLinkPanel] = useState(false)
   const unlinkMutation = useUnlinkMaterialSource(session.token, material.id)
+  const replacePreferredMutation = useReplacePreferredSource(session.token, material.id)
   const preferredSources = material.sourceRelationships.filter(
     (source) => source.relationship === 'preferred',
   )
@@ -161,6 +163,10 @@ function MaterialRelationshipRecord({
           label="Active alternates"
           sources={activeAlternates}
           isUnlinking={unlinkMutation.isPending}
+          isReplacingPreferred={replacePreferredMutation.isPending}
+          onMakePreferred={(source) => {
+            replacePreferredMutation.mutate({ sourceId: source.id })
+          }}
           onUnlink={(source) => {
             if (
               !window.confirm(
@@ -181,6 +187,9 @@ function MaterialRelationshipRecord({
 
       {unlinkMutation.isError ? (
         <RelationshipError error={unlinkMutation.error} />
+      ) : null}
+      {replacePreferredMutation.isError ? (
+        <RelationshipError error={replacePreferredMutation.error} />
       ) : null}
 
       <section className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
@@ -238,13 +247,17 @@ function IdentityField({
 }
 
 function RelationshipGroup({
+  isReplacingPreferred = false,
   isUnlinking = false,
   label,
+  onMakePreferred,
   onUnlink,
   sources,
 }: {
+  isReplacingPreferred?: boolean
   isUnlinking?: boolean
   label: string
+  onMakePreferred?: (source: MaterialSourceRelationshipSummary) => void
   onUnlink?: (source: MaterialSourceRelationshipSummary) => void
   sources: MaterialSourceRelationshipSummary[]
 }) {
@@ -299,6 +312,28 @@ function RelationshipGroup({
               <p className="text-xs leading-5 text-muted-foreground">
                 Replace the Preferred Source before unlinking it.
               </p>
+            ) : null}
+            {onMakePreferred && source.relationshipStatus === 'active' ? (
+              <div className="space-y-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    isReplacingPreferred ||
+                    source.preferredEligibility !== 'eligible'
+                  }
+                  onClick={() => onMakePreferred(source)}
+                >
+                  {isReplacingPreferred
+                    ? 'Replacing Preferred Source…'
+                    : `Make ${source.name} Preferred`}
+                </Button>
+                {source.preferredEligibility === 'missing-landed-unit-cost' ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Landed Unit Cost required
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             {onUnlink && source.relationshipStatus === 'active' ? (
               <Button

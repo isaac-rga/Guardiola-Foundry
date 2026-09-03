@@ -5,9 +5,13 @@ import {
   linkMaterialSource,
   listMaterials,
   MaterialRelationshipError,
+  replacePreferredSource,
   unlinkMaterialSource,
 } from '#modules/materials/materials_service'
-import { linkMaterialSourceRequestSchema } from '@guardiola-foundry/shared-validation'
+import {
+  linkMaterialSourceRequestSchema,
+  replacePreferredSourceRequestSchema,
+} from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class MaterialsController {
@@ -52,6 +56,22 @@ export default class MaterialsController {
   async unlinkSource({ params, response }: HttpContext) {
     try {
       return response.ok(await unlinkMaterialSource(params.materialId, params.sourceId))
+    } catch (error) {
+      return this.respondToRelationshipError(error, response)
+    }
+  }
+
+  async replacePreferredSource({ params, request, response }: HttpContext) {
+    const payload = replacePreferredSourceRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({
+        message: 'Select a linked alternate Source.',
+      })
+    }
+
+    try {
+      return response.ok(await replacePreferredSource(params.materialId, payload.data))
     } catch (error) {
       return this.respondToRelationshipError(error, response)
     }

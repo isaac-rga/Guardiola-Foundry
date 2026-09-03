@@ -1,70 +1,63 @@
-# Link and Unlink Material Sources
+# Atomic Preferred Source Replacement
 
-This slice completes Sources issue 10. Admins and Operators can now maintain alternate Source relationships from the existing Material Dialog without creating Sources there or weakening the Preferred Source invariant.
+This slice completes Sources issue 11. Admins and Operators can replace an Active Material's Preferred Source from the existing relationship Dialog while the prior Preferred Source remains the committed authority unless the complete replacement succeeds.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/10-link-and-unlink-sources.md](.scratch/sources/issues/10-link-and-unlink-sources.md). The implementation is limited to linking an existing Active Source, optionally selecting one of that Source's Vendor Shades, and unlinking an alternate after confirmation. Preferred Source replacement, Source creation inside the Dialog, and Source lifecycle changes remain outside this slice.
+Read [.scratch/sources/issues/11-replace-preferred-source.md](.scratch/sources/issues/11-replace-preferred-source.md). The implementation is limited to replacing the Preferred Source with an already-linked Active alternate that has manual Landed Unit Cost. Linking and unlinking remain issue 10 behavior; Source lifecycle changes and import protection remain later slices.
 
-## Use Material-Owned Relationship Contracts
+## Follow the Shared Relationship Contract
 
-[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define the link request and both mutation responses. A link names the stable Source ID and may carry one positive Vendor Shade ID or explicitly omit the shade.
+[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define the replacement request and response. Material relationship detail also carries a compact Preferred eligibility value, allowing the client to explain why a relationship cannot be selected without duplicating Source business rules.
 
-[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) keeps relationship rules at the Material–Source composition boundary. Linking executes transactionally and:
+## Keep Replacement Atomic at the Material–Source Boundary
 
-- requires an existing Material and Active Source;
-- rejects an already-linked Source before another record can be created;
-- accepts no Vendor Shade or verifies that the selected shade belongs to the linked Source;
-- appends the Source as an alternate without changing the Preferred Source.
+[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) owns the replacement rules alongside link and unlink behavior. The service requires:
 
-Unlinking removes only the relationship. It never deletes the Source, and it rejects a direct attempt to remove the Preferred Source with guidance to replace it first. The existing database constraints remain the final protection against duplicate Material–Source links and multiple Preferred Sources.
+- an Active Material;
+- an existing Source that is Active;
+- an already-linked alternate relationship;
+- a recorded manual Landed Unit Cost.
 
-## Keep the HTTP Boundary Authenticated and Explicit
+The old Preferred relationship is demoted and the selected alternate is promoted inside one managed database transaction. A database failure rolls both writes back, and the existing partial unique index still prevents multiple Preferred Sources. Unexpected transaction failures become a stable business-language conflict instead of exposing persistence details.
 
-[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) validates link requests and translates relationship conflicts into business-language responses. [apps/api/start/routes.ts](apps/api/start/routes.ts) exposes both mutations behind bearer authentication:
+The Material list continues deriving cost only from the committed Preferred Source's Landed Unit Cost. Its alternate count now includes only Active, non-deleted alternate Sources, so Retired relationships remain historical context without inflating the purchasing count.
 
-- `POST /materials/:materialId/sources` links an alternate and returns refreshed Material detail with `201`;
-- `DELETE /materials/:materialId/sources/:sourceId` unlinks an alternate and returns refreshed Material detail with `200`.
+## Use the Existing Authenticated HTTP Boundary
 
-Missing records return `404`, invalid Vendor Shade ownership returns `422`, and Active/duplicate/Preferred conflicts return `409`.
+[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) validates `{ sourceId }` and maps eligibility failures to business responses. [apps/api/start/routes.ts](apps/api/start/routes.ts) exposes `PUT /materials/:materialId/preferred-source` behind the existing bearer middleware and returns refreshed Material detail after a successful replacement.
 
-## Mutate Through the Existing Material Dialog
+## Replace From the Existing Dialog
 
-[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts) and [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts) own the new requests and cache refresh behavior. Successful mutations refresh Material list/detail and Source list/detail context, so an Unlinked Source immediately gains the correct catalog count and linked-Material context.
+[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts) and [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts) keep transport and server-state synchronization outside the presentation component. A successful mutation immediately updates Material detail, then invalidates the Material list and Source queries so derived cost, active alternate count, and relationship context refetch from committed data.
 
-[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) adds one deliberate relationship-editing area:
-
-- opening `Link existing Source` loads the Active Source catalog;
-- Sources already related to the Material are excluded from the choices;
-- selecting a Source loads only its own Vendor Shades, while `Not known` remains valid;
-- the copy directs users to the Sources catalog for Source creation instead of adding a second creation surface;
-- active alternates expose an Unlink action with explicit confirmation;
-- the Preferred Source has no direct unlink action and explains that replacement must happen first;
-- link and unlink errors stay inside the open Dialog with the server's business-language message.
+[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) adds a Preferred action to Active alternate cards. Eligible alternates can be promoted. Missing-cost alternates keep the same visible card but show `Landed Unit Cost required` and a disabled action. Retired and Unlinked Sources never become replacement choices. Server failures remain visible without closing the Dialog or changing its prior Preferred state.
 
 ## Read the Focused Tests as Specifications
 
-[apps/api/tests/functional/materials/manage_source_relationships.spec.ts](apps/api/tests/functional/materials/manage_source_relationships.spec.ts) covers unauthenticated rejection, Admin and Operator linking, optional and owned Vendor Shades, Retired Source rejection, cross-Source shade rejection, duplicate protection, Unlinked-to-linked catalog/detail updates, alternate unlinking, Source preservation, and Preferred protection.
+[apps/api/tests/functional/materials/manage_source_relationships.spec.ts](apps/api/tests/functional/materials/manage_source_relationships.spec.ts) covers unauthenticated rejection, both authorized roles, Active/linked/cost eligibility, historical Material rejection, atomic success, exact-one-Preferred persistence, derived cost, active alternate count, and rollback under an injected database failure.
 
-[apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers the complete Dialog interaction: existing-Source selection, no in-dialog creation, Vendor Shade selection, confirmation, alternate removal, Preferred replacement guidance, cache-driven refreshed context, and link/unlink failures that preserve the Dialog.
+[apps/api/tests/functional/materials/show_material.spec.ts](apps/api/tests/functional/materials/show_material.spec.ts) verifies the relationship eligibility projection. [apps/api/tests/functional/materials/list_materials.spec.ts](apps/api/tests/functional/materials/list_materials.spec.ts) protects the adjacent Material summary contract. [apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers eligible and disabled actions, committed dialog/list refresh, Source-query refresh, and failure messaging that preserves the open Dialog.
 
 ## Verification
 
-Passed:
+Passed with Node 24:
 
-- focused Material relationship and existing detail API suites: 11 tests across 2 files;
-- focused Materials route web suite: 13 tests;
+- focused Material relationship API suite: 11 tests;
+- focused Material detail API suite: 4 tests;
+- focused Materials list API suite: 7 tests;
+- focused Materials route web suite: 16 tests;
 - lint for API, web, shared types, and shared validation;
 - strict typechecking for API, web, shared types, and shared validation;
 - shared contract builds required by runtime package resolution;
 - whitespace validation with `git diff --check`.
 
-No complete API suite was run. One initially mis-scoped web test command did invoke all route files before the focused command was corrected; that run reported 57 passing tests and one unrelated Source-edit route failure. The deliberate single-file Materials route invocation passed all 13 tests. Complete suites were not used as the completion gate pending implementation approval.
+Complete API and web suites and the repository quality gate were deliberately not run, per the review boundary. The implementation remains uncommitted.
 
 ## Scope Boundaries
 
-Issue 10 does not add Source creation inside the Material Dialog, Preferred Source replacement, Source retirement/restoration, Material-field editing, or import behavior changes.
+Issue 11 does not add new Source links, Source creation inside the Material Dialog, Source retirement/restoration, Material-field editing, importer behavior changes, or a broader authentication refactor.
 
 ## What Comes Next
 
-Issue 11 can build on these Material-owned transactional mutations to replace the Preferred Source atomically while demoting the former Preferred Source to an alternate.
+Issue 12 can build on the committed relationship invariant to retire and restore Sources without leaving an Active Material pointed at an ineligible Preferred Source.
