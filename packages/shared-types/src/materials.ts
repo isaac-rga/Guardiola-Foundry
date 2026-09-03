@@ -54,3 +54,12 @@ export interface MaterialDetail {
 export interface GetMaterialResponse {
   material: MaterialDetail
 }
+
+export interface LinkMaterialSourceRequest {
+  sourceId: string
+  vendorShadeId?: number | null
+}
+
+export type LinkMaterialSourceResponse = GetMaterialResponse
+
+export type UnlinkMaterialSourceResponse = GetMaterialResponse

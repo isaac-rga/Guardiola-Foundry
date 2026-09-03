@@ -364,7 +364,7 @@ describe('materials route', () => {
     expect(dialogSourceLink.querySelector('.lucide-arrow-right')).toBeInTheDocument()
     expect(
       within(dialog).queryByRole('button', {
-        name: /create|edit|retire|restore|link|unlink/i,
+        name: /create|edit|retire|restore/i,
       }),
     ).not.toBeInTheDocument()
 
@@ -372,6 +372,146 @@ describe('materials route', () => {
 
     await waitFor(() => expect(router.state.location.search).toEqual({}))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('links an existing Active Source with an optional Vendor Shade and keeps Source creation outside the Dialog', async () => {
+    const user = userEvent.setup()
+    let linked = false
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(linked ? materialDetailWithNewAlternateResponse() : materialDetailResponse())
+      }
+      if (url.endsWith('/sources') && init?.method === 'GET') {
+        return jsonResponse({ sources: [eligibleSourceSummary()] })
+      }
+      if (url.endsWith('/sources/S-0004') && init?.method === 'GET') {
+        return jsonResponse(eligibleSourceDetailResponse())
+      }
+      if (url.endsWith('/materials/M-0001/sources') && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ sourceId: 'S-0004', vendorShadeId: 41 })
+        linked = true
+        return jsonResponse(materialDetailWithNewAlternateResponse(), { status: 201 })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    await user.click(within(dialog).getByRole('button', { name: 'Link existing Source' }))
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Source' }))
+    await user.click(await screen.findByRole('option', { name: 'White Chantilly Lace · Dentelle House' }))
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Vendor Shade' }))
+    await user.click(await screen.findByRole('option', { name: 'White 41' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Link Source' }))
+
+    expect(await within(dialog).findByText('White Chantilly Lace')).toBeInTheDocument()
+    expect(within(dialog).getByText('Vendor Shade: White 41')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: /create source/i })).not.toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/materials/M-0001/sources',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('requires confirmation before unlinking an alternate and directs Preferred changes to replacement', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    let unlinked = false
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(
+          unlinked
+            ? materialDetailWithoutActiveAlternateResponse()
+            : materialDetailResponse(),
+        )
+      }
+      if (url.endsWith('/materials/M-0001/sources/S-0002') && init?.method === 'DELETE') {
+        unlinked = true
+        return jsonResponse(materialDetailWithoutActiveAlternateResponse())
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    expect(within(dialog).getByText('Replace the Preferred Source before unlinking it.')).toBeInTheDocument()
+
+    const unlinkButton = within(dialog).getByRole('button', { name: 'Unlink Ivory Crepe Backup' })
+    await user.click(unlinkButton)
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Unlink Ivory Crepe Backup from Ivory Silk Crepe? The Source will remain in the catalog.',
+    )
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      'http://localhost:3333/materials/M-0001/sources/S-0002',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+
+    await user.click(unlinkButton)
+    await waitFor(() =>
+      expect(within(dialog).queryByText('Ivory Crepe Backup')).not.toBeInTheDocument(),
+    )
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/materials/M-0001/sources/S-0002',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it.each([
+    ['link', 'This Source is already linked to the Material.'],
+    ['unlink', 'Material relationship service unavailable.'],
+  ])('keeps the Dialog open and explains a %s failure', async (operation, message) => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse()
+      if (url.endsWith('/materials') && init?.method === 'GET') {
+        return jsonResponse(materialsListResponse())
+      }
+      if (url.endsWith('/materials/M-0001') && init?.method === 'GET') {
+        return jsonResponse(materialDetailResponse())
+      }
+      if (url.endsWith('/sources') && init?.method === 'GET') {
+        return jsonResponse({ sources: [eligibleSourceSummary()] })
+      }
+      if (url.endsWith('/sources/S-0004') && init?.method === 'GET') {
+        return jsonResponse(eligibleSourceDetailResponse())
+      }
+      if (url.endsWith('/materials/M-0001/sources') && init?.method === 'POST') {
+        return jsonResponse({ message }, { status: 409 })
+      }
+      if (url.endsWith('/materials/M-0001/sources/S-0002') && init?.method === 'DELETE') {
+        return jsonResponse({ message }, { status: 503 })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession()
+    renderMaterialsRoute('/app/materials?materialId=M-0001')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Ivory Silk Crepe' })
+    if (operation === 'link') {
+      await user.click(within(dialog).getByRole('button', { name: 'Link existing Source' }))
+      await user.click(await within(dialog).findByRole('combobox', { name: 'Source' }))
+      await user.click(await screen.findByRole('option', { name: 'White Chantilly Lace · Dentelle House' }))
+      await user.click(within(dialog).getByRole('button', { name: 'Link Source' }))
+    } else {
+      await user.click(within(dialog).getByRole('button', { name: 'Unlink Ivory Crepe Backup' }))
+    }
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(message)
+    expect(dialog).toBeInTheDocument()
   })
 
   it('reopens the Material Dialog on direct entry and retains the list for failure states', async () => {
@@ -543,6 +683,86 @@ function materialDetailResponse() {
           vendorShade: null,
         },
       ],
+    },
+  }
+}
+
+function materialDetailWithNewAlternateResponse() {
+  const response = materialDetailResponse()
+  response.material.sourceRelationships.push({
+    id: 'S-0004',
+    name: 'White Chantilly Lace',
+    vendor: 'Dentelle House',
+    relationship: 'alternate',
+    relationshipStatus: 'active',
+    vendorShade: { id: 41, nameOrCode: 'White 41' },
+  })
+  return response
+}
+
+function materialDetailWithoutActiveAlternateResponse() {
+  const response = materialDetailResponse()
+  response.material.sourceRelationships = response.material.sourceRelationships.filter(
+    (source) => source.id !== 'S-0002',
+  )
+  return response
+}
+
+function eligibleSourceSummary() {
+  return {
+    id: 'S-0004',
+    name: 'White Chantilly Lace',
+    vendor: 'Dentelle House',
+    textileFamily: 'Encaje',
+    purchasePresentation: 'roll',
+    purchaseUnit: 'yard',
+    vendorCurrency: 'USD',
+    purchasePriceCents: 6800,
+    landedUnitCostCents: 7600,
+    linkedMaterialCount: 0,
+    costNeedsAttention: false,
+    dataNeedsAttention: true,
+  }
+}
+
+function eligibleSourceDetailResponse() {
+  return {
+    source: {
+      id: 'S-0004',
+      legacySourceId: 'SRC-300',
+      name: 'White Chantilly Lace',
+      vendor: 'Dentelle House',
+      textileFamily: 'Encaje',
+      purchasePresentation: 'roll',
+      fixedPieceLength: null,
+      purchaseUnit: 'yard',
+      minimumPurchaseQuantity: 1,
+      purchasePriceCents: 6800,
+      priceDate: '2026-07-01',
+      vendorCurrency: 'USD',
+      landedUnitCostCents: 7600,
+      sourceStatus: 'active',
+      normalizedUnit: 'meter',
+      vendorSku: null,
+      url: null,
+      description: null,
+      manufacturer: null,
+      fiber: null,
+      composition: null,
+      gsmGramsPerSquareMeter: null,
+      widthCentimeters: null,
+      finish: null,
+      weave: null,
+      presentationNotes: null,
+      countryOfOrigin: null,
+      comments: null,
+      estimatedShippingUsdPerKilogramCents: null,
+      igiPercentage: null,
+      ivaPercentage: 16,
+      costNeedsAttention: false,
+      dataNeedsAttention: true,
+      vendorShades: [{ id: 41, nameOrCode: 'White 41' }],
+      linkedMaterials: [],
     },
   }
 }

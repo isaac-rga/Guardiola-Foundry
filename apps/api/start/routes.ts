@@ -17,6 +17,12 @@ router.get('/auth/me', [AuthController, 'me'])
 router.get('/materials', [MaterialsController, 'index'])
 router.get('/materials/:materialId', [MaterialsController, 'show']).use(middleware.bearerAuth())
 router
+  .post('/materials/:materialId/sources', [MaterialsController, 'linkSource'])
+  .use(middleware.bearerAuth())
+router
+  .delete('/materials/:materialId/sources/:sourceId', [MaterialsController, 'unlinkSource'])
+  .use(middleware.bearerAuth())
+router
   .get('/currency-conversion-rate', [CurrencyConversionRatesController, 'show'])
   .use(middleware.bearerAuth())
 router.get('/sources', [SourcesController, 'index']).use(middleware.bearerAuth())

@@ -1,10 +1,13 @@
 import type {
   GetMaterialResponse,
+  LinkMaterialSourceRequest,
+  LinkMaterialSourceResponse,
   ListMaterialsResponse,
   MaterialDetail,
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
@@ -66,3 +69,14 @@ export const materialDetailSchema = z.object({
 export const getMaterialResponseSchema = z.object({
   material: materialDetailSchema,
 }) satisfies z.ZodType<GetMaterialResponse>
+
+export const linkMaterialSourceRequestSchema = z.object({
+  sourceId: z.string().regex(/^S-\d{4,}$/),
+  vendorShadeId: z.number().int().positive().nullable().optional(),
+}) satisfies z.ZodType<LinkMaterialSourceRequest>
+
+export const linkMaterialSourceResponseSchema =
+  getMaterialResponseSchema satisfies z.ZodType<LinkMaterialSourceResponse>
+
+export const unlinkMaterialSourceResponseSchema =
+  getMaterialResponseSchema satisfies z.ZodType<UnlinkMaterialSourceResponse>

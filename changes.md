@@ -1,73 +1,70 @@
-# Open the Material Relationship Dialog
+# Link and Unlink Material Sources
 
-This slice completes Sources issue 09. Users can now open a Material from the Materials table, inspect its read-only identity and Source relationships, and move between Material and Source context without gaining any Material or relationship mutation controls.
+This slice completes Sources issue 10. Admins and Operators can now maintain alternate Source relationships from the existing Material Dialog without creating Sources there or weakening the Preferred Source invariant.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/09-open-material-relationship-dialog.md](.scratch/sources/issues/09-open-material-relationship-dialog.md). The implementation is limited to Material relationship inspection, URL-backed dialog state, and bidirectional navigation. Source linking, unlinking, Preferred Source replacement, Source creation inside the Dialog, and Material lifecycle controls remain outside this slice.
+Read [.scratch/sources/issues/10-link-and-unlink-sources.md](.scratch/sources/issues/10-link-and-unlink-sources.md). The implementation is limited to linking an existing Active Source, optionally selecting one of that Source's Vendor Shades, and unlinking an alternate after confirmation. Preferred Source replacement, Source creation inside the Dialog, and Source lifecycle changes remain outside this slice.
 
-## Read Material Relationships Through a Dedicated Contract
+## Use Material-Owned Relationship Contracts
 
-[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define and validate the Material detail response. It includes the Material's stable identity, comments, and Source relationship summaries with:
+[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define the link request and both mutation responses. A link names the stable Source ID and may carry one positive Vendor Shade ID or explicitly omit the shade.
 
-- Preferred or alternate relationship role;
-- active or historical relationship status;
-- Source identity and Vendor;
-- the selected Vendor Shade when one is recorded.
+[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) keeps relationship rules at the Material–Source composition boundary. Linking executes transactionally and:
 
-[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) owns the Material-side composition. It loads Source relationships including soft-deleted Sources, classifies Retired or soft-deleted Sources as historical, and orders the response as Preferred Source, active alternates, then historical alternates.
+- requires an existing Material and Active Source;
+- rejects an already-linked Source before another record can be created;
+- accepts no Vendor Shade or verifies that the selected shade belongs to the linked Source;
+- appends the Source as an alternate without changing the Preferred Source.
 
-[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) and [apps/api/start/routes.ts](apps/api/start/routes.ts) expose `GET /materials/:materialId` behind the existing bearer-authentication middleware. Historical Materials already referenced by Source detail can reopen their read-only relationship context, while an unknown Material returns `Material not found.` The endpoint adds no mutation route.
+Unlinking removes only the relationship. It never deletes the Source, and it rejects a direct attempt to remove the Preferred Source with guidance to replace it first. The existing database constraints remain the final protection against duplicate Material–Source links and multiple Preferred Sources.
 
-## Keep the Dialog in the Materials Route
+## Keep the HTTP Boundary Authenticated and Explicit
 
-[apps/web/src/routes/app.materials.tsx](apps/web/src/routes/app.materials.tsx) validates the optional `materialId` search parameter and treats it as dialog state. A URL such as `/app/materials?materialId=M-0001` can therefore be refreshed or entered directly and still reopens the intended Material context.
+[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) validates link requests and translates relationship conflicts into business-language responses. [apps/api/start/routes.ts](apps/api/start/routes.ts) exposes both mutations behind bearer authentication:
 
-[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts), [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts), and [apps/web/src/features/materials/query-keys.ts](apps/web/src/features/materials/query-keys.ts) keep the relationship request and cache behavior in the Materials data layer.
+- `POST /materials/:materialId/sources` links an alternate and returns refreshed Material detail with `201`;
+- `DELETE /materials/:materialId/sources/:sourceId` unlinks an alternate and returns refreshed Material detail with `200`.
 
-[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) renders:
+Missing records return `404`, invalid Vendor Shade ownership returns `422`, and Active/duplicate/Preferred conflicts return `409`.
 
-- read-only Material ID, name, Material Color, Material Use, Material Unit, and comments;
-- a dedicated Preferred Source section;
-- active alternate Sources;
-- historical Retired Source relationships;
-- Vendor Shade context and links to each Source detail page;
-- loading, missing-record, permission, service-error, and retry states inside the Dialog.
+## Mutate Through the Existing Material Dialog
 
-The Materials table remains mounted behind every dialog state. Closing the Dialog removes only `materialId` from the route state.
+[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts) and [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts) own the new requests and cache refresh behavior. Successful mutations refresh Material list/detail and Source list/detail context, so an Unlinked Source immediately gains the correct catalog count and linked-Material context.
 
-## Navigate in Both Directions
+[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) adds one deliberate relationship-editing area:
 
-[apps/web/src/features/materials/materials-page.tsx](apps/web/src/features/materials/materials-page.tsx) opens the Dialog from the Material name and links the compact Preferred Source reference directly to Source detail. A trailing arrow distinguishes this cross-view navigation from the Material name's in-page Dialog action.
+- opening `Link existing Source` loads the Active Source catalog;
+- Sources already related to the Material are excluded from the choices;
+- selecting a Source loads only its own Vendor Shades, while `Not known` remains valid;
+- the copy directs users to the Sources catalog for Source creation instead of adding a second creation surface;
+- active alternates expose an Unlink action with explicit confirmation;
+- the Preferred Source has no direct unlink action and explains that replacement must happen first;
+- link and unlink errors stay inside the open Dialog with the server's business-language message.
 
-[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) turns every linked Material name into a link back to `/app/materials?materialId=…`, so Source detail can reopen the relevant Material Dialog in one step. Source links in the Dialog and Material backlinks use the same trailing-arrow affordance for navigation to another view.
+## Read the Focused Tests as Specifications
 
-## Read the Tests as Specifications
+[apps/api/tests/functional/materials/manage_source_relationships.spec.ts](apps/api/tests/functional/materials/manage_source_relationships.spec.ts) covers unauthenticated rejection, Admin and Operator linking, optional and owned Vendor Shades, Retired Source rejection, cross-Source shade rejection, duplicate protection, Unlinked-to-linked catalog/detail updates, alternate unlinking, Source preservation, and Preferred protection.
 
-[apps/api/tests/functional/materials/show_material.spec.ts](apps/api/tests/functional/materials/show_material.spec.ts) covers unauthenticated rejection, Material identity, Preferred and alternate summaries, Vendor Shade context, Retired Source history, reopening a historical Material from Source context, and the missing response for an unknown Material.
-
-[apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers authenticated route access, opening and restoring the Dialog through URL state, read-only identity, relationship grouping, Source navigation, and loading, missing, permission, and service-error states while the Materials page remains mounted.
-
-[apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) covers the linked-Material route back to the active Material Dialog.
+[apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers the complete Dialog interaction: existing-Source selection, no in-dialog creation, Vendor Shade selection, confirmation, alternate removal, Preferred replacement guidance, cache-driven refreshed context, and link/unlink failures that preserve the Dialog.
 
 ## Verification
 
 Passed:
 
-- focused Material detail API suite: 4 tests;
-- focused Materials and Source-detail web route suites: 12 tests across 2 files;
-- repository lint for API, web, shared types, and shared validation;
-- repository strict typechecking for API, web, shared types, and shared validation;
-- complete API and web test suites through the repository quality gate;
-- builds for API, web, shared types, and shared validation;
+- focused Material relationship and existing detail API suites: 11 tests across 2 files;
+- focused Materials route web suite: 13 tests;
+- lint for API, web, shared types, and shared validation;
+- strict typechecking for API, web, shared types, and shared validation;
+- shared contract builds required by runtime package resolution;
 - whitespace validation with `git diff --check`.
 
-The complete repository quality gate passed after implementation approval and the review refinements.
+No complete API suite was run. One initially mis-scoped web test command did invoke all route files before the focused command was corrected; that run reported 57 passing tests and one unrelated Source-edit route failure. The deliberate single-file Materials route invocation passed all 13 tests. Complete suites were not used as the completion gate pending implementation approval.
 
 ## Scope Boundaries
 
-Issue 09 does not add Material create/edit/retire/restore, Source creation inside the Dialog, Source link/unlink, Vendor Shade assignment changes, Preferred Source replacement, Source retirement/restoration, or any write endpoint.
+Issue 10 does not add Source creation inside the Material Dialog, Preferred Source replacement, Source retirement/restoration, Material-field editing, or import behavior changes.
 
 ## What Comes Next
 
-Issue 10 can build on this read-only Dialog to add controlled alternate Source linking and unlinking with Vendor Shade selection and Preferred Source protection.
+Issue 11 can build on these Material-owned transactional mutations to replace the Preferred Source atomically while demoting the former Preferred Source to an alternate.

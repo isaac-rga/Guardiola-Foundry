@@ -4,6 +4,7 @@ import type {
 } from '@guardiola-foundry/shared-types'
 import { Link } from '@tanstack/react-router'
 import { ArrowRightIcon } from 'lucide-react'
+import { useState } from 'react'
 
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
@@ -14,8 +15,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { useMaterialDetail } from '@/features/materials/api/queries'
+import {
+  useLinkMaterialSource,
+  useMaterialDetail,
+  useUnlinkMaterialSource,
+} from '@/features/materials/api/queries'
+import { useSourceDetail, useSourceList } from '@/features/sources/api/queries'
 
 export function MaterialRelationshipDialog({
   materialId,
@@ -88,6 +102,9 @@ function MaterialRelationshipRecord({
 }: {
   material: MaterialDetail
 }) {
+  const { session } = useAppShell()
+  const [showLinkPanel, setShowLinkPanel] = useState(false)
+  const unlinkMutation = useUnlinkMaterialSource(session.token, material.id)
   const preferredSources = material.sourceRelationships.filter(
     (source) => source.relationship === 'preferred',
   )
@@ -143,12 +160,54 @@ function MaterialRelationshipRecord({
         <RelationshipGroup
           label="Active alternates"
           sources={activeAlternates}
+          isUnlinking={unlinkMutation.isPending}
+          onUnlink={(source) => {
+            if (
+              !window.confirm(
+                `Unlink ${source.name} from ${material.name}? The Source will remain in the catalog.`,
+              )
+            ) {
+              return
+            }
+
+            unlinkMutation.mutate(source.id)
+          }}
         />
         <RelationshipGroup
           label="Historical relationships"
           sources={historicalRelationships}
         />
       </div>
+
+      {unlinkMutation.isError ? (
+        <RelationshipError error={unlinkMutation.error} />
+      ) : null}
+
+      <section className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">
+              Add an alternate Source
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Select an existing Active Source. Create new Sources from the Sources catalog.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowLinkPanel((visible) => !visible)}
+          >
+            {showLinkPanel ? 'Cancel linking' : 'Link existing Source'}
+          </Button>
+        </div>
+        {showLinkPanel ? (
+          <LinkSourcePanel
+            material={material}
+            onLinked={() => setShowLinkPanel(false)}
+          />
+        ) : null}
+      </section>
     </>
   )
 }
@@ -179,10 +238,14 @@ function IdentityField({
 }
 
 function RelationshipGroup({
+  isUnlinking = false,
   label,
+  onUnlink,
   sources,
 }: {
+  isUnlinking?: boolean
   label: string
+  onUnlink?: (source: MaterialSourceRelationshipSummary) => void
   sources: MaterialSourceRelationshipSummary[]
 }) {
   return (
@@ -232,10 +295,172 @@ function RelationshipGroup({
                 />
               ) : null}
             </div>
+            {source.relationship === 'preferred' ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Replace the Preferred Source before unlinking it.
+              </p>
+            ) : null}
+            {onUnlink && source.relationshipStatus === 'active' ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isUnlinking}
+                onClick={() => onUnlink(source)}
+              >
+                {isUnlinking ? 'Unlinking…' : `Unlink ${source.name}`}
+              </Button>
+            ) : null}
           </div>
         ))
       )}
     </section>
+  )
+}
+
+function LinkSourcePanel({
+  material,
+  onLinked,
+}: {
+  material: MaterialDetail
+  onLinked: () => void
+}) {
+  const { session } = useAppShell()
+  const [sourceId, setSourceId] = useState<string>()
+  const [vendorShadeId, setVendorShadeId] = useState('none')
+  const sourceListQuery = useSourceList(session.token, {})
+  const linkMutation = useLinkMaterialSource(session.token, material.id)
+  const linkedSourceIds = new Set(material.sourceRelationships.map((source) => source.id))
+  const eligibleSources =
+    sourceListQuery.data?.sources.filter((source) => !linkedSourceIds.has(source.id)) ?? []
+
+  const selectSource = (nextSourceId: string) => {
+    setSourceId(nextSourceId)
+    setVendorShadeId('none')
+    linkMutation.reset()
+  }
+
+  return (
+    <div className="grid gap-4 border-t border-border/60 pt-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label htmlFor="material-source-link-source">Source</Label>
+        <Select value={sourceId} onValueChange={selectSource}>
+          <SelectTrigger
+            aria-label="Source"
+            className="w-full"
+            id="material-source-link-source"
+          >
+            <SelectValue placeholder="Select an Active Source" />
+          </SelectTrigger>
+          <SelectContent>
+            {eligibleSources.map((source) => (
+              <SelectItem key={source.id} value={source.id}>
+                {source.name} · {source.vendor}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {sourceListQuery.isLoading ? (
+          <p className="text-xs text-muted-foreground">Loading Active Sources...</p>
+        ) : null}
+        {sourceListQuery.isError ? (
+          <RelationshipError error={sourceListQuery.error} />
+        ) : null}
+        {!sourceListQuery.isLoading && !sourceListQuery.isError && eligibleSources.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No additional Active Sources are available.
+          </p>
+        ) : null}
+      </div>
+
+      {sourceId ? (
+        <VendorShadeSelect
+          sourceId={sourceId}
+          value={vendorShadeId}
+          onValueChange={(value) => {
+            setVendorShadeId(value)
+            linkMutation.reset()
+          }}
+        />
+      ) : null}
+
+      {linkMutation.isError ? (
+        <div className="sm:col-span-2">
+          <RelationshipError error={linkMutation.error} />
+        </div>
+      ) : null}
+
+      <div className="sm:col-span-2">
+        <Button
+          type="button"
+          disabled={!sourceId || linkMutation.isPending}
+          onClick={() => {
+            if (!sourceId) return
+
+            linkMutation.mutate(
+              {
+                sourceId,
+                vendorShadeId: vendorShadeId === 'none' ? null : Number(vendorShadeId),
+              },
+              { onSuccess: onLinked },
+            )
+          }}
+        >
+          {linkMutation.isPending ? 'Linking Source…' : 'Link Source'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function VendorShadeSelect({
+  onValueChange,
+  sourceId,
+  value,
+}: {
+  onValueChange: (value: string) => void
+  sourceId: string
+  value: string
+}) {
+  const { session } = useAppShell()
+  const sourceQuery = useSourceDetail(session.token, sourceId)
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="material-source-link-shade">Vendor Shade</Label>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger
+          aria-label="Vendor Shade"
+          className="w-full"
+          id="material-source-link-shade"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Not known</SelectItem>
+          {sourceQuery.data?.source.vendorShades.map((shade) => (
+            <SelectItem key={shade.id} value={String(shade.id)}>
+              {shade.nameOrCode}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {sourceQuery.isLoading ? (
+        <p className="text-xs text-muted-foreground">Loading Vendor Shades...</p>
+      ) : null}
+      {sourceQuery.isError ? <RelationshipError error={sourceQuery.error} /> : null}
+    </div>
+  )
+}
+
+function RelationshipError({ error }: { error: unknown }) {
+  return (
+    <p
+      className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-sm text-destructive"
+      role="alert"
+    >
+      {error instanceof Error ? error.message : 'Unable to update Source relationships.'}
+    </p>
   )
 }
 

@@ -1,13 +1,38 @@
 import Material from '#models/material'
 import MaterialSource from '#models/material_source'
+import MaterialSourceLink from '#models/material_source_link'
+import VendorShade from '#modules/sources/models/vendor_shade'
+import db from '@adonisjs/lucid/services/db'
 import type {
   GetMaterialResponse,
+  LinkMaterialSourceRequest,
+  LinkMaterialSourceResponse,
   ListMaterialsResponse,
   MaterialDetail,
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
+
+type MaterialRelationshipErrorCode =
+  | 'duplicate-source'
+  | 'material-not-found'
+  | 'preferred-source'
+  | 'source-not-active'
+  | 'source-not-found'
+  | 'source-relationship-not-found'
+  | 'vendor-shade-mismatch'
+
+export class MaterialRelationshipError extends Error {
+  constructor(
+    readonly code: MaterialRelationshipErrorCode,
+    message: string
+  ) {
+    super(message)
+    this.name = 'MaterialRelationshipError'
+  }
+}
 
 export async function listMaterials(): Promise<ListMaterialsResponse> {
   const materials = await Material.query()
@@ -39,6 +64,129 @@ export async function getMaterial(materialId: string): Promise<GetMaterialRespon
     .first()
 
   return material ? { material: serializeMaterialDetail(material) } : null
+}
+
+export async function linkMaterialSource(
+  materialId: string,
+  payload: LinkMaterialSourceRequest
+): Promise<LinkMaterialSourceResponse> {
+  await db.transaction(async (trx) => {
+    const material = await Material.query({ client: trx }).where('publicId', materialId).first()
+
+    if (!material) {
+      throw new MaterialRelationshipError('material-not-found', 'Material not found.')
+    }
+
+    const source = await MaterialSource.query({ client: trx })
+      .where('publicId', payload.sourceId)
+      .first()
+
+    if (!source) {
+      throw new MaterialRelationshipError('source-not-found', 'Source not found.')
+    }
+
+    if (source.sourceStatus !== 'active') {
+      throw new MaterialRelationshipError(
+        'source-not-active',
+        'Only Active Sources can be linked to a Material.'
+      )
+    }
+
+    const existingLinks = await MaterialSourceLink.query({ client: trx }).where(
+      'materialId',
+      material.id
+    )
+
+    if (existingLinks.some((link) => link.materialSourceId === source.id)) {
+      throw new MaterialRelationshipError(
+        'duplicate-source',
+        'This Source is already linked to the Material.'
+      )
+    }
+
+    if (payload.vendorShadeId !== null && payload.vendorShadeId !== undefined) {
+      const vendorShade = await VendorShade.query({ client: trx })
+        .where('id', payload.vendorShadeId)
+        .where('materialSourceId', source.id)
+        .first()
+
+      if (!vendorShade) {
+        throw new MaterialRelationshipError(
+          'vendor-shade-mismatch',
+          'Select a Vendor Shade that belongs to the linked Source.'
+        )
+      }
+    }
+
+    const nextSortOrder = Math.max(0, ...existingLinks.map((link) => link.sortOrder)) + 1
+
+    await MaterialSourceLink.create(
+      {
+        materialId: material.id,
+        materialSourceId: source.id,
+        sortOrder: nextSortOrder,
+        isPreferred: false,
+        vendorShadeId: payload.vendorShadeId ?? null,
+      },
+      { client: trx }
+    )
+  })
+
+  const response = await getMaterial(materialId)
+
+  if (!response) {
+    throw new Error(`Updated Material ${materialId} could not be reloaded.`)
+  }
+
+  return response
+}
+
+export async function unlinkMaterialSource(
+  materialId: string,
+  sourceId: string
+): Promise<UnlinkMaterialSourceResponse> {
+  await db.transaction(async (trx) => {
+    const material = await Material.query({ client: trx }).where('publicId', materialId).first()
+
+    if (!material) {
+      throw new MaterialRelationshipError('material-not-found', 'Material not found.')
+    }
+
+    const source = await MaterialSource.query({ client: trx }).where('publicId', sourceId).first()
+
+    if (!source) {
+      throw new MaterialRelationshipError('source-not-found', 'Source not found.')
+    }
+
+    const sourceLink = await MaterialSourceLink.query({ client: trx })
+      .where('materialId', material.id)
+      .where('materialSourceId', source.id)
+      .first()
+
+    if (!sourceLink) {
+      throw new MaterialRelationshipError(
+        'source-relationship-not-found',
+        'This Source is not linked to the Material.'
+      )
+    }
+
+    if (sourceLink.isPreferred) {
+      throw new MaterialRelationshipError(
+        'preferred-source',
+        'Replace the Preferred Source before unlinking it.'
+      )
+    }
+
+    await sourceLink.delete()
+  })
+
+  const response = await getMaterial(materialId)
+
+  if (!response) {
+    throw new Error(`Updated Material ${materialId} could not be reloaded.`)
+  }
+
+  return response
 }
 
 function serializeMaterialSummary(material: Material): MaterialSummary {
