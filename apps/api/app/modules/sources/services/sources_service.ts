@@ -11,6 +11,7 @@ import type {
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
+  SourceLifecycleAffectedMaterial,
   SourceDetail,
   SourceLinkedMaterialSummary,
   SourceSummary,
@@ -18,6 +19,19 @@ import type {
   UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
 import { DateTime } from 'luxon'
+
+type SourceLifecycleErrorCode = 'not-found' | 'preferred-source' | 'source-not-retired'
+
+export class SourceLifecycleError extends Error {
+  constructor(
+    readonly code: SourceLifecycleErrorCode,
+    message: string,
+    readonly affectedMaterials: SourceLifecycleAffectedMaterial[] = []
+  ) {
+    super(message)
+    this.name = 'SourceLifecycleError'
+  }
+}
 
 export async function listSources(filters: ListSourcesQuery): Promise<ListSourcesResponse> {
   const query = MaterialSource.query()
@@ -188,6 +202,77 @@ export async function updateSource(
 
   if (!response) {
     throw new Error(`Updated Source ${updatedSourceId} could not be reloaded.`)
+  }
+
+  return response
+}
+
+export async function retireSource(sourceId: string): Promise<GetSourceResponse> {
+  await db.transaction(async (trx) => {
+    const source = await MaterialSource.query({ client: trx })
+      .where('publicId', sourceId)
+      .where('sourceStatus', 'active')
+      .forUpdate()
+      .first()
+
+    if (!source) {
+      throw new SourceLifecycleError('not-found', 'Source not found.')
+    }
+
+    const preferredLinks = await MaterialSourceLink.query({ client: trx })
+      .where('materialSourceId', source.id)
+      .where('isPreferred', true)
+      .whereIn('materialId', trx.from('materials').select('id').whereNull('deleted_at'))
+      .preload('material')
+      .forUpdate()
+    const affectedMaterials = preferredLinks
+      .map((link) => ({ id: link.material.publicId, name: link.material.name }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+
+    if (affectedMaterials.length > 0) {
+      throw new SourceLifecycleError(
+        'preferred-source',
+        'Replace this Preferred Source for every affected Active Material before retiring it.',
+        affectedMaterials
+      )
+    }
+
+    source.sourceStatus = 'retired'
+    await source.save()
+  })
+
+  const response = await getSource(sourceId, true)
+
+  if (!response) {
+    throw new Error(`Retired Source ${sourceId} could not be reloaded.`)
+  }
+
+  return response
+}
+
+export async function restoreSource(sourceId: string): Promise<GetSourceResponse> {
+  await db.transaction(async (trx) => {
+    const source = await MaterialSource.query({ client: trx })
+      .where('publicId', sourceId)
+      .forUpdate()
+      .first()
+
+    if (!source) {
+      throw new SourceLifecycleError('not-found', 'Source not found.')
+    }
+
+    if (source.sourceStatus !== 'retired') {
+      throw new SourceLifecycleError('source-not-retired', 'Only Retired Sources can be restored.')
+    }
+
+    source.sourceStatus = 'active'
+    await source.save()
+  })
+
+  const response = await getSource(sourceId, true)
+
+  if (!response) {
+    throw new Error(`Restored Source ${sourceId} could not be reloaded.`)
   }
 
   return response

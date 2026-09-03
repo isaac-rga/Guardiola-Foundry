@@ -74,6 +74,151 @@ describe('Source detail route', () => {
     expect(screen.queryByRole('button', { name: /link|unlink|preferred/i })).not.toBeInTheDocument()
   })
 
+  it('shows every affected Active Material before retiring an alternate Source', async () => {
+    const user = userEvent.setup()
+    const activeSource = sourceDetailResponse()
+    activeSource.source.linkedMaterials[0].relationship = 'alternate'
+    const retiredSource = sourceDetailResponse()
+    retiredSource.source.sourceStatus = 'retired'
+    retiredSource.source.linkedMaterials[0].relationship = 'alternate'
+    retiredSource.source.linkedMaterials[0].relationshipStatus = 'historical'
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return sessionResponse('operator')
+      if (url.pathname === '/sources/S-0001' && init?.method === 'GET') {
+        return jsonResponse(activeSource)
+      }
+      if (url.pathname === '/sources/S-0001' && init?.method === 'DELETE') {
+        return jsonResponse(retiredSource)
+      }
+      if (url.pathname === '/currency-conversion-rate') {
+        return jsonResponse({ state: 'missing' })
+      }
+      if (url.pathname === '/sources' && init?.method === 'GET') {
+        return jsonResponse({ sources: [] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession('operator')
+
+    renderSourceDetailRoute('/app/sources/S-0001')
+
+    await user.click(await screen.findByRole('button', { name: 'Retire Source' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Retire Italian Silk Crepe?' })
+    expect(within(dialog).getByText('Ivory Silk Crepe')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Champagne Crepe')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('M-0001')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm retirement' }))
+
+    expect(await screen.findByRole('heading', { name: 'Sources' })).toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/sources/S-0001',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: expect.objectContaining({ Authorization: 'Bearer opaque-access-token' }),
+      }),
+    )
+  })
+
+  it('blocks known Preferred retirement and names the Active Materials requiring replacements', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = mockAuthenticatedSourceDetail(sourceDetailResponse())
+    seedStoredSession('operator')
+
+    renderSourceDetailRoute('/app/sources/S-0001')
+
+    await user.click(await screen.findByRole('button', { name: 'Retire Source' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Retire Italian Silk Crepe?' })
+    expect(within(dialog).getByText('Ivory Silk Crepe')).toBeInTheDocument()
+    expect(within(dialog).getByText('Preferred')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent(
+      'Assign eligible replacements for every Preferred relationship before retiring this Source.',
+    )
+    expect(within(dialog).getByRole('button', { name: 'Retirement blocked' })).toBeDisabled()
+    expect(
+      fetchSpy.mock.calls.some(([, init]) => init?.method === 'DELETE'),
+    ).toBe(false)
+  })
+
+  it('keeps the retirement dialog open and shows newly affected Materials after a conflict', async () => {
+    const user = userEvent.setup()
+    const activeSource = sourceDetailResponse()
+    activeSource.source.linkedMaterials[0].relationship = 'alternate'
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return sessionResponse('operator')
+      if (url.pathname === '/sources/S-0001' && init?.method === 'GET') {
+        return jsonResponse(activeSource)
+      }
+      if (url.pathname === '/sources/S-0001' && init?.method === 'DELETE') {
+        return jsonResponse(
+          {
+            message:
+              'Replace this Preferred Source for every affected Active Material before retiring it.',
+            affectedMaterials: [{ id: 'M-0002', name: 'Champagne Structure Satin' }],
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession('operator')
+
+    renderSourceDetailRoute('/app/sources/S-0001')
+
+    await user.click(await screen.findByRole('button', { name: 'Retire Source' }))
+    const dialog = screen.getByRole('dialog', { name: 'Retire Italian Silk Crepe?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm retirement' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Replace this Preferred Source for every affected Active Material before retiring it.',
+    )
+    expect(within(dialog).getByText('Champagne Structure Satin')).toBeInTheDocument()
+    expect(within(dialog).getByText('M-0002')).toBeInTheDocument()
+  })
+
+  it('lets Admins restore a Retired Source without reinstating Preferred status', async () => {
+    const user = userEvent.setup()
+    const retiredSource = sourceDetailResponse()
+    retiredSource.source.sourceStatus = 'retired'
+    retiredSource.source.linkedMaterials[0].relationship = 'alternate'
+    retiredSource.source.linkedMaterials[0].relationshipStatus = 'historical'
+    const restoredSource = sourceDetailResponse()
+    restoredSource.source.linkedMaterials[0].relationship = 'alternate'
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return sessionResponse('admin')
+      if (url.pathname === '/sources/S-0001' && init?.method === 'GET') {
+        return jsonResponse(retiredSource)
+      }
+      if (url.pathname === '/sources/S-0001/restore' && init?.method === 'POST') {
+        return jsonResponse(restoredSource)
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession('admin')
+
+    renderSourceDetailRoute('/app/sources/S-0001')
+
+    expect(await screen.findByText('Retired')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Edit Source' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Restore Source' }))
+
+    expect(await screen.findByRole('link', { name: 'Edit Source' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Restore Source' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Linked Materials' })).toHaveTextContent('Alternate')
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/sources/S-0001/restore',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
   it('explains loading and permission-safe missing states with a route back to the catalog', async () => {
     let resolveDetailRequest!: (response: Response) => void
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {

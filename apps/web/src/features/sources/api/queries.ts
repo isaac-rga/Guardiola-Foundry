@@ -10,6 +10,8 @@ import {
   getCurrencyConversionRate,
   getSource,
   listSources,
+  restoreSource,
+  retireSource,
   updateSource,
 } from '@/features/sources/api/endpoints'
 
@@ -61,6 +63,36 @@ export function useUpdateSource(token: string, sourceId: string) {
     onSuccess: async (response) => {
       queryClient.setQueryData(sourceDetailQueryKey(sourceId), response)
       await queryClient.invalidateQueries({ queryKey: sourceListQueryKey })
+    },
+  })
+}
+
+export function useRetireSource(token: string, sourceId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => retireSource(token, sourceId),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(sourceDetailQueryKey(sourceId), response)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sourceListQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ['materials'] }),
+      ])
+    },
+  })
+}
+
+export function useRestoreSource(token: string, sourceId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => restoreSource(token, sourceId),
+    onSuccess: async (response) => {
+      queryClient.setQueryData(sourceDetailQueryKey(sourceId), response)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sourceListQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ['materials'] }),
+      ])
     },
   })
 }

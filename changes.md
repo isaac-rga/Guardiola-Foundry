@@ -1,63 +1,62 @@
-# Atomic Preferred Source Replacement
+# Safe Source Retirement and Restoration
 
-This slice completes Sources issue 11. Admins and Operators can replace an Active Material's Preferred Source from the existing relationship Dialog while the prior Preferred Source remains the committed authority unless the complete replacement succeeds.
+This slice completes Sources issue 12. Admins and Operators can retire unavailable offerings without deleting sourcing history or invalidating an Active Material's Preferred Source. Admins can restore a Retired Source without silently reinstating an old purchasing choice.
 
 ## Start With the Issue
 
-Read [.scratch/sources/issues/11-replace-preferred-source.md](.scratch/sources/issues/11-replace-preferred-source.md). The implementation is limited to replacing the Preferred Source with an already-linked Active alternate that has manual Landed Unit Cost. Linking and unlinking remain issue 10 behavior; Source lifecycle changes and import protection remain later slices.
+Read [.scratch/sources/issues/12-retire-and-restore-sources.md](.scratch/sources/issues/12-retire-and-restore-sources.md). The implementation is limited to Source lifecycle behavior. Import protection remains issue 13; Material-field lifecycle and broader purchasing workflows remain outside this slice.
 
-## Follow the Shared Relationship Contract
+## Use the Existing Source Detail Workflow
 
-[packages/shared-types/src/materials.ts](packages/shared-types/src/materials.ts) and [packages/shared-validation/src/materials.ts](packages/shared-validation/src/materials.ts) define the replacement request and response. Material relationship detail also carries a compact Preferred eligibility value, allowing the client to explain why a relationship cannot be selected without duplicating Source business rules.
+[apps/web/src/features/sources/source-detail-page.tsx](apps/web/src/features/sources/source-detail-page.tsx) adds lifecycle actions to the existing detail page. Retiring an Active Source opens a confirmation Dialog and lists every linked Active Material. Historical Materials remain visible in the underlying relationship table but are excluded from current retirement impact.
 
-## Keep Replacement Atomic at the Material–Source Boundary
+If any affected Active Material uses the Source as Preferred, the Dialog identifies it and explains that an eligible replacement is required. A server-side conflict caused by newer relationship data keeps the Dialog open and replaces the impact list with the server's current affected Materials. Unlinked and alternate Sources can be confirmed for retirement.
 
-[apps/api/app/modules/materials/materials_service.ts](apps/api/app/modules/materials/materials_service.ts) owns the replacement rules alongside link and unlink behavior. The service requires:
+Admins viewing a Retired Source can restore it in place. Existing Admin editing remains available. Operators return to the Active catalog after a successful retirement because Retired detail remains intentionally hidden from them.
 
-- an Active Material;
-- an existing Source that is Active;
-- an already-linked alternate relationship;
-- a recorded manual Landed Unit Cost.
+## Keep Server State at the Sources Boundary
 
-The old Preferred relationship is demoted and the selected alternate is promoted inside one managed database transaction. A database failure rolls both writes back, and the existing partial unique index still prevents multiple Preferred Sources. Unexpected transaction failures become a stable business-language conflict instead of exposing persistence details.
+[apps/web/src/features/sources/api/endpoints.ts](apps/web/src/features/sources/api/endpoints.ts) owns the retirement and restoration transports and parses structured Preferred-retirement conflicts. [apps/web/src/features/sources/api/queries.ts](apps/web/src/features/sources/api/queries.ts) replaces committed Source detail and invalidates Source and Material queries so catalog membership, relationship status, active alternate counts, and eligibility refetch together.
 
-The Material list continues deriving cost only from the committed Preferred Source's Landed Unit Cost. Its alternate count now includes only Active, non-deleted alternate Sources, so Retired relationships remain historical context without inflating the purchasing count.
+## Enforce Lifecycle Rules Transactionally
 
-## Use the Existing Authenticated HTTP Boundary
+[apps/api/app/modules/sources/services/sources_service.ts](apps/api/app/modules/sources/services/sources_service.ts) implements retirement and restoration as managed transactions:
 
-[apps/api/app/modules/materials/controllers/materials_controller.ts](apps/api/app/modules/materials/controllers/materials_controller.ts) validates `{ sourceId }` and maps eligibility failures to business responses. [apps/api/start/routes.ts](apps/api/start/routes.ts) exposes `PUT /materials/:materialId/preferred-source` behind the existing bearer middleware and returns refreshed Material detail after a successful replacement.
+- retirement locks the Active Source, loads Preferred relationships for Active Materials only, and blocks with every affected Material when replacements are still required;
+- allowed retirement changes only Source Status, preserving all Material links and Preferred flags as historical context;
+- restoration changes only Source Status back to Active, preserving links without promoting any alternate relationship;
+- restored Sources immediately return to Active link choices, while the existing Landed Unit Cost rule continues to determine Preferred eligibility.
 
-## Replace From the Existing Dialog
+The existing Material link and Preferred-replacement operations now lock their selected Source row before checking status. That synchronization prevents a concurrent link or promotion from racing a retirement and leaving an Active Material pointed at a Retired Preferred Source.
 
-[apps/web/src/features/materials/api/endpoints.ts](apps/web/src/features/materials/api/endpoints.ts) and [apps/web/src/features/materials/api/queries.ts](apps/web/src/features/materials/api/queries.ts) keep transport and server-state synchronization outside the presentation component. A successful mutation immediately updates Material detail, then invalidates the Material list and Source queries so derived cost, active alternate count, and relationship context refetch from committed data.
-
-[apps/web/src/features/materials/components/material-relationship-dialog.tsx](apps/web/src/features/materials/components/material-relationship-dialog.tsx) adds a Preferred action to Active alternate cards. Eligible alternates can be promoted. Missing-cost alternates keep the same visible card but show `Landed Unit Cost required` and a disabled action. Retired and Unlinked Sources never become replacement choices. Server failures remain visible without closing the Dialog or changing its prior Preferred state.
+[apps/api/app/modules/sources/controllers/sources_controller.ts](apps/api/app/modules/sources/controllers/sources_controller.ts) exposes business-language lifecycle responses through authenticated `DELETE /sources/:sourceId` and `POST /sources/:sourceId/restore`. Restoration rejects Operators before touching lifecycle state. Preferred-retirement conflicts return both guidance and the affected Material IDs and names defined in the shared Source contract.
 
 ## Read the Focused Tests as Specifications
 
-[apps/api/tests/functional/materials/manage_source_relationships.spec.ts](apps/api/tests/functional/materials/manage_source_relationships.spec.ts) covers unauthenticated rejection, both authorized roles, Active/linked/cost eligibility, historical Material rejection, atomic success, exact-one-Preferred persistence, derived cost, active alternate count, and rollback under an injected database failure.
+[apps/api/tests/functional/sources/retire_restore_source.spec.ts](apps/api/tests/functional/sources/retire_restore_source.spec.ts) covers unauthenticated rejection, both retirement roles, Unlinked and alternate retirement, historical Preferred usage, preserved relationships, active selection exclusions, Preferred blocking with every affected Active Material, exact-one-Preferred protection, Admin-only restoration, no automatic promotion, cost-based eligibility, immediate link availability, and failure states.
 
-[apps/api/tests/functional/materials/show_material.spec.ts](apps/api/tests/functional/materials/show_material.spec.ts) verifies the relationship eligibility projection. [apps/api/tests/functional/materials/list_materials.spec.ts](apps/api/tests/functional/materials/list_materials.spec.ts) protects the adjacent Material summary contract. [apps/web/src/routes/-materials.test.tsx](apps/web/src/routes/-materials.test.tsx) covers eligible and disabled actions, committed dialog/list refresh, Source-query refresh, and failure messaging that preserves the open Dialog.
+[apps/web/src/routes/-source-detail.test.tsx](apps/web/src/routes/-source-detail.test.tsx) covers confirmation, Active Material impact, known Preferred blocking, current server conflict details, Operator navigation, and Admin restoration in the existing Source detail route.
 
 ## Verification
 
 Passed with Node 24:
 
+- focused Source lifecycle API suite: 6 tests;
 - focused Material relationship API suite: 11 tests;
-- focused Material detail API suite: 4 tests;
-- focused Materials list API suite: 7 tests;
-- focused Materials route web suite: 16 tests;
+- focused Source detail API suite: 3 tests;
+- focused Source list API suite: 5 tests;
+- focused Source detail route web suite: 7 tests;
 - lint for API, web, shared types, and shared validation;
 - strict typechecking for API, web, shared types, and shared validation;
 - shared contract builds required by runtime package resolution;
 - whitespace validation with `git diff --check`.
 
-Complete API and web suites and the repository quality gate were deliberately not run, per the review boundary. The implementation remains uncommitted.
+The complete API suite and repository quality gate were not run, per the review boundary. One early web command unintentionally expanded to all web test files during the red phase; that failing red-phase run is not completion evidence, and subsequent web verification used only the focused Source detail route file. A clean complete web suite remains pending approval. The implementation remains uncommitted.
 
 ## Scope Boundaries
 
-Issue 11 does not add new Source links, Source creation inside the Material Dialog, Source retirement/restoration, Material-field editing, importer behavior changes, or a broader authentication refactor.
+Issue 12 does not add Source deletion, Material-field editing, automatic Preferred replacement, new Source links from Source detail, importer overwrite protection, Source availability beyond Active/Retired, or a broader authentication refactor.
 
 ## What Comes Next
 
-Issue 12 can build on the committed relationship invariant to retire and restore Sources without leaving an Active Material pointed at an ineligible Preferred Source.
+Issue 13 can protect user-managed Source fields, lifecycle status, Landed Unit Cost, links, and Preferred choices from later catalog imports.

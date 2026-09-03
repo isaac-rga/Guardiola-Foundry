@@ -83,6 +83,7 @@ export async function linkMaterialSource(
 
     const source = await MaterialSource.query({ client: trx })
       .where('publicId', payload.sourceId)
+      .forUpdate()
       .first()
 
     if (!source) {
@@ -207,6 +208,7 @@ export async function replacePreferredSource(
 
       const source = await MaterialSource.query({ client: trx })
         .where('publicId', payload.sourceId)
+        .forUpdate()
         .first()
 
       if (!source) {

@@ -14,7 +14,11 @@ import type {
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
+  RetireSourceResponse,
+  RestoreSourceResponse,
   SourceDetail,
+  SourceLifecycleAffectedMaterial,
+  SourceLifecycleConflictResponse,
   SourceLinkedMaterialSummary,
   SourceSummary,
   SourceVendorShade,
@@ -205,3 +209,19 @@ export const updateSourceRequestSchema =
 
 export const updateSourceResponseSchema =
   getSourceResponseSchema satisfies z.ZodType<UpdateSourceResponse>
+
+export const sourceLifecycleAffectedMaterialSchema = z.object({
+  id: z.string().regex(/^M-\d{4,}$/),
+  name: z.string().min(1),
+}) satisfies z.ZodType<SourceLifecycleAffectedMaterial>
+
+export const sourceLifecycleConflictResponseSchema = z.object({
+  message: z.string().min(1),
+  affectedMaterials: z.array(sourceLifecycleAffectedMaterialSchema),
+}) satisfies z.ZodType<SourceLifecycleConflictResponse>
+
+export const retireSourceResponseSchema =
+  getSourceResponseSchema satisfies z.ZodType<RetireSourceResponse>
+
+export const restoreSourceResponseSchema =
+  getSourceResponseSchema satisfies z.ZodType<RestoreSourceResponse>

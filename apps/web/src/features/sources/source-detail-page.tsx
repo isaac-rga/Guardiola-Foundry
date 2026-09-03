@@ -1,12 +1,21 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { SourceDetail, SourceLinkedMaterialSummary } from '@guardiola-foundry/shared-types'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRightIcon } from 'lucide-react'
 
 import { PageHeader } from '@/components/app/page-header'
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -16,7 +25,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { useSourceDetail } from '@/features/sources/api/queries'
+import { SourceLifecycleConflictError } from '@/features/sources/api/endpoints'
+import {
+  useRestoreSource,
+  useRetireSource,
+  useSourceDetail,
+} from '@/features/sources/api/queries'
 
 export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   const { session } = useAppShell()
@@ -56,6 +70,32 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
 }
 
 function SourceRecord({ source }: { source: SourceDetail }) {
+  const { session } = useAppShell()
+  const navigate = useNavigate({ from: '/app/sources/$sourceId' })
+  const [retirementOpen, setRetirementOpen] = useState(false)
+  const retireMutation = useRetireSource(session.token, source.id)
+  const restoreMutation = useRestoreSource(session.token, source.id)
+  const activeMaterials = source.linkedMaterials.filter(
+    (material) => material.relationshipStatus === 'active',
+  )
+  const preferredMaterials = activeMaterials.filter(
+    (material) => material.relationship === 'preferred',
+  )
+  const lifecycleConflict =
+    retireMutation.error instanceof SourceLifecycleConflictError
+      ? retireMutation.error
+      : null
+  const blockedMaterials = lifecycleConflict?.affectedMaterials ?? []
+  const retirementBlocked =
+    preferredMaterials.length > 0 || blockedMaterials.length > 0
+  const retirementMaterials =
+    blockedMaterials.length > 0
+      ? blockedMaterials.map((material) => ({
+          ...material,
+          relationship: 'preferred' as const,
+        }))
+      : activeMaterials
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -63,14 +103,36 @@ function SourceRecord({ source }: { source: SourceDetail }) {
         description="Inspect the complete vendor offering and its read-only Material usage context."
         action={
           <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              <Link
-                to="/app/sources/$sourceId/edit"
-                params={{ sourceId: source.id }}
+            {source.sourceStatus === 'active' || session.user.role === 'admin' ? (
+              <Button asChild>
+                <Link
+                  to="/app/sources/$sourceId/edit"
+                  params={{ sourceId: source.id }}
+                >
+                  Edit Source
+                </Link>
+              </Button>
+            ) : null}
+            {source.sourceStatus === 'active' ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  retireMutation.reset()
+                  setRetirementOpen(true)
+                }}
               >
-                Edit Source
-              </Link>
-            </Button>
+                Retire Source
+              </Button>
+            ) : session.user.role === 'admin' ? (
+              <Button
+                type="button"
+                disabled={restoreMutation.isPending}
+                onClick={() => restoreMutation.mutate()}
+              >
+                {restoreMutation.isPending ? 'Restoring Source…' : 'Restore Source'}
+              </Button>
+            ) : null}
             <Button asChild variant="outline">
               <Link to="/app/sources">Back to Sources</Link>
             </Button>
@@ -91,6 +153,17 @@ function SourceRecord({ source }: { source: SourceDetail }) {
           <StatusBadge label="Complete" tone="success" />
         ) : null}
       </div>
+
+      {restoreMutation.isError ? (
+        <p
+          className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+          role="alert"
+        >
+          {restoreMutation.error instanceof Error
+            ? restoreMutation.error.message
+            : 'Unable to restore Source.'}
+        </p>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <DetailCard
@@ -178,6 +251,98 @@ function SourceRecord({ source }: { source: SourceDetail }) {
       </DetailCard>
 
       <LinkedMaterialsCard materials={source.linkedMaterials} />
+
+      <Dialog
+        open={retirementOpen}
+        onOpenChange={(open) => {
+          setRetirementOpen(open)
+          if (!open) retireMutation.reset()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Retire {source.name}?</DialogTitle>
+            <DialogDescription>
+              Retirement preserves every Material link but removes this Source from active
+              purchasing choices.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {activeMaterials.length === 0 && blockedMaterials.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No Active Materials are affected. This Source is currently Unlinked.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Affected Active Materials</p>
+                <ul className="space-y-2">
+                  {retirementMaterials.map((material) => (
+                    <li
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 px-3 py-2"
+                      key={material.id}
+                    >
+                      <span>
+                        <span className="block text-sm font-medium">{material.name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {material.id}
+                        </span>
+                      </span>
+                      <StatusBadge label={formatTitle(material.relationship)} tone="muted" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {retirementBlocked ? (
+              <p className="text-sm text-destructive">
+                Assign eligible replacements for every Preferred relationship before retiring
+                this Source.
+              </p>
+            ) : null}
+
+            {retireMutation.isError ? (
+              <p
+                className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+                role="alert"
+              >
+                {retireMutation.error instanceof Error
+                  ? retireMutation.error.message
+                  : 'Unable to retire Source.'}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={retireMutation.isPending}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={retirementBlocked || retireMutation.isPending}
+              onClick={() =>
+                retireMutation.mutate(undefined, {
+                  onSuccess: () => {
+                    setRetirementOpen(false)
+                    if (session.user.role === 'operator') {
+                      void navigate({ to: '/app/sources' })
+                    }
+                  },
+                })
+              }
+            >
+              {retirementBlocked
+                ? 'Retirement blocked'
+                : retireMutation.isPending
+                  ? 'Retiring Source…'
+                  : 'Confirm retirement'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

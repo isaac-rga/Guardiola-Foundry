@@ -4,6 +4,9 @@ import {
   getCurrencyConversionRateResponseSchema,
   getSourceResponseSchema,
   listSourcesResponseSchema,
+  restoreSourceResponseSchema,
+  retireSourceResponseSchema,
+  sourceLifecycleConflictResponseSchema,
   updateSourceRequestSchema,
   updateSourceResponseSchema,
 } from '@guardiola-foundry/shared-validation'
@@ -14,6 +17,9 @@ import type {
   GetSourceResponse,
   ListSourcesQuery,
   ListSourcesResponse,
+  RestoreSourceResponse,
+  RetireSourceResponse,
+  SourceLifecycleAffectedMaterial,
   UpdateSourceRequest,
   UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
@@ -172,6 +178,69 @@ export async function updateSource(
   }
 
   return updateSourceResponseSchema.parse(body)
+}
+
+export class SourceLifecycleConflictError extends Error {
+  readonly affectedMaterials: SourceLifecycleAffectedMaterial[]
+
+  constructor(message: string, affectedMaterials: SourceLifecycleAffectedMaterial[]) {
+    super(message)
+    this.name = 'SourceLifecycleConflictError'
+    this.affectedMaterials = affectedMaterials
+  }
+}
+
+export async function retireSource(
+  token: string,
+  sourceId: string,
+): Promise<RetireSourceResponse> {
+  const response = await fetch(
+    resolveApiUrl(`/sources/${encodeURIComponent(sourceId)}`),
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  )
+  const body = await response.json()
+
+  if (!response.ok) {
+    const conflict = sourceLifecycleConflictResponseSchema.safeParse(body)
+
+    if (conflict.success) {
+      throw new SourceLifecycleConflictError(
+        conflict.data.message,
+        conflict.data.affectedMaterials,
+      )
+    }
+
+    throw new Error(getResponseErrorMessage(body, 'Unable to retire Source.'))
+  }
+
+  return retireSourceResponseSchema.parse(body)
+}
+
+export async function restoreSource(
+  token: string,
+  sourceId: string,
+): Promise<RestoreSourceResponse> {
+  const response = await fetch(
+    resolveApiUrl(`/sources/${encodeURIComponent(sourceId)}/restore`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  )
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to restore Source.'))
+  }
+
+  return restoreSourceResponseSchema.parse(body)
 }
 
 function readSourceFieldErrors(body: unknown) {

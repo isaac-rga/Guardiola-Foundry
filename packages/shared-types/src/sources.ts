@@ -162,3 +162,17 @@ export type CreateSourceResponse = GetSourceResponse
 export type UpdateSourceRequest = CreateSourceRequest
 
 export type UpdateSourceResponse = GetSourceResponse
+
+export interface SourceLifecycleAffectedMaterial {
+  id: string
+  name: string
+}
+
+export interface SourceLifecycleConflictResponse {
+  message: string
+  affectedMaterials: SourceLifecycleAffectedMaterial[]
+}
+
+export type RetireSourceResponse = GetSourceResponse
+
+export type RestoreSourceResponse = GetSourceResponse
