@@ -1,6 +1,6 @@
 # Shared Types And Validation
 
-Shared types, schemas, and validation rules in Guardiola Foundry are architectural contracts. They define cross-boundary domain language between apps and packages, so they should be organized for business clarity and long-term discoverability rather than technical convenience.
+Shared types, schemas, and validation rules are architectural contracts. They define cross-boundary domain language between apps and package. Organized for business clarity and long-term discoverability rather than technical convenience.
 
 ## Core rules
 
@@ -21,4 +21,4 @@ These rules apply whenever creating or modifying shared types, schemas, or valid
 - `packages/shared-types`
 - `packages/shared-validation`
 
-They also apply to any future shared contract package added to the monorepo.
+They also apply to any future shared contract package added

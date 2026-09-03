@@ -112,3 +112,13 @@ From `apps/web`:
 - `pnpm typecheck`: generate routes and run TypeScript project checks.
 - `pnpm build`: generate routes, typecheck, and create the production bundle.
 - `pnpm preview`: serve the production build locally.
+
+## Repository Web Instructions
+
+The web uses Oxlint.
+React components PascalCase.
+Prefer the web `@/` alias over deep relative imports.
+
+### Separate Data Fetching from UI Layout
+* **Rule:** Never embed raw API calls, data fetching states, or cache mutations directly inside UI presentation components.
+* **Instruction:** Isolate data syncing into a dedicated state management or data-fetching layer (e.g., Custom Hooks, Repositories, or Services). Presentation components should only receive clean data and trigger actions.

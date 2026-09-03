@@ -1,65 +1,71 @@
-# Non-Destructive Future Source Imports
+# Reorganize Repository Agent Instructions
 
-This slice completes Sources issue 13. Later catalog imports can still add genuinely new Sources and refresh untouched imported facts, while application-managed commercial decisions and Material relationships remain authoritative.
+This documentation-only refactor separates the instructions previously concentrated in the root [AGENTS.md](AGENTS.md) into role- and application-specific guides. It does not change application code, commands, thresholds, conventions, or policy meaning.
 
-## Start With the Issue
+## Root Instructions and Routing
 
-Read [.scratch/sources/issues/13-protect-user-managed-data-from-imports.md](.scratch/sources/issues/13-protect-user-managed-data-from-imports.md). The implementation is limited to future-import protection. It does not add conflict-resolution UI, overwrite controls, new Source fields, or new relationship mutations.
+[AGENTS.md](AGENTS.md) now keeps the instructions that apply across repository work:
 
-## Remember the Last Imported State
+- repository and project structure;
+- routing to applicable role and application guides;
+- universal TypeScript, formatting, naming, and shared-package linting conventions;
+- the canonical shared-types and architecture-policy references;
+- documentation and comment guidelines;
+- the repository-wide human/CI Quality Gate rule.
 
-[apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts](apps/api/database/migrations/1788470000000_protect_user_managed_import_data.ts) adds two private JSON snapshots:
+Agents are directed to load only the guides applicable to their work:
 
-- each Source remembers its last successfully imported field values and Vendor Shades;
-- each Material remembers its last successfully imported ordered Source relationships, Preferred choice, and Vendor Shade selections.
+- implementation or bug fixing: [.agents/roles/development.md](.agents/roles/development.md);
+- maintenance, refactoring, or technical debt: [.agents/roles/maintenance.md](.agents/roles/maintenance.md);
+- agent workflow, issue, or domain coordination: [.agents/roles/orchestration.md](.agents/roles/orchestration.md);
+- infrastructure, environment, or DevOps work: [.agents/roles/devops.md](.agents/roles/devops.md);
+- backend work: [apps/api/AGENTS.md](apps/api/AGENTS.md);
+- frontend work: [apps/web/AGENTS.md](apps/web/AGENTS.md).
 
-[apps/api/app/models/material_source.ts](apps/api/app/models/material_source.ts) and [apps/api/app/models/material.ts](apps/api/app/models/material.ts) persist those snapshots without exposing them through API serialization. The snapshots are importer bookkeeping, not user-facing domain fields.
+## Role-Specific Instructions
 
-## Protect Source Decisions Per Record
+[.agents/roles/development.md](.agents/roles/development.md) contains the existing DRY and abstraction rules used during implementation, the general architectural implementation rules, development commands, and testing guidance.
 
-[apps/api/app/modules/sources/source_catalog_importer.ts](apps/api/app/modules/sources/source_catalog_importer.ts) now locks and processes each valid Source inside one managed transaction.
+[.agents/roles/maintenance.md](.agents/roles/maintenance.md) remains intentionally minimal because the original root guide did not contain a distinct body of maintenance-only policy. It routes maintenance work that changes implementation to the development guide rather than duplicating those rules.
 
-For a new legacy Source, the importer creates the Source, records its import snapshot, imports unique Vendor Shades, and keeps database-owned `S-####` allocation unchanged. For an existing imported Source, the importer compares the live record to its last imported snapshot:
+[.agents/roles/orchestration.md](.agents/roles/orchestration.md) contains the existing local issue-tracker and domain-document discovery instructions, including the references to `docs/agents/issue-tracker.md` and `docs/agents/domain.md`.
 
-- fields still equal to their prior imported values may accept refreshed workbook values;
-- any field changed through application management is reported as protected, and the entire Source update is skipped;
-- Source Status is never changed by an import, so a Retired Source cannot be restored;
-- Vendor Shade imports remain additive, while application-edited Vendor Shades make the record conflict instead of being overwritten;
-- protected conflicts still return the current Source and shade lookup to downstream validation without counting the Source as imported.
+[.agents/roles/devops.md](.agents/roles/devops.md) contains the existing database and environment lifecycle commands.
 
-Invalid commercial fields and protected-field conflicts use the existing structured exclusion report. Their corrective guidance tells the migration operator to keep the application-managed values or make the workbook agree before rerunning. Any exclusion keeps the overall result non-successful, while independent safe Source records still commit.
+## Application-Specific Instructions
 
-## Preserve Material–Source Relationships
+[apps/api/AGENTS.md](apps/api/AGENTS.md) retains all of its previous content and now also contains the root instructions specific to backend work:
 
-[apps/api/app/modules/materials/materials_importer.ts](apps/api/app/modules/materials/materials_importer.ts) compares each existing Material's live Source relationships with its last imported relationship snapshot before writing anything.
+- API linting and import aliases;
+- isolation of cross-cutting server concerns;
+- composition guidance for shared data behavior;
+- the migration and schema-change workflow.
 
-If application work changed linked Sources, order, the Preferred Source, or a relationship Vendor Shade, the Material is skipped atomically and the changed relationship dimensions appear in the migration report. The importer does not replace, remove, or recreate those links. Identical reruns also avoid deleting and recreating unchanged links.
+[apps/web/AGENTS.md](apps/web/AGENTS.md) retains all of its previous content and now also contains the root instructions specific to frontend work:
 
-When relationships are still untouched, a valid imported relationship refresh remains allowed inside the existing Material transaction. Existing Material public IDs are no longer recomputed from the current success counter, so an earlier protected exclusion cannot reassign or collide with a later Material's ID.
+- web linting, React naming, and the `@/` import alias;
+- separation of data fetching and server-state synchronization from presentation components.
 
-## Read the Focused Test as the Scenario
+## Repository Tracking
 
-[apps/api/tests/functional/materials/materials_importer.spec.ts](apps/api/tests/functional/materials/materials_importer.spec.ts) first imports realistic Sources and Materials, then uses the application services to:
+[.gitignore](.gitignore) now keeps `.agents/` ignored by default while allowing `.agents/roles/` to be tracked. Without this narrow exception, the requested role files would not appear in repository review or a future commit.
 
-- edit Source commercial data, Landed Unit Cost, comments, and Vendor Shades;
-- add a Material–Source relationship;
-- replace the Preferred Source;
-- retire an imported Source.
+## Classification Decisions
 
-A later import attempts to reverse those decisions while also refreshing an untouched Source and adding a new Source. The test proves the managed decisions remain unchanged, protected records are reported, safe records persist, the result remains non-successful, the new Source receives the next stable public ID, and reruns do not duplicate Sources, Vendor Shades, or relationships.
+The original “Rule of Three for Refactoring” remains with the development DRY and abstraction rules because it governs implementation decisions rather than a separate maintenance workflow.
 
-## Verification
+Database environment lifecycle commands moved to the DevOps guide. The workflow that applies when models or schemas change moved to the API guide.
 
-Passed with Node 24:
+The final `pnpm quality` rule remains in the root guide because it is a repository-wide human/CI boundary.
 
-- focused database-backed importer suite: 20 tests;
-- adjacent Source-edit and Material relationship suites: 14 tests;
-- API ESLint;
-- API strict TypeScript typecheck;
-- whitespace validation with `git diff --check`.
+## Validation
 
-The complete API and web test suites and repository quality gate were not run, per the review boundary. The implementation remains uncommitted.
+- Compared the reorganized files with the working-tree version of the original root guide.
+- Accounted for every substantive original instruction.
+- Confirmed that the only non-verbatim source lines were three mixed-scope sentences split between their applicable guides: linting, naming, and import aliases.
+- Confirmed that the existing API and web guide content was preserved and only appended to.
+- Confirmed that all canonical references remain present and point to the requested paths.
+- Ran whitespace validation with `git diff --check`.
+- Did not run application tests or the full `pnpm quality` gate because this change only reorganizes agent documentation.
 
-## Scope Boundaries
-
-Issue 13 does not add interactive import conflict review, explicit overwrite controls, Material field edit tracking, Source comparison UI, new lifecycle states, new relationship endpoints, or a broader authentication refactor.
+All changes remain uncommitted for review. The pre-existing modification to [docs/architecture/shared-types-and-validation.md](docs/architecture/shared-types-and-validation.md) was not changed as part of this work.

@@ -81,3 +81,23 @@ From `apps/api`:
 - `pnpm typecheck`: run strict TypeScript checks without emitting files.
 - `pnpm build`: compile the production application into `build/`.
 - `node ace <command>`: run AdonisJS CLI tasks directly.
+
+## Repository API Instructions
+
+The API uses ESLint.
+Prefer API import aliases over deep relative imports.
+
+### Isolate Cross-Cutting Concerns
+* **Rule:** Do not scatter systemic logic (like Authentication, Logging, Error Handling, or Caching) across individual business files or controllers.
+* **Instruction:** Handle these behaviors at the architectural boundaries using structural patterns. Use HTTP Middleware, Interceptors, Decorators, or Aspect-Oriented Programming (AOP) to keep core business logic clean.
+
+### Share Data Behaviors via Composition
+* **Rule:** Do not duplicate database filters, state manipulation, or universal data traits across multiple models or tables.
+* **Instruction:** Use composition over inheritance. Utilize ORM Mixins, Plugins, or Traits to inject shared behaviors (like Soft Delete, Multi-Tenancy filtering, or Automatic Audit Logs) into data models.
+
+### Database Changes (If Applicable)
+
+If the task modifies models or schema
+1. Run pending migrations to apply changes.
+2. Check Migration Status
+3. Seed database only recently added seed (if applicable)
