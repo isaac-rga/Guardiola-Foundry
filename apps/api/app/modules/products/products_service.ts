@@ -2,7 +2,6 @@ import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import Product from '#models/product'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
-import type User from '#models/user'
 import type {
   CreateProductRequest,
   DeletedProductDetail,
@@ -39,7 +38,7 @@ export async function listProducts(options?: {
 }
 
 export async function createProduct(
-  authenticatedUser: User,
+  createdByUserId: number,
   payload: CreateProductRequest
 ): Promise<ProductSummary | 'collection-not-found'> {
   const collectionId = payload.collectionId ?? null
@@ -60,7 +59,7 @@ export async function createProduct(
     productCategory: null,
     shortDescription: null,
     collectionId,
-    createdByUserId: authenticatedUser.id,
+    createdByUserId,
   })
 
   await preloadProductRelations(product)

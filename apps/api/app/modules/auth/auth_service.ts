@@ -79,7 +79,7 @@ export async function getCurrentSession(token: string): Promise<CurrentSessionRe
 
   const user = await User.find(accessToken.userId)
 
-  if (!user) {
+  if (!user || !user.active) {
     return null
   }
 

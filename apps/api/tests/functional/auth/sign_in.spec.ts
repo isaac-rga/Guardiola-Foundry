@@ -387,6 +387,43 @@ test.group('Auth sign-in', (group) => {
     })
   })
 
+  test('rejects an existing bearer token while its User is inactive', async ({ client }) => {
+    const user = await User.create({
+      email: 'admin@example.com',
+      password: 'Password123',
+      role: 'admin',
+      active: true,
+    })
+
+    const signInResponse = await client.post('/auth/login').json({
+      email: 'admin@example.com',
+      password: 'Password123',
+    })
+
+    signInResponse.assertStatus(200)
+
+    user.active = false
+    await user.save()
+
+    const inactiveResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${signInResponse.body().token}`)
+
+    inactiveResponse.assertStatus(401)
+    inactiveResponse.assertBodyContains({
+      message: 'Unauthorized',
+    })
+
+    user.active = true
+    await user.save()
+
+    const reactivatedResponse = await client
+      .get('/auth/me')
+      .header('Authorization', `Bearer ${signInResponse.body().token}`)
+
+    reactivatedResponse.assertStatus(200)
+  })
+
   test('revokes only the presented bearer token during current-session logout', async ({
     client,
   }) => {

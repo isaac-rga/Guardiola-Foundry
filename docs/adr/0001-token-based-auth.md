@@ -4,7 +4,7 @@ User sign-in will use token-based authentication instead of server-managed sessi
 
 The first version uses `Authorization: Bearer <token>` for authenticated requests. Tokens may coexist per user, each token expires after 30 days, and the server stores only hashed token values. `logout` revokes only the presented active token, while `change-password` revokes all active tokens for the user. There is no refresh-token flow in v1; users must log in again after token expiration.
 
-The initial API surface is grouped under `/auth` with `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, and `POST /auth/change-password`. `login` and `me` return `token`, `expiresAt`, and `user { id, email, role, active }`. Roles are stored and returned for now, but not yet used for route-level authorization.
+The initial API surface is grouped under `/auth` with `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, and `POST /auth/change-password`. `login` returns `token`, `expiresAt`, and `user { id, email, role, active }`; `me` returns `expiresAt` and the same `user` representation without echoing the presented bearer token. Roles are stored and returned for domain authorization, while bearer authentication remains independent of role checks.
 
 The first protected web route is `/app`. Access to `/app` is enforced at the TanStack Router boundary through a route loader that calls `requireCurrentAuthSession()`. That loader restores the stored bearer token through `GET /auth/me`; if the session is valid, the route renders with the current `User`, and if it is missing, expired, revoked, or otherwise invalid, the route redirects the visitor to `/sign-in`.
 

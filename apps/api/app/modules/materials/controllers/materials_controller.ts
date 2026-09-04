@@ -1,5 +1,3 @@
-import { extractBearerToken } from '#modules/auth/bearer_token'
-import { getCurrentSession } from '#modules/auth/auth_service'
 import {
   getMaterial,
   linkMaterialSource,
@@ -15,15 +13,7 @@ import {
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class MaterialsController {
-  async index({ request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
+  async index({ response }: HttpContext) {
     return response.ok(await listMaterials())
   }
 
@@ -95,15 +85,5 @@ export default class MaterialsController {
     }
 
     return response.conflict({ message: error.message })
-  }
-
-  private async authenticate(authorizationHeader: string | undefined) {
-    const token = extractBearerToken(authorizationHeader)
-
-    if (!token) {
-      return null
-    }
-
-    return getCurrentSession(token)
   }
 }

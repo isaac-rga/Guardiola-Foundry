@@ -1,71 +1,82 @@
-# Reorganize Repository Agent Instructions
+# Finish the Bearer Authentication Seam
 
-This documentation-only refactor separates the instructions previously concentrated in the root [AGENTS.md](AGENTS.md) into role- and application-specific guides. It does not change application code, commands, thresholds, conventions, or policy meaning.
+This refactor makes the existing bearer middleware the single authentication implementation for ordinary protected API routes. It preserves ADR-0001, keeps Admin and Operator authorization in controllers, and leaves Logout and Password Change as explicit credential-lifecycle operations.
 
-## Root Instructions and Routing
+## Authentication Boundary
 
-[AGENTS.md](AGENTS.md) now keeps the instructions that apply across repository work:
+[apps/api/start/routes.ts](apps/api/start/routes.ts) now defines one bearer-protected route group containing:
 
-- repository and project structure;
-- routing to applicable role and application guides;
-- universal TypeScript, formatting, naming, and shared-package linting conventions;
-- the canonical shared-types and architecture-policy references;
-- documentation and comment guidelines;
-- the repository-wide human/CI Quality Gate rule.
+- `GET /auth/me`;
+- all Material routes;
+- all Product routes;
+- all Source routes;
+- `GET /currency-conversion-rate`.
 
-Agents are directed to load only the guides applicable to their work:
+The group uses the existing [bearer authentication middleware](apps/api/app/middleware/bearer_auth_middleware.ts). Route URLs and response contracts are unchanged.
 
-- implementation or bug fixing: [.agents/roles/development.md](.agents/roles/development.md);
-- maintenance, refactoring, or technical debt: [.agents/roles/maintenance.md](.agents/roles/maintenance.md);
-- agent workflow, issue, or domain coordination: [.agents/roles/orchestration.md](.agents/roles/orchestration.md);
-- infrastructure, environment, or DevOps work: [.agents/roles/devops.md](.agents/roles/devops.md);
-- backend work: [apps/api/AGENTS.md](apps/api/AGENTS.md);
-- frontend work: [apps/web/AGENTS.md](apps/web/AGENTS.md).
+The following routes remain outside the group:
 
-## Role-Specific Instructions
+- `GET /health` is public;
+- `POST /auth/login` is public;
+- `POST /auth/logout` remains responsible for revoking only the presented token;
+- `POST /auth/change-password` remains responsible for validating the current password and revoking all active tokens for the User.
 
-[.agents/roles/development.md](.agents/roles/development.md) contains the existing DRY and abstraction rules used during implementation, the general architectural implementation rules, development commands, and testing guidance.
+Future classification of public and credential-lifecycle routes for integration with other apps is deferred. This change introduces no alternate guard, client type, claim model, or speculative integration seam.
 
-[.agents/roles/maintenance.md](.agents/roles/maintenance.md) remains intentionally minimal because the original root guide did not contain a distinct body of maintenance-only policy. It routes maintenance work that changes implementation to the development guide rather than duplicating those rules.
+## Controller and Service Changes
 
-[.agents/roles/orchestration.md](.agents/roles/orchestration.md) contains the existing local issue-tracker and domain-document discovery instructions, including the references to `docs/agents/issue-tracker.md` and `docs/agents/domain.md`.
+[AuthController](apps/api/app/modules/auth/controllers/auth_controller.ts) now returns the middleware-provided `authenticatedSession` from `/auth/me`. It no longer parses or validates that route's bearer token itself.
 
-[.agents/roles/devops.md](.agents/roles/devops.md) contains the existing database and environment lifecycle commands.
+[MaterialsController](apps/api/app/modules/materials/controllers/materials_controller.ts) no longer authenticates the Material list request inside the controller.
 
-## Application-Specific Instructions
+[ProductsController](apps/api/app/modules/products/controllers/products_controller.ts) now consumes `authenticatedSession.user`. Existing role-based decisions remain in the controller:
 
-[apps/api/AGENTS.md](apps/api/AGENTS.md) retains all of its previous content and now also contains the root instructions specific to backend work:
+- only an Admin may include deleted Products in the list;
+- only an Admin may restore a deleted Product.
 
-- API linting and import aliases;
-- isolation of cross-cutting server concerns;
-- composition guidance for shared data behavior;
-- the migration and schema-change workflow.
+[products_service.ts](apps/api/app/modules/products/products_service.ts) now receives the authenticated User ID needed for `Created By`. It no longer requires a database-backed `User` model, which removes the redundant User lookup previously performed by the Products controller.
 
-[apps/web/AGENTS.md](apps/web/AGENTS.md) retains all of its previous content and now also contains the root instructions specific to frontend work:
+Existing Source authorization remains unchanged, including Admin-only Retired Source listing and restoration.
 
-- web linting, React naming, and the `@/` import alias;
-- separation of data fetching and server-state synchronization from presentation components.
+## Inactive User Sessions
 
-## Repository Tracking
+[auth_service.ts](apps/api/app/modules/auth/auth_service.ts) now rejects a valid, unexpired token while its User is inactive. The response from ordinary protected routes remains the generic `401 { message: "Unauthorized" }`.
 
-[.gitignore](.gitignore) now keeps `.agents/` ignored by default while allowing `.agents/roles/` to be tracked. Without this narrow exception, the requested role files would not appear in repository review or a future commit.
+The token is not revoked by this check. If the User becomes active again before the token expires, the same token may authenticate successfully. Explicit token revocation remains part of Logout and Password Change.
 
-## Classification Decisions
+## ADR-0001 Correction
 
-The original “Rule of Three for Refactoring” remains with the development DRY and abstraction rules because it governs implementation decisions rather than a separate maintenance workflow.
+[docs/adr/0001-token-based-auth.md](docs/adr/0001-token-based-auth.md) now matches the established API contract:
 
-Database environment lifecycle commands moved to the DevOps guide. The workflow that applies when models or schemas change moved to the API guide.
+- Login returns `token`, `expiresAt`, and `user`;
+- `/auth/me` returns `expiresAt` and `user` without echoing the presented bearer token;
+- bearer authentication remains independent of Admin and Operator authorization.
 
-The final `pnpm quality` rule remains in the root guide because it is a repository-wide human/CI boundary.
+No `CONTEXT.md` change was needed because the existing User, Active User, Admin, Operator, and Password Change terms already cover this work.
 
-## Validation
+## Test-Driven Development
 
-- Compared the reorganized files with the working-tree version of the original root guide.
-- Accounted for every substantive original instruction.
-- Confirmed that the only non-verbatim source lines were three mixed-scope sentences split between their applicable guides: linting, naming, and import aliases.
-- Confirmed that the existing API and web guide content was preserved and only appended to.
-- Confirmed that all canonical references remain present and point to the requested paths.
-- Ran whitespace validation with `git diff --check`.
-- Did not run application tests or the full `pnpm quality` gate because this change only reorganizes agent documentation.
+The Inactive User behavior followed a red-to-green cycle:
 
-All changes remain uncommitted for review. The pre-existing modification to [docs/architecture/shared-types-and-validation.md](docs/architecture/shared-types-and-validation.md) was not changed as part of this work.
+1. Added an HTTP test that signs in an Active User, makes the User inactive, and calls `/auth/me` with the existing token.
+2. Confirmed the red state: the API returned `200` instead of the required `401`.
+3. Added the Active User check to the shared current-session lookup.
+4. Confirmed the green state: all 18 focused authentication tests passed.
+5. The same test reactivates the User and confirms that the non-revoked token works again.
+
+[protected_routes.spec.ts](apps/api/tests/functional/auth/protected_routes.spec.ts) is a behavior-preserving characterization test. It checks every route in the protected group and requires a missing bearer token to produce the same generic `401 Unauthorized` response before and after the controller refactor.
+
+## Verification
+
+- The protected-route characterization test passed before and after the refactor.
+- The focused authentication, Product, Material, and Source authorization suites passed: 48 tests.
+- The final protected-route test passed after improving its route-specific failure labels.
+- API strict TypeScript checking passed.
+- API lint passed.
+- Focused lint for the new protected-route test passed.
+- `git diff --check` passed.
+- The route group structure was checked against the AdonisJS v7 routing documentation.
+
+The complete test suite and the human/CI-owned `pnpm quality` gate were not run, as agreed.
+
+All changes remain uncommitted for review.

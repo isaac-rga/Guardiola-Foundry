@@ -1,6 +1,3 @@
-import { extractBearerToken } from '#modules/auth/bearer_token'
-import { getCurrentSession } from '#modules/auth/auth_service'
-import User from '#models/user'
 import {
   createProduct,
   getProduct,
@@ -17,33 +14,17 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
 
 export default class ProductsController {
-  async index({ request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
+  async index({ authenticatedSession, request, response }: HttpContext) {
     return response.ok(
       await listProducts({
         includeDeleted:
-          authenticatedUser.role === 'admin' &&
+          authenticatedSession.user.role === 'admin' &&
           this.shouldIncludeDeleted(request.input('includeDeleted')),
       })
     )
   }
 
-  async store({ request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
+  async store({ authenticatedSession, request, response }: HttpContext) {
     const payload = createProductRequestSchema.safeParse(request.body())
 
     if (!payload.success) {
@@ -52,7 +33,7 @@ export default class ProductsController {
       })
     }
 
-    const result = await createProduct(authenticatedUser, payload.data)
+    const result = await createProduct(authenticatedSession.user.id, payload.data)
 
     if (result === 'collection-not-found') {
       return response.unprocessableEntity({
@@ -65,15 +46,7 @@ export default class ProductsController {
     return response.created(result)
   }
 
-  async show({ params, request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
+  async show({ params, response }: HttpContext) {
     const result = await getProduct(params.productId)
 
     if (result === 'not-found') {
@@ -86,14 +59,6 @@ export default class ProductsController {
   }
 
   async update({ params, request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
     const imageFile = request.file('image', {
       size: '5mb',
       extnames: ['jpg', 'jpeg', 'png', 'webp'],
@@ -137,15 +102,7 @@ export default class ProductsController {
     return response.ok(result)
   }
 
-  async destroy({ params, request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
+  async destroy({ params, response }: HttpContext) {
     const result = await softDeleteProduct(params.productId)
 
     if (result === 'not-found') {
@@ -157,16 +114,8 @@ export default class ProductsController {
     return response.noContent()
   }
 
-  async restore({ params, request, response }: HttpContext) {
-    const authenticatedUser = await this.authenticate(request.header('authorization'))
-
-    if (!authenticatedUser) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
-    if (authenticatedUser.role !== 'admin') {
+  async restore({ authenticatedSession, params, response }: HttpContext) {
+    if (authenticatedSession.user.role !== 'admin') {
       return response.forbidden({
         message: 'Only admins can restore deleted Products.',
       })
@@ -181,22 +130,6 @@ export default class ProductsController {
     }
 
     return response.noContent()
-  }
-
-  private async authenticate(authorizationHeader: string | undefined) {
-    const token = extractBearerToken(authorizationHeader)
-
-    if (!token) {
-      return null
-    }
-
-    const session = await getCurrentSession(token)
-
-    if (!session) {
-      return null
-    }
-
-    return User.find(session.user.id)
   }
 
   private normalizeUpdatePayload(request: HttpContext['request']) {

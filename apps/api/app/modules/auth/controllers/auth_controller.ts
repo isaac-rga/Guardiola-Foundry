@@ -1,10 +1,5 @@
 import { extractBearerToken } from '#modules/auth/bearer_token'
-import {
-  changePassword,
-  getCurrentSession,
-  revokeCurrentSession,
-  signIn,
-} from '#modules/auth/auth_service'
+import { changePassword, revokeCurrentSession, signIn } from '#modules/auth/auth_service'
 import {
   changePasswordRequestSchema,
   loginRequestSchema,
@@ -50,24 +45,8 @@ export default class AuthController {
     return response.ok(session)
   }
 
-  async me({ request, response }: HttpContext) {
-    const token = extractBearerToken(request.header('authorization'))
-
-    if (!token) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
-    const session = await getCurrentSession(token)
-
-    if (!session) {
-      return response.unauthorized({
-        message: 'Unauthorized',
-      })
-    }
-
-    return response.ok(session)
+  async me({ authenticatedSession, response }: HttpContext) {
+    return response.ok(authenticatedSession)
   }
 
   async logout({ request, response }: HttpContext) {
