@@ -57,11 +57,11 @@ The short system-generated identifier used to route and operate on a Product rec
 _Avoid_: Slug, Product Name
 
 **Created By**:
-The User who initially registers a Product. Created By is immutable after registration and is distinct from any future change-history authorship.
+The User who initially registers a Product or creates a Bill of Materials. Created By is immutable after creation and is distinct from any future change-history authorship.
 _Avoid_: Owner, Last Editor
 
 **Created At**:
-The timestamp when a Product is initially registered in the system. Created At is immutable after registration and is displayed as read-only metadata.
+The timestamp when a Product or Bill of Materials is initially created. Created At is immutable and is displayed as read-only metadata.
 _Avoid_: Published At, Last Updated
 
 **Lifecycle Status**:
@@ -169,5 +169,89 @@ A physical location in the warehouse where Inventory for a Material is held. A W
 _Avoid_: Bin, Slot, Shelf
 
 **Bill of Materials**:
-One input definition for building a Product. A Product may have multiple Bills of Materials, and each Bill of Materials belongs to Product structure rather than Inventory.
+A named, independently identified, ordered definition of inputs and construction context used to build a Product. A Bill of Materials has a permanent kind—BOM Template or BOM Implementation—and belongs to Product structure rather than Inventory.
 _Avoid_: Recipe, Formula, BOM Sheet
+
+**BOM Template**:
+A reusable Bill of Materials configuration that may be associated permanently with one Product, while each Product may have at most one non-deleted associated BOM Template. It may be created independently or by copying another Bill of Materials; the copy preserves its origin but evolves independently.
+_Avoid_: BOM Configuration, Shared Product Template
+
+**BOM Implementation**:
+A concrete Bill of Materials that belongs permanently to one Product Variant and is identified by a BOM Typification distinct from the Variant's commercial name. It may be saved progressively before its BOM Lines are resolved, and a Product Variant may have at most one non-deleted BOM Implementation.
+_Avoid_: BOM Instance, Implemented Template
+
+**BOM Typification**:
+The user-assigned construction-oriented name of a BOM Implementation, such as Jackie - Blush - Chapel Train. It is distinct from the current commercial name of its Product Variant and is unique among that Product's non-deleted BOM Implementations.
+_Avoid_: Product Variant Name, SKU, Automatic Typification
+
+**BOM Origin**:
+The immediate Bill of Materials from which another Bill of Materials was copied. A BOM Origin is optional, singular, remains fixed after creation, and preserves the derivation chain even when an origin is soft-deleted.
+_Avoid_: Live Parent BOM, Inherited BOM, BOM History
+
+**BOM Derivation**:
+The one-time creation of a new Bill of Materials from the current state of an existing one. It records an informational immediate BOM Origin while the result receives its own identity and otherwise behaves and evolves independently.
+_Avoid_: Untracked Duplicate, BOM Inheritance, BOM Synchronization
+
+**BOM Line**:
+An independently identified, ordered construction occurrence within a Bill of Materials. It requires a Construction Piece, may select zero or one Material, and may repeat the same Material or Construction Piece in other BOM Lines; Template and Implementation lines share this model while their selected values serve configuration and concrete-resolution purposes respectively.
+_Avoid_: BOM Lane, Material Use
+
+**Construction Piece**:
+The part or placement in a Product's construction to which a BOM Line applies, such as an outer skirt or a corset side reinforcement. It belongs to the BOM Line and is distinct from the catalog-level Material Use.
+_Avoid_: Construction Context, Material Use, BOM Group
+
+**Material Quantity**:
+The positive meter quantity recorded for the Material selected by a BOM Line, with precision up to one millimeter. It cannot exist without a selected Material and is cleared when that Material changes; it is a configured suggestion in a BOM Template and the concrete decided quantity in a BOM Implementation.
+_Avoid_: Purchase Quantity, Pattern Set Proposal
+
+**BOM Cost Projection**:
+The current estimated MXN cost of a BOM Line or Bill of Materials, derived from its Material Quantity and the Landed Unit Cost available through the Material's current or retained Preferred Source relationship. It is neither stored by the Bill of Materials nor historical evidence, so it may change when current sourcing information changes.
+_Avoid_: BOM Cost, Historical Cost, Quoted Cost, Purchase Cost
+
+**BOM Cost Projection Availability**:
+The derived classification of a Bill of Materials cost projection as `Complete` when every line is calculable, `Partial` when only some lines are calculable, or `Unavailable` when none are. It is not persisted as Bill of Materials state; a future materialized projection may cache it without becoming its source of truth.
+_Avoid_: BOM Status, Cost Approval, Persisted Projection Status
+
+**Material needs attention**:
+The non-blocking condition of a BOM Line whose selected Material is no longer available in the active Material catalog. The line retains the reference as existing construction information, may remain Complete and Verified, and may still contribute to the BOM Cost Projection without making the Material available for new selection.
+_Avoid_: Incomplete BOM Line, Invalid Material, Source needs attention
+
+**Source needs attention**:
+The non-blocking condition of a BOM Line whose selected Material has no usable current or retained Preferred Source relationship with Landed Unit Cost. The line retains its Material, quantity, completeness, and verification while its BOM Cost Projection remains unavailable until the sourcing condition is corrected.
+_Avoid_: Cost needs attention, Material needs attention, Incomplete BOM Line
+
+**Line Note**:
+Optional construction guidance or context owned by a BOM Line. It is copied when deriving a Bill of Materials and may then evolve independently.
+_Avoid_: BOM Description, Change History
+
+**BOM Line Completeness**:
+The derived condition indicating whether a BOM Line has its required Construction Piece, selected Material, and valid Material Quantity. An Incomplete line may be saved and is distinct from whether an Operator has verified its correctness.
+_Avoid_: Verification Status, Resolved Line
+
+**BOM Line Verification**:
+The manual indication, with current Operator and timestamp, that an Operator has reviewed one Complete BOM Line; it applies independently to Template and Implementation lines and never blocks their use. Changing its Construction Piece, Material, or Material Quantity resets verification, and copied lines begin Unverified, while Pattern Set, notes, order, and Bill of Materials metadata do not affect verification; no aggregate BOM verification exists.
+_Avoid_: BOM Verification, BOM Approval, BOM Line Completeness
+
+**Pattern Set**:
+An independently identified, globally reusable reference with a unique name that represents a configuration of one or more construction patterns. A BOM Line may optionally retain one Pattern Set and its current catalog information without making it belong to a Product, Construction Piece, or Material; the line stores no proposal or proposal history.
+_Avoid_: Product Pattern, Material Pattern, Final Material Quantity, Automatic Meter Calculation
+
+**Pattern Set Quantity Proposal**:
+A live catalog suggestion pairing a positive assumed Material width in centimeters with a positive meter quantity within a Pattern Set. Each Pattern Set has at most one proposal per width, may have none, and presents its proposals by ascending width without associating them with a Material or Source.
+_Avoid_: Calculated Quantity, Final Material Quantity, Material-specific Proposal, Source-specific Proposal
+
+**Pattern Set Status**:
+The business availability of a Pattern Set, limited to `Active` or `Retired`. A Retired Pattern Set remains usable by BOM Lines that already reference it and is copied during BOM Derivation, but it is unavailable for new manual selections until restored and is not deleted.
+_Avoid_: Deleted Pattern Set, Archived Pattern, Pattern Lifecycle
+
+**Pattern needs attention**:
+The non-blocking condition of a BOM Line whose selected Pattern Set is Retired. It is shown only on that line, does not affect completeness or verification, and clears when the Pattern Set is restored, removed, or replaced.
+_Avoid_: Incomplete BOM Line, Pattern Error, BOM Status
+
+**Product Variant**:
+A commercially named, constructively distinct realization that belongs permanently to one Product, such as Jackie Showroom. Its name is unique among that Product's non-deleted Variants; it may exist without a BOM Implementation and is not a historical revision.
+_Avoid_: Product Version, Product Revision, SKU
+
+**Product Variant Status**:
+The independent availability state of a Product Variant, limited to `Active` or `Inactive` and defaulting to `Active`. An Inactive Variant retains its BOM Implementation but cannot receive one, while an unavailable parent Product also makes the Variant unavailable for new BOM work.
+_Avoid_: Product Status, Lifecycle Status, Draft Variant
