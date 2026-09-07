@@ -37,10 +37,11 @@ Resolve the domain and product decisions needed to describe a Bills of Materials
 - [Define the Pattern Set boundary for the first delivery](issues/05-define-pattern-set-boundary.md) — Pattern Sets are globally reusable Active or Retired catalog references with optional live width-based quantity suggestions; BOM Lines retain only an optional Pattern Set and their final quantity, while retirement preserves existing use with a non-blocking line-level attention signal.
 - [Decide Material, Source, and cost behavior in Bills of Materials](issues/06-decide-material-source-and-cost-behavior.md) — BOM Lines retain Material but no Source or cost snapshot; line and aggregate material costs are current derived MXN projections, while unavailable Material or sourcing data remains usable with independent non-blocking attention and partial-cost semantics.
 - [Define Bill of Materials lifecycle and mutation rules](issues/07-define-bom-lifecycle-and-mutations.md) — Bills of Materials use reversible soft deletion without a separate lifecycle status; explicit atomic Builder saves, immutable structural relationships, stale-edit protection, non-cascading lineage, and role-specific deletion recovery govern their mutations.
+- [Prototype the shared create and update BOM Builder](issues/08-prototype-shared-bom-builder.md) — Use the Variant B Construction Board with focused line editing, drag-handle ordering, searchable Material and Pattern Set catalogs, on-demand quantity proposals, primary line verification, and a separate Whole BOM summary; defer construction groups and production catalog-query dependencies.
 
 ## Not yet specified
 
-- Exact validation, error, empty, loading, and concurrency behavior after the Builder and catalog workflows are concrete.
+- [Define the large-catalog search boundary for the BOM Builder](issues/10-define-large-catalog-search-boundary.md) — Resolve production query ownership, matching, result projections, pagination or virtualization, caching, lifecycle, stale-selection, loading, failure, recovery, and accessibility behavior for Material and Pattern Set selection.
 - Acceptance boundaries and the later PRD/implementation-issue handoff after the interaction prototypes are approved.
 
 ## Out of scope
@@ -52,4 +53,5 @@ Resolve the domain and product decisions needed to describe a Bills of Materials
 - Importing or migrating existing spreadsheet compositions.
 - Inventory allocation, purchasing, production orders, and manufacturing execution.
 - Cross-Product shared Templates and live propagation from an origin Template into derived Templates.
+- Construction groups or nested organization of BOM Lines; the first delivery retains one flat ordered Construction Board unless a later decision ticket brings grouping back into scope.
 - Publishing the PRD, creating implementation issues, or implementing the feature as part of this decision map.

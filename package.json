@@ -16,6 +16,7 @@
     "dev": "pnpm --parallel --filter @guardiola-foundry/web --filter @guardiola-foundry/api dev",
     "dev:web": "pnpm --filter @guardiola-foundry/web dev",
     "dev:api": "pnpm --filter @guardiola-foundry/api dev",
+    "prototype:bom": "pnpm --filter @guardiola-foundry/web prototype:bom",
     "build": "pnpm -r --if-present build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",

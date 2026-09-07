@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prototype:bom": "vite --open '/app/bills-of-materials?variant=B'",
     "generate:routes": "tsr generate",
     "build": "pnpm generate:routes && tsc -b && vite build",
     "lint": "oxlint",
