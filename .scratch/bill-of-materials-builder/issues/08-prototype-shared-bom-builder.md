@@ -12,7 +12,7 @@ How should one Builder let a User create and update BOM Templates and BOM Implem
 
 - Branch: `prototype-bill-of-materials-builder`
 - Run: `pnpm prototype:bom`
-- Route: `/app/bills-of-materials?variant=B`
+- Route: `/app/bills-of-materials?screen=builder&variant=B&builderScenario=derive-implementation`
 - Variant A — Composition table: exposes the whole ordered BOM as a dense inline-editing surface with an aggregate summary rail.
 - Variant B — Construction board: keeps line navigation and focused editing together, with a separate aggregate summary card.
 - Both variants share the same in-memory draft and can exercise create Template, derive Implementation, and edit Implementation scenarios. No mutation reaches the API.

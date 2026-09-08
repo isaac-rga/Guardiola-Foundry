@@ -38,10 +38,11 @@ Resolve the domain and product decisions needed to describe a Bills of Materials
 - [Decide Material, Source, and cost behavior in Bills of Materials](issues/06-decide-material-source-and-cost-behavior.md) — BOM Lines retain Material but no Source or cost snapshot; line and aggregate material costs are current derived MXN projections, while unavailable Material or sourcing data remains usable with independent non-blocking attention and partial-cost semantics.
 - [Define Bill of Materials lifecycle and mutation rules](issues/07-define-bom-lifecycle-and-mutations.md) — Bills of Materials use reversible soft deletion without a separate lifecycle status; explicit atomic Builder saves, immutable structural relationships, stale-edit protection, non-cascading lineage, and role-specific deletion recovery govern their mutations.
 - [Prototype the shared create and update BOM Builder](issues/08-prototype-shared-bom-builder.md) — Use the Variant B Construction Board with focused line editing, drag-handle ordering, searchable Material and Pattern Set catalogs, on-demand quantity proposals, primary line verification, and a separate Whole BOM summary; defer construction groups and production catalog-query dependencies.
+- [Prototype the Bills of Materials catalog and CRUD entry points](issues/09-prototype-bom-catalog-and-crud-entry-points.md) — Use the Variant A operational catalog: one Sources-style searchable table for Templates and Implementations, explicit creation paths, a required eligible-Product-Variant dialog before creating or deriving an Implementation, shared Builder entry points, and focused soft-delete and restore confirmations.
 
 ## Not yet specified
 
-- [Define the large-catalog search boundary for the BOM Builder](issues/10-define-large-catalog-search-boundary.md) — Resolve production query ownership, matching, result projections, pagination or virtualization, caching, lifecycle, stale-selection, loading, failure, recovery, and accessibility behavior for Material and Pattern Set selection.
+- [Define the large-catalog search boundary for BOM workflows](issues/10-define-large-catalog-search-boundary.md) — Resolve production query ownership, matching, eligibility, result projections, pagination or virtualization, caching, lifecycle, stale-selection, loading, failure, recovery, and accessibility behavior for Material, Pattern Set, and Product Variant selection.
 - Acceptance boundaries and the later PRD/implementation-issue handoff after the interaction prototypes are approved.
 
 ## Out of scope

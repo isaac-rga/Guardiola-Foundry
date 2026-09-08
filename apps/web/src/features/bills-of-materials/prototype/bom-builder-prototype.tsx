@@ -56,7 +56,17 @@ import {
   type PrototypeVariant,
 } from '@/features/bills-of-materials/prototype/prototype-switcher'
 
-type BuilderScenario = 'create-template' | 'derive-implementation' | 'edit-implementation'
+export type BuilderScenario =
+  | 'create-implementation'
+  | 'create-template'
+  | 'derive-implementation'
+  | 'edit-implementation'
+  | 'edit-template'
+
+export type BuilderProductVariantContext = {
+  product: string
+  productVariant: string
+}
 
 type PatternProposal = {
   quantity: number
@@ -284,12 +294,23 @@ const patternSets: PatternSet[] = [
 ]
 
 const scenarioLabels: Record<BuilderScenario, string> = {
+  'create-implementation': 'Create implementation manually',
   'create-template': 'Create template',
   'derive-implementation': 'Create implementation from template',
   'edit-implementation': 'Edit implementation',
+  'edit-template': 'Edit template',
 }
 
 const initialDrafts: Record<BuilderScenario, BomDraft> = {
+  'create-implementation': {
+    kind: 'implementation',
+    name: 'Jackie — Ivory — Atelier',
+    description: 'Manually authored construction for an eligible Product Variant.',
+    origin: null,
+    product: 'Jackie',
+    productVariant: 'Jackie Atelier',
+    lines: [],
+  },
   'create-template': {
     kind: 'template',
     name: 'Jackie construction base',
@@ -375,21 +396,66 @@ const initialDrafts: Record<BuilderScenario, BomDraft> = {
       },
     ],
   },
+  'edit-template': {
+    kind: 'template',
+    name: 'Jackie construction base',
+    description: 'Reusable starting point for Jackie construction variants.',
+    origin: null,
+    product: 'Jackie',
+    productVariant: null,
+    lines: [
+      {
+        id: 'line-1',
+        constructionPiece: 'Skirt outer layer',
+        materialId: 'MAT-0218',
+        materialQuantity: 3.4,
+        patternSetId: 'PAT-001',
+        verified: true,
+      },
+      {
+        id: 'line-2',
+        constructionPiece: 'Bodice structure',
+        materialId: 'MAT-0334',
+        materialQuantity: 1.2,
+        patternSetId: 'PAT-022',
+        verified: false,
+      },
+    ],
+  },
 }
 
-function cloneDraft(scenario: BuilderScenario) {
-  return structuredClone(initialDrafts[scenario])
+function cloneDraft(
+  scenario: BuilderScenario,
+  context?: BuilderProductVariantContext,
+) {
+  const draft = structuredClone(initialDrafts[scenario])
+  if (context && draft.kind === 'implementation') {
+    draft.name = ''
+    draft.product = context.product
+    draft.productVariant = context.productVariant
+  }
+  return draft
 }
 
 export function BomBuilderPrototype({
+  initialProductVariantContext,
+  initialScenario = 'derive-implementation',
+  onExit,
   onVariantChange,
+  showSwitcher = true,
   variant,
 }: {
+  initialProductVariantContext?: BuilderProductVariantContext
+  initialScenario?: BuilderScenario
+  onExit?: () => void
   onVariantChange: (variant: PrototypeVariant) => void
+  showSwitcher?: boolean
   variant: PrototypeVariant
 }) {
-  const [scenario, setScenario] = useState<BuilderScenario>('derive-implementation')
-  const [draft, setDraft] = useState(() => cloneDraft('derive-implementation'))
+  const [scenario, setScenario] = useState<BuilderScenario>(initialScenario)
+  const [draft, setDraft] = useState(() =>
+    cloneDraft(initialScenario, initialProductVariantContext),
+  )
   const [lastRemoved, setLastRemoved] = useState<{ index: number; line: BomLine } | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [activeLineId, setActiveLineId] = useState<string | null>('line-1')
@@ -525,6 +591,7 @@ export function BomBuilderPrototype({
   return (
     <div className="space-y-5 pb-24">
       <PrototypeContext
+        onExit={onExit}
         scenario={scenario}
         onScenarioChange={changeScenario}
       />
@@ -532,11 +599,13 @@ export function BomBuilderPrototype({
       {variant === 'A' ? <VariantA {...sharedProps} /> : null}
       {variant === 'B' ? <VariantB {...sharedProps} /> : null}
 
-      <PrototypeSwitcher
-        current={variant}
-        onChange={onVariantChange}
-        state={{ scenario, draft, summary, lastRemoved }}
-      />
+      {showSwitcher ? (
+        <PrototypeSwitcher
+          current={variant}
+          onChange={onVariantChange}
+          state={{ scenario, draft, summary, lastRemoved }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -562,9 +631,11 @@ type VariantProps = {
 }
 
 function PrototypeContext({
+  onExit,
   onScenarioChange,
   scenario,
 }: {
+  onExit?: () => void
   onScenarioChange: (scenario: BuilderScenario) => void
   scenario: BuilderScenario
 }) {
@@ -577,22 +648,27 @@ function PrototypeContext({
             Throwaway prototype · no data is saved
           </p>
           <p className="mt-1 text-xs text-amber-800/80">
-            Compare the two ways to organize the same Builder. Use the scenario to test create and update.
+            {onExit
+              ? 'This catalog action opened the approved Construction Board Builder. Use Back to return.'
+              : 'Compare the two ways to organize the same Builder. Use the scenario to test create and update.'}
           </p>
         </div>
       </div>
-      <Select value={scenario} onValueChange={(value) => onScenarioChange(value as BuilderScenario)}>
-        <SelectTrigger className="w-full bg-white md:w-72" aria-label="Prototype scenario">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {(Object.keys(scenarioLabels) as BuilderScenario[]).map((option) => (
-            <SelectItem key={option} value={option}>
-              {scenarioLabels[option]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+        {onExit ? <Button onClick={onExit} type="button" variant="outline">Back to BOM catalog</Button> : null}
+        <Select value={scenario} onValueChange={(value) => onScenarioChange(value as BuilderScenario)}>
+          <SelectTrigger className="w-full bg-white md:w-72" aria-label="Prototype scenario">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(scenarioLabels) as BuilderScenario[]).map((option) => (
+              <SelectItem key={option} value={option}>
+                {scenarioLabels[option]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   )
 }
