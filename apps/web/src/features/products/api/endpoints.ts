@@ -1,18 +1,26 @@
 import {
   createProductRequestSchema,
+  createProductVariantRequestSchema,
   getProductResponseSchema,
+  listProductVariantsResponseSchema,
   listProductsResponseSchema,
   productDetailSchema,
   productSummarySchema,
+  productVariantSchema,
   updateProductRequestSchema,
+  updateProductVariantRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   CreateProductRequest,
+  CreateProductVariantRequest,
   GetProductResponse,
   ListProductsResponse,
+  ListProductVariantsResponse,
   ProductDetail,
   ProductSummary,
+  ProductVariant,
   UpdateProductRequest,
+  UpdateProductVariantRequest,
 } from '@guardiola-foundry/shared-types'
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
@@ -165,4 +173,68 @@ export async function restoreProduct(token: string, productId: string): Promise<
   if (!response.ok) {
     throw new Error(getResponseErrorMessage(body, 'Unable to restore product.'))
   }
+}
+
+export async function listProductVariants(
+  token: string,
+  productId: string
+): Promise<ListProductVariantsResponse> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/variants`), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to load Product Variants.'))
+  }
+
+  return listProductVariantsResponseSchema.parse(body)
+}
+
+export async function createProductVariant(
+  token: string,
+  productId: string,
+  payload: CreateProductVariantRequest
+): Promise<ProductVariant> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/variants`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(createProductVariantRequestSchema.parse(payload)),
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to add Product Variant.'))
+  }
+
+  return productVariantSchema.parse(body)
+}
+
+export async function updateProductVariant(
+  token: string,
+  productId: string,
+  variantId: string,
+  payload: UpdateProductVariantRequest
+): Promise<ProductVariant> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/variants/${variantId}`), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updateProductVariantRequestSchema.parse(payload)),
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to save Product Variant.'))
+  }
+
+  return productVariantSchema.parse(body)
 }

@@ -5,6 +5,8 @@ const AuthController = () => import('#modules/auth/controllers/auth_controller')
 const HealthController = () => import('#modules/health/controllers/health_controller')
 const MaterialsController = () => import('#modules/materials/controllers/materials_controller')
 const ProductsController = () => import('#modules/products/controllers/products_controller')
+const ProductVariantsController = () =>
+  import('#modules/products/controllers/product_variants_controller')
 const SourcesController = () => import('#modules/sources/controllers/sources_controller')
 const CurrencyConversionRatesController = () =>
   import('#modules/sources/controllers/currency_conversion_rates_controller')
@@ -37,5 +39,8 @@ router
     router.put('/products/:productId', [ProductsController, 'update'])
     router.delete('/products/:productId', [ProductsController, 'destroy'])
     router.post('/products/:productId/restore', [ProductsController, 'restore'])
+    router.get('/products/:productId/variants', [ProductVariantsController, 'index'])
+    router.post('/products/:productId/variants', [ProductVariantsController, 'store'])
+    router.put('/products/:productId/variants/:variantId', [ProductVariantsController, 'update'])
   })
   .use(middleware.bearerAuth())

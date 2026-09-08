@@ -1,82 +1,119 @@
-# Finish the Bearer Authentication Seam
+# Register and Maintain Product Variants
 
-This refactor makes the existing bearer middleware the single authentication implementation for ordinary protected API routes. It preserves ADR-0001, keeps Admin and Operator authorization in controllers, and leaves Logout and Password Change as explicit credential-lifecycle operations.
+Issue 01 establishes Product Variants as first-class, Product-owned records. A Variant represents a commercially named, constructively distinct realization of a Product. It is not a historical Product revision and it does not yet create a Bill of Materials, a BOM Implementation, or a commercial specification.
 
-## Authentication Boundary
+This slice gives the team a stable Variant identity and a maintenance workflow now, while leaving the later BOM work a clean reference point. The live issue checklist is marked `implemented — awaiting review`.
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) now defines one bearer-protected route group containing:
+## Domain and Persistence Model
 
-- `GET /auth/me`;
-- all Material routes;
-- all Product routes;
-- all Source routes;
-- `GET /currency-conversion-rate`.
+The new `product_variants` table stores:
 
-The group uses the existing [bearer authentication middleware](apps/api/app/middleware/bearer_auth_middleware.ts). Route URLs and response contracts are unchanged.
+- an internal numeric primary key;
+- a stable public identity in the form `PV-XXXXXX`;
+- the owning Product foreign key;
+- the commercial Variant name;
+- an independent `active` or `inactive` status;
+- creation, update, and soft-deletion timestamps.
 
-The following routes remain outside the group:
+Product ownership is permanent. The foreign key uses `RESTRICT`, and neither the API contract nor the update path accepts a `productId`, so a Variant cannot be moved between Products. The Product model exposes the corresponding one-to-many relationship for later domain work.
 
-- `GET /health` is public;
-- `POST /auth/login` is public;
-- `POST /auth/logout` remains responsible for revoking only the presented token;
-- `POST /auth/change-password` remains responsible for validating the current password and revoking all active tokens for the User.
+New Variants default to Active and do not require a BOM Implementation or specification. Changing a Variant to Inactive only changes its availability: its public identity, name, Product ownership, and timestamps remain intact.
 
-Future classification of public and credential-lifecycle routes for integration with other apps is deferred. This change introduces no alternate guard, client type, claim model, or speculative integration seam.
+Names are trimmed and limited to 255 characters before they reach persistence. A partial database index enforces case-insensitive uniqueness for every non-deleted Active or Inactive Variant under the same Product. This means `Showroom` and `showroom` conflict within one Product, while another Product may legitimately use the same name. Soft-deleted rows are deliberately excluded from that index in preparation for the separately scoped deletion/restoration issue.
 
-## Controller and Service Changes
+## Shared Contracts
 
-[AuthController](apps/api/app/modules/auth/controllers/auth_controller.ts) now returns the middleware-provided `authenticatedSession` from `/auth/me`. It no longer parses or validates that route's bearer token itself.
+The cross-application contracts live in Product Variant domain files in `shared-types` and `shared-validation`. They define:
 
-[MaterialsController](apps/api/app/modules/materials/controllers/materials_controller.ts) no longer authenticates the Material list request inside the controller.
+- the stable response shape used for a Variant;
+- the list response returned from Product context;
+- the create request, which accepts only the commercial name;
+- the update request, which accepts the name and independent Variant status;
+- the shared status vocabulary and maximum name length.
 
-[ProductsController](apps/api/app/modules/products/controllers/products_controller.ts) now consumes `authenticatedSession.user`. Existing role-based decisions remain in the controller:
+The Zod schemas are used at both boundaries: the API validates incoming requests, while the web client validates form input and parses API responses. This keeps trimming, required-name behavior, length limits, and status values consistent across both applications.
 
-- only an Admin may include deleted Products in the list;
-- only an Admin may restore a deleted Product.
+## Protected Product Routes
 
-[products_service.ts](apps/api/app/modules/products/products_service.ts) now receives the authenticated User ID needed for `Created By`. It no longer requires a database-backed `User` model, which removes the redundant User lookup previously performed by the Products controller.
+Three bearer-protected nested routes keep Product ownership explicit:
 
-Existing Source authorization remains unchanged, including Admin-only Retired Source listing and restoration.
+| Route | Behavior | Important constraints |
+| --- | --- | --- |
+| `GET /products/:productId/variants` | Lists the Product's non-deleted Variants in creation order. | Returns `404` when the Product identity does not exist. Deleted Variants stay out of ordinary results. |
+| `POST /products/:productId/variants` | Registers an Active Variant using its name as the only Variant-specific prerequisite. | The Product must be Active and non-deleted. Duplicate names return a field-level correction. |
+| `PUT /products/:productId/variants/:variantId` | Renames a Variant and changes its Active/Inactive status. | The nested Product scope prevents cross-Product access, and Product reassignment is not part of the payload. |
 
-## Inactive User Sessions
+The routes sit inside the existing bearer-authenticated group, so both Admins and Operators use the same established session boundary. The protected-route characterization test now includes all three endpoints and confirms that requests without a bearer token retain the generic `401 Unauthorized` behavior.
 
-[auth_service.ts](apps/api/app/modules/auth/auth_service.ts) now rejects a valid, unexpired token while its User is inactive. The response from ordinary protected routes remains the generic `401 { message: "Unauthorized" }`.
+## Availability, Ownership, and Concurrency
 
-The token is not revoked by this check. If the User becomes active again before the token expires, the same token may authenticate successfully. Explicit token revocation remains part of Logout and Password Change.
+Variant creation checks Product availability independently from Product Lifecycle Status. An Active Product may receive a Variant whether it is in Concept, Testing, Finished, or any other lifecycle stage. An Inactive or soft-deleted Product cannot receive one.
 
-## ADR-0001 Correction
+The availability check and insert run in one database transaction. Creation locks the Product row before evaluating its status, which prevents a concurrent Product inactivation or deletion from slipping between the check and the Variant insert.
 
-[docs/adr/0001-token-based-auth.md](docs/adr/0001-token-based-auth.md) now matches the established API contract:
+Name uniqueness is protected twice:
 
-- Login returns `token`, `expiresAt`, and `user`;
-- `/auth/me` returns `expiresAt` and `user` without echoing the presented bearer token;
-- bearer authentication remains independent of Admin and Operator authorization.
+1. The service performs a friendly preflight check so ordinary conflicts return an actionable `name` error.
+2. The partial unique index remains the source of truth under concurrent requests; a database conflict is translated back into the same field-level response.
 
-No `CONTEXT.md` change was needed because the existing User, Active User, Admin, Operator, and Password Change terms already cover this work.
+Updates resolve the Variant through both its stable public ID and the owning Product's internal ID. Attempting to address a Variant through another Product returns `404` and leaves the original record unchanged. Updates remain allowed while a Product is Inactive so existing Variant records can still be maintained, but a soft-deleted Product cannot be changed through this workflow.
 
-## Test-Driven Development
+## Product Detail Experience
 
-The Inactive User behavior followed a red-to-green cycle:
+The active Product detail page now includes a Product Variants card below the existing Product information. The card loads through a feature-local React Query hook and presents four pieces of information: Variant name, Active/Inactive status, stable public ID, and an Edit action.
 
-1. Added an HTTP test that signs in an Active User, makes the User inactive, and calls `/auth/me` with the existing token.
-2. Confirmed the red state: the API returned `200` instead of the required `401`.
-3. Added the Active User check to the shared current-session lookup.
-4. Confirmed the green state: all 18 focused authentication tests passed.
-5. The same test reactivates the User and confirms that the non-revoked token works again.
+The empty state explains when a Variant should be added instead of presenting an unexplained blank table. Successful creates and edits update the Product-specific query cache immediately, so the user sees the saved Variant without reloading the page.
 
-[protected_routes.spec.ts](apps/api/tests/functional/auth/protected_routes.spec.ts) is a behavior-preserving characterization test. It checks every route in the protected group and requires a missing bearer token to produce the same generic `401 Unauthorized` response before and after the controller refactor.
+The create dialog asks only for the commercial Variant name and explains that the new record starts Active. The edit dialog reuses the same name field and adds the Variant status control. Neither workflow exposes Product ownership, BOM state, or speculative configuration.
 
-## Verification
+When the Product is Inactive, the card still shows and permits maintenance of existing Variants, but the Add action is disabled and an inline message explains that the Product must be activated first. This separates Product availability from the independent status of its existing Variants.
 
-- The protected-route characterization test passed before and after the refactor.
-- The focused authentication, Product, Material, and Source authorization suites passed: 48 tests.
-- The final protected-route test passed after improving its route-specific failure labels.
-- API strict TypeScript checking passed.
-- API lint passed.
-- Focused lint for the new protected-route test passed.
-- `git diff --check` passed.
-- The route group structure was checked against the AdonisJS v7 routing documentation.
+Client-side validation catches blank and overlong names before a request is sent. Server-side duplicate-name or Product-availability failures keep the dialog open, retain the entered name and status, and display the API's corrective message. Loading, empty, failed-load, saving, and success states are all represented without introducing a new global state or notification system.
 
-The complete test suite and the human/CI-owned `pnpm quality` gate were not run, as agreed.
+## Files and Responsibilities
 
-All changes remain uncommitted for review.
+- The migration and Lucid model own storage, stable identity, relationships, and soft-delete-aware querying.
+- `product_variants_service.ts` owns Product scoping, availability, uniqueness, transactional creation, serialization, and ID generation.
+- `product_variants_controller.ts` owns request validation and HTTP status/error mapping.
+- Shared Product Variant files own the cross-boundary types, constants, and Zod schemas.
+- The web endpoint adapters own transport and response parsing.
+- The feature-local Product Variant hook owns server state, cache updates, and mutations.
+- `product-variants-card.tsx` receives clean data and actions and owns only the focused maintenance interface.
+
+## Focused Test Coverage
+
+The API coverage exercises the behavior through HTTP and the database:
+
+- registration with whitespace normalization and default Active status;
+- stable `PV-…` identity and persisted Product ownership;
+- ordinary listing with soft-deleted Variants excluded;
+- rename and Active-to-Inactive status changes without identity loss;
+- rejection of cross-Product Variant addressing;
+- case-insensitive conflicts on create and update;
+- reuse of the same name under another Product;
+- rejection of creation under Inactive and soft-deleted Products regardless of Lifecycle Status;
+- rejection of names beyond the database's 255-character capacity;
+- bearer authentication for every new route.
+
+The Product-route coverage exercises the user workflow:
+
+- loading and displaying an existing Variant;
+- creating a new Variant and updating the visible cache;
+- renaming it and changing its status to Inactive;
+- preserving a typed name after an API availability failure;
+- preserving an overlong name while displaying the local length correction;
+- confirming that invalid input does not send a create request.
+
+## Focused Verification
+
+- Six focused API tests pass across the Product Variant and protected-route files.
+- Three focused Product-route tests pass.
+- API and web lint pass for the touched files.
+- API, web, shared-types, and shared-validation strict TypeScript checks pass.
+- Shared types and validation were rebuilt so the API and web consume the new domain exports.
+- The Product Variant migration was applied locally and migration status reports it completed.
+- `git diff --check` passes.
+- The implementation was checked against the current AdonisJS v7 routing/validation, Lucid relationship/migration, and React Hook Form error-preservation guidance.
+- Independent standards and specification reviews found no remaining actionable issues after the concurrency, validation, shared-contract organization, and frontend server-state findings were corrected.
+
+The focused web test still emits React `act(...)` warnings around the existing Radix Select interaction, but all assertions pass. The complete test suites and the human/CI-owned `pnpm quality` gate were not run, as requested. All implementation and documentation changes remain uncommitted for review.

@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { ProductVariantsCard } from '@/features/products/components/product-variants-card'
+import { useProductVariants } from '@/features/products/api/product-variants'
 import {
   deleteProduct,
   getProduct,
@@ -107,6 +109,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const product = productQuery.data?.state === 'active' ? productQuery.data.product : null
   const deletedProduct = productQuery.data?.state === 'deleted' ? productQuery.data.product : null
   const collections = productQuery.data?.state === 'active' ? productQuery.data.collections : []
+  const productVariants = useProductVariants(session.token, productId, product !== null)
   const hasPendingImageChanges = selectedImageFile !== null || removeImage
   const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
 
@@ -603,6 +606,15 @@ export function ProductEditPage({ productId }: { productId: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <ProductVariantsCard
+        product={product}
+        variants={productVariants.variants}
+        isLoading={productVariants.isLoading}
+        loadError={productVariants.loadError}
+        isSaving={productVariants.isSaving}
+        onSave={productVariants.saveVariant}
+      />
     </div>
   )
 }

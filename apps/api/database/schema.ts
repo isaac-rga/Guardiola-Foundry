@@ -203,6 +203,27 @@ export class MaterialSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class ProductVariantSchema extends BaseModel {
+  static $columns = ['createdAt', 'deletedAt', 'id', 'name', 'productId', 'publicId', 'status', 'updatedAt'] as const
+  $columns = ProductVariantSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare name: string
+  @column()
+  declare productId: number
+  @column()
+  declare publicId: string
+  @column()
+  declare status: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class ProductSchema extends BaseModel {
   static $columns = ['collectionId', 'createdAt', 'createdByUserId', 'deletedAt', 'id', 'lifecycleStatus', 'name', 'productCategory', 'productImageFileName', 'productImageStorageKey', 'productStatus', 'publicId', 'shortDescription', 'updatedAt'] as const
   $columns = ProductSchema.$columns
