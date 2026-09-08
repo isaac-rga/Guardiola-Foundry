@@ -215,11 +215,11 @@ async function createPatternSet(client: any, token: string, name: string) {
 async function authenticateAs(client: any, role: 'admin' | 'operator') {
   const user = await User.updateOrCreate(
     { email: `${role}@example.com` },
-    { email: `${role}@example.com`, password: 'password123', role, active: true }
+    { email: `${role}@example.com`, password: 'Password123', role, active: true }
   )
   const response = await client.post('/auth/login').json({
     email: `${role}@example.com`,
-    password: 'password123',
+    password: 'Password123',
   })
   response.assertStatus(200)
   return { token: response.body().token as string, userId: user.id }
