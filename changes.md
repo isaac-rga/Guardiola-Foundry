@@ -1,72 +1,43 @@
-# Delete and Restore Product Variants Safely
+# Manage Reusable Pattern Sets and Quantity Proposals
 
-Issue 02 adds a recoverable Product Variant lifecycle without weakening the permanent Product ownership established in issue 01. Admins and Operators can remove a Variant from ordinary work after a specific confirmation, while only Admins can inspect deleted Variant records and restore them.
+Issue 03 gives authenticated Admins and Operators an independent Pattern Set catalog with reusable width-based Quantity Proposals, stable identity, and recoverable retirement. Proposals remain advisory evidence: this slice does not calculate or persist final Bill of Materials quantities.
 
-The reviewed issue checklist is marked `done`. This implementation remains deliberately inside the existing Product Variant slice; it does not add BOM behavior, new-work catalog search, or a new persistence abstraction.
+## Stable Catalog Records and Proposal Evidence
 
-## Lifecycle API
+The [Pattern Set contract](packages/shared-types/src/pattern-sets.ts) and [runtime schemas](packages/shared-validation/src/pattern-sets.ts) define a required trimmed name, optional description, Active or Retired status, immutable creation metadata, and zero or more Quantity Proposals. Each proposal requires a positive assumed width and positive meter quantity, limits quantity to three decimal places, accepts an optional evidence note, rejects duplicate widths, and is returned in ascending width order.
 
-Two bearer-protected Product-scoped routes extend the existing Variant API:
+The [database migration](apps/api/database/migrations/1788920000000_create_pattern_sets_tables.ts) gives every Pattern Set a permanent internal key and stable `PS-` public identity. Database constraints keep normalized names unique across both Active and Retired records, protect positive proposal values and meter precision, and prevent duplicate widths within one Pattern Set.
 
-| Route | Behavior | Authorization and constraints |
-| --- | --- | --- |
-| `DELETE /products/:productId/variants/:variantId` | Soft-deletes the addressed non-deleted Variant and returns `204`. | Admins and Operators may delete. The nested Product scope prevents addressing a Variant through another Product. |
-| `POST /products/:productId/variants/:variantId/restore` | Restores the deleted Variant and returns the recovered record. | Admin only. Restoration returns `422` when a non-deleted Variant under the same Product has taken the case-insensitive name. |
+## Atomic Management and Recoverable Retirement
 
-`GET /products/:productId/variants` remains the ordinary list and excludes deleted records. An Admin may request `?includeDeleted=true` to inspect both current and deleted Variants. The same query from an Operator still returns only ordinary records, so a caller cannot bypass the Product-route role boundary by constructing the URL directly.
+The [Pattern Set service](apps/api/app/modules/pattern_sets/services/pattern_sets_service.ts) creates and updates each Pattern Set and its complete proposal collection transactionally. Updates replace the exclusively owned proposals as one unit, while row locks coordinate edits, retirement, and restoration so lifecycle changes cannot silently cross.
 
-The shared Product Variant response now carries a nullable deletion timestamp. That timestamp gives the Product route an explicit recovery-state signal while leaving identity, Product ID, commercial name, Active/Inactive status, and creation time intact.
+The [bearer-protected controller](apps/api/app/modules/pattern_sets/controllers/pattern_sets_controller.ts) lets Admins and Operators browse Active records, create, edit, and retire unused Pattern Sets. Retired records preserve identity, description, proposals, and creation metadata; they cannot be edited or returned by the ordinary list. Only Admins may include Retired records and restore them.
 
-## Safe Restoration
+## Independent Pattern Set Workspace
 
-Restoration resolves both the Product and Variant through their stable IDs, includes soft-deleted rows explicitly, and keeps the original internal Product foreign key unchanged. It never accepts replacement ownership or replacement name data.
+The [Pattern Set catalog](apps/web/src/features/pattern-sets/pattern-sets-page.tsx) is available at `/app/pattern-sets` from the authenticated workspace navigation. Rows expose stable identity, status, description, ordered proposal evidence, and creation metadata. Active records offer focused Edit and Retire actions; Admins additionally receive `Include retired` and Restore controls, while Operators never receive recovery history.
 
-The service locks the Product and deleted Variant inside a transaction before checking the name. This coordinates restoration with the Product-locked Variant creation path. The existing partial unique index remains the final concurrency safeguard: only non-deleted Variant names participate, and any database race is translated into the same actionable name conflict.
-
-An unavailable parent Product does not erase or reassign a deleted Variant. The Admin recovery list can still inspect it, and the same restoration name constraint applies while the Product is Inactive or deleted. Restoration changes only the deletion timestamp; the preserved Variant status and ownership remain untouched.
-
-## Product Detail Experience
-
-The Product Variants card adds lifecycle actions without changing the existing create/edit dialog:
-
-- Every non-deleted row has a Delete action for Admins and Operators.
-- Delete opens a confirmation that names both the Product Variant and its Product before any request is sent.
-- After deletion, the ordinary list refreshes and the Variant disappears from normal work.
-- Admins receive an `Include deleted` control that loads preserved records from Product context.
-- Deleted rows are visibly marked `Deleted`, cannot be edited, and expose Restore only to Admins.
-- A successful restore refreshes the Product-specific Variant lists and returns the row to its preserved Active/Inactive state.
-- A restoration name conflict leaves the deleted row intact and displays the API's corrective message.
-
-The server-state hook keeps ordinary and include-deleted lists in separate query keys. Delete and restore invalidate only the current Product's Variant query family, so both projections refresh without affecting unrelated Product data.
+The shared create/edit dialog supports zero or more proposal rows and explains that proposals do not calculate final quantity. Client and server validation failures leave the dialog and entered draft intact. Retirement uses a focused confirmation naming the Pattern Set and the information that remains preserved.
 
 ## Focused Coverage
 
-The API tests cover:
+The [API acceptance tests](apps/api/tests/functional/pattern_sets/pattern_sets.spec.ts) prove creation metadata, normalized uniqueness across Active and Retired records, positive values, quantity precision, duplicate-width rejection, ascending ordering, atomic editing, retirement, restoration, authentication, and role boundaries.
 
-- Operator deletion and ordinary-list exclusion;
-- direct-query protection that prevents Operators from including complete deleted records;
-- Admin inspection of preserved identity, name, status, ownership, and deletion state;
-- Admin-only restoration and preserved Product ownership;
-- case-insensitive restoration conflicts with neither record overwritten;
-- preservation and conflict enforcement while the parent Product is Inactive;
-- bearer authentication on both lifecycle routes.
-
-The Product-route tests cover:
-
-- confirmation text identifying the Variant and Product before deletion;
-- deletion from the ordinary view;
-- Admin include-deleted inspection and successful restoration;
-- absence of history and recovery controls for Operators;
-- an actionable restoration conflict that leaves the deleted row visible.
+The [catalog route tests](apps/web/src/routes/-pattern-sets.test.tsx) prove Operator browsing and management, Admin-only recovery, proposal rendering, retirement confirmation, and duplicate-width validation without losing the form. The authenticated-shell route tests cover the new navigation entry.
 
 ## Focused Verification
 
-- Nine focused API tests pass across the Product Variant and protected-route files.
-- Six focused Product-route tests pass.
-- Lint passes for API, web, shared-types, and shared-validation.
-- Strict TypeScript checks pass for API, web, shared-types, and shared-validation.
-- Shared types and validation were rebuilt before the API checks.
-- `git diff --check` passes.
-- The implementation was checked against current AdonisJS v7 route/controller guidance and TanStack Query mutation-cache guidance.
+- `CI=true node ace.js test functional --files tests/functional/pattern_sets/pattern_sets.spec.ts` — 7 focused API tests passed; the migration executed and rolled back in the isolated test database.
+- `vitest run src/routes/-pattern-sets.test.tsx src/routes/-app.test.tsx` — 13 focused web tests passed across 2 files.
+- `eslint .` and `tsc --noEmit --pretty false` in `apps/api` — passed.
+- `tsr generate`, `tsc -b --pretty false`, and `oxlint` in `apps/web` — passed.
+- `tsc --noEmit --pretty false` and `oxlint src` in both shared contract packages — passed; both packages were also rebuilt with `tsc -p tsconfig.json --pretty false`.
+- `node ace.js migration:status` — passed and reports the new migration as pending in the configured development database.
+- `git diff --check` — passed.
 
-The focused web test retains the existing React/Radix `act(...)` warnings around the issue-01 status Select interaction; all assertions pass. Complete test suites and `pnpm quality` were not run, per the requested review boundary. The reviewed implementation is ready to commit.
+## Scope Boundaries
+
+This slice does not add Pattern files, geometry, grading, sizes, Product ownership, Material or Source compatibility, BOM Line references, retained-reference search, usage-impact confirmations, or automatic meter calculation. Those later BOM integration and large-catalog behaviors remain in their tracker-defined issues.
+
+The configured development database was inspected but not mutated; only the isolated test database ran the migration. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.

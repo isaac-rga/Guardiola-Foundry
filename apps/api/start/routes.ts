@@ -5,6 +5,8 @@ const AuthController = () => import('#modules/auth/controllers/auth_controller')
 const HealthController = () => import('#modules/health/controllers/health_controller')
 const MaterialsController = () => import('#modules/materials/controllers/materials_controller')
 const ProductsController = () => import('#modules/products/controllers/products_controller')
+const PatternSetsController = () =>
+  import('#modules/pattern_sets/controllers/pattern_sets_controller')
 const ProductVariantsController = () =>
   import('#modules/products/controllers/product_variants_controller')
 const SourcesController = () => import('#modules/sources/controllers/sources_controller')
@@ -50,5 +52,10 @@ router
       ProductVariantsController,
       'restore',
     ])
+    router.get('/pattern-sets', [PatternSetsController, 'index'])
+    router.post('/pattern-sets', [PatternSetsController, 'store'])
+    router.put('/pattern-sets/:patternSetId', [PatternSetsController, 'update'])
+    router.delete('/pattern-sets/:patternSetId', [PatternSetsController, 'destroy'])
+    router.post('/pattern-sets/:patternSetId/restore', [PatternSetsController, 'restore'])
   })
   .use(middleware.bearerAuth())

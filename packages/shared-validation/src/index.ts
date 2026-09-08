@@ -19,6 +19,7 @@ import type {
 import { z } from 'zod'
 
 export * from './materials.js'
+export * from './pattern-sets.js'
 export * from './product-variants.js'
 export * from './sources.js'
 

@@ -34,6 +34,7 @@ import {
   Factory,
   House,
   Package,
+  Scissors,
   Settings,
   Shapes,
 } from 'lucide-react'
@@ -63,7 +64,13 @@ type AuthenticatedAppShellProps = {
 type NavigationItem = {
   icon: typeof House
   label: string
-  to: '/app' | '/app/products' | '/app/materials' | '/app/inventory' | '/app/bills-of-materials'
+  to:
+    | '/app'
+    | '/app/products'
+    | '/app/materials'
+    | '/app/inventory'
+    | '/app/pattern-sets'
+    | '/app/bills-of-materials'
 }
 
 const appShellContext = createContext<AppShellContextValue | null>(null)
@@ -74,6 +81,7 @@ const primaryNavigation: NavigationItem[] = [
   { icon: Boxes, label: 'Products', to: '/app/products' },
   { icon: Package, label: 'Materials', to: '/app/materials' },
   { icon: Factory, label: 'Inventory', to: '/app/inventory' },
+  { icon: Scissors, label: 'Pattern Sets', to: '/app/pattern-sets' },
   { icon: Shapes, label: 'Bills of Materials', to: '/app/bills-of-materials' },
 ]
 
