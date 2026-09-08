@@ -42,5 +42,13 @@ router
     router.get('/products/:productId/variants', [ProductVariantsController, 'index'])
     router.post('/products/:productId/variants', [ProductVariantsController, 'store'])
     router.put('/products/:productId/variants/:variantId', [ProductVariantsController, 'update'])
+    router.delete('/products/:productId/variants/:variantId', [
+      ProductVariantsController,
+      'destroy',
+    ])
+    router.post('/products/:productId/variants/:variantId/restore', [
+      ProductVariantsController,
+      'restore',
+    ])
   })
   .use(middleware.bearerAuth())

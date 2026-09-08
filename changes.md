@@ -1,119 +1,72 @@
-# Register and Maintain Product Variants
+# Delete and Restore Product Variants Safely
 
-Issue 01 establishes Product Variants as first-class, Product-owned records. A Variant represents a commercially named, constructively distinct realization of a Product. It is not a historical Product revision and it does not yet create a Bill of Materials, a BOM Implementation, or a commercial specification.
+Issue 02 adds a recoverable Product Variant lifecycle without weakening the permanent Product ownership established in issue 01. Admins and Operators can remove a Variant from ordinary work after a specific confirmation, while only Admins can inspect deleted Variant records and restore them.
 
-This slice gives the team a stable Variant identity and a maintenance workflow now, while leaving the later BOM work a clean reference point. The live issue checklist is marked `implemented — awaiting review`.
+The reviewed issue checklist is marked `done`. This implementation remains deliberately inside the existing Product Variant slice; it does not add BOM behavior, new-work catalog search, or a new persistence abstraction.
 
-## Domain and Persistence Model
+## Lifecycle API
 
-The new `product_variants` table stores:
+Two bearer-protected Product-scoped routes extend the existing Variant API:
 
-- an internal numeric primary key;
-- a stable public identity in the form `PV-XXXXXX`;
-- the owning Product foreign key;
-- the commercial Variant name;
-- an independent `active` or `inactive` status;
-- creation, update, and soft-deletion timestamps.
-
-Product ownership is permanent. The foreign key uses `RESTRICT`, and neither the API contract nor the update path accepts a `productId`, so a Variant cannot be moved between Products. The Product model exposes the corresponding one-to-many relationship for later domain work.
-
-New Variants default to Active and do not require a BOM Implementation or specification. Changing a Variant to Inactive only changes its availability: its public identity, name, Product ownership, and timestamps remain intact.
-
-Names are trimmed and limited to 255 characters before they reach persistence. A partial database index enforces case-insensitive uniqueness for every non-deleted Active or Inactive Variant under the same Product. This means `Showroom` and `showroom` conflict within one Product, while another Product may legitimately use the same name. Soft-deleted rows are deliberately excluded from that index in preparation for the separately scoped deletion/restoration issue.
-
-## Shared Contracts
-
-The cross-application contracts live in Product Variant domain files in `shared-types` and `shared-validation`. They define:
-
-- the stable response shape used for a Variant;
-- the list response returned from Product context;
-- the create request, which accepts only the commercial name;
-- the update request, which accepts the name and independent Variant status;
-- the shared status vocabulary and maximum name length.
-
-The Zod schemas are used at both boundaries: the API validates incoming requests, while the web client validates form input and parses API responses. This keeps trimming, required-name behavior, length limits, and status values consistent across both applications.
-
-## Protected Product Routes
-
-Three bearer-protected nested routes keep Product ownership explicit:
-
-| Route | Behavior | Important constraints |
+| Route | Behavior | Authorization and constraints |
 | --- | --- | --- |
-| `GET /products/:productId/variants` | Lists the Product's non-deleted Variants in creation order. | Returns `404` when the Product identity does not exist. Deleted Variants stay out of ordinary results. |
-| `POST /products/:productId/variants` | Registers an Active Variant using its name as the only Variant-specific prerequisite. | The Product must be Active and non-deleted. Duplicate names return a field-level correction. |
-| `PUT /products/:productId/variants/:variantId` | Renames a Variant and changes its Active/Inactive status. | The nested Product scope prevents cross-Product access, and Product reassignment is not part of the payload. |
+| `DELETE /products/:productId/variants/:variantId` | Soft-deletes the addressed non-deleted Variant and returns `204`. | Admins and Operators may delete. The nested Product scope prevents addressing a Variant through another Product. |
+| `POST /products/:productId/variants/:variantId/restore` | Restores the deleted Variant and returns the recovered record. | Admin only. Restoration returns `422` when a non-deleted Variant under the same Product has taken the case-insensitive name. |
 
-The routes sit inside the existing bearer-authenticated group, so both Admins and Operators use the same established session boundary. The protected-route characterization test now includes all three endpoints and confirms that requests without a bearer token retain the generic `401 Unauthorized` behavior.
+`GET /products/:productId/variants` remains the ordinary list and excludes deleted records. An Admin may request `?includeDeleted=true` to inspect both current and deleted Variants. The same query from an Operator still returns only ordinary records, so a caller cannot bypass the Product-route role boundary by constructing the URL directly.
 
-## Availability, Ownership, and Concurrency
+The shared Product Variant response now carries a nullable deletion timestamp. That timestamp gives the Product route an explicit recovery-state signal while leaving identity, Product ID, commercial name, Active/Inactive status, and creation time intact.
 
-Variant creation checks Product availability independently from Product Lifecycle Status. An Active Product may receive a Variant whether it is in Concept, Testing, Finished, or any other lifecycle stage. An Inactive or soft-deleted Product cannot receive one.
+## Safe Restoration
 
-The availability check and insert run in one database transaction. Creation locks the Product row before evaluating its status, which prevents a concurrent Product inactivation or deletion from slipping between the check and the Variant insert.
+Restoration resolves both the Product and Variant through their stable IDs, includes soft-deleted rows explicitly, and keeps the original internal Product foreign key unchanged. It never accepts replacement ownership or replacement name data.
 
-Name uniqueness is protected twice:
+The service locks the Product and deleted Variant inside a transaction before checking the name. This coordinates restoration with the Product-locked Variant creation path. The existing partial unique index remains the final concurrency safeguard: only non-deleted Variant names participate, and any database race is translated into the same actionable name conflict.
 
-1. The service performs a friendly preflight check so ordinary conflicts return an actionable `name` error.
-2. The partial unique index remains the source of truth under concurrent requests; a database conflict is translated back into the same field-level response.
-
-Updates resolve the Variant through both its stable public ID and the owning Product's internal ID. Attempting to address a Variant through another Product returns `404` and leaves the original record unchanged. Updates remain allowed while a Product is Inactive so existing Variant records can still be maintained, but a soft-deleted Product cannot be changed through this workflow.
+An unavailable parent Product does not erase or reassign a deleted Variant. The Admin recovery list can still inspect it, and the same restoration name constraint applies while the Product is Inactive or deleted. Restoration changes only the deletion timestamp; the preserved Variant status and ownership remain untouched.
 
 ## Product Detail Experience
 
-The active Product detail page now includes a Product Variants card below the existing Product information. The card loads through a feature-local React Query hook and presents four pieces of information: Variant name, Active/Inactive status, stable public ID, and an Edit action.
+The Product Variants card adds lifecycle actions without changing the existing create/edit dialog:
 
-The empty state explains when a Variant should be added instead of presenting an unexplained blank table. Successful creates and edits update the Product-specific query cache immediately, so the user sees the saved Variant without reloading the page.
+- Every non-deleted row has a Delete action for Admins and Operators.
+- Delete opens a confirmation that names both the Product Variant and its Product before any request is sent.
+- After deletion, the ordinary list refreshes and the Variant disappears from normal work.
+- Admins receive an `Include deleted` control that loads preserved records from Product context.
+- Deleted rows are visibly marked `Deleted`, cannot be edited, and expose Restore only to Admins.
+- A successful restore refreshes the Product-specific Variant lists and returns the row to its preserved Active/Inactive state.
+- A restoration name conflict leaves the deleted row intact and displays the API's corrective message.
 
-The create dialog asks only for the commercial Variant name and explains that the new record starts Active. The edit dialog reuses the same name field and adds the Variant status control. Neither workflow exposes Product ownership, BOM state, or speculative configuration.
+The server-state hook keeps ordinary and include-deleted lists in separate query keys. Delete and restore invalidate only the current Product's Variant query family, so both projections refresh without affecting unrelated Product data.
 
-When the Product is Inactive, the card still shows and permits maintenance of existing Variants, but the Add action is disabled and an inline message explains that the Product must be activated first. This separates Product availability from the independent status of its existing Variants.
+## Focused Coverage
 
-Client-side validation catches blank and overlong names before a request is sent. Server-side duplicate-name or Product-availability failures keep the dialog open, retain the entered name and status, and display the API's corrective message. Loading, empty, failed-load, saving, and success states are all represented without introducing a new global state or notification system.
+The API tests cover:
 
-## Files and Responsibilities
+- Operator deletion and ordinary-list exclusion;
+- direct-query protection that prevents Operators from including complete deleted records;
+- Admin inspection of preserved identity, name, status, ownership, and deletion state;
+- Admin-only restoration and preserved Product ownership;
+- case-insensitive restoration conflicts with neither record overwritten;
+- preservation and conflict enforcement while the parent Product is Inactive;
+- bearer authentication on both lifecycle routes.
 
-- The migration and Lucid model own storage, stable identity, relationships, and soft-delete-aware querying.
-- `product_variants_service.ts` owns Product scoping, availability, uniqueness, transactional creation, serialization, and ID generation.
-- `product_variants_controller.ts` owns request validation and HTTP status/error mapping.
-- Shared Product Variant files own the cross-boundary types, constants, and Zod schemas.
-- The web endpoint adapters own transport and response parsing.
-- The feature-local Product Variant hook owns server state, cache updates, and mutations.
-- `product-variants-card.tsx` receives clean data and actions and owns only the focused maintenance interface.
+The Product-route tests cover:
 
-## Focused Test Coverage
-
-The API coverage exercises the behavior through HTTP and the database:
-
-- registration with whitespace normalization and default Active status;
-- stable `PV-…` identity and persisted Product ownership;
-- ordinary listing with soft-deleted Variants excluded;
-- rename and Active-to-Inactive status changes without identity loss;
-- rejection of cross-Product Variant addressing;
-- case-insensitive conflicts on create and update;
-- reuse of the same name under another Product;
-- rejection of creation under Inactive and soft-deleted Products regardless of Lifecycle Status;
-- rejection of names beyond the database's 255-character capacity;
-- bearer authentication for every new route.
-
-The Product-route coverage exercises the user workflow:
-
-- loading and displaying an existing Variant;
-- creating a new Variant and updating the visible cache;
-- renaming it and changing its status to Inactive;
-- preserving a typed name after an API availability failure;
-- preserving an overlong name while displaying the local length correction;
-- confirming that invalid input does not send a create request.
+- confirmation text identifying the Variant and Product before deletion;
+- deletion from the ordinary view;
+- Admin include-deleted inspection and successful restoration;
+- absence of history and recovery controls for Operators;
+- an actionable restoration conflict that leaves the deleted row visible.
 
 ## Focused Verification
 
-- Six focused API tests pass across the Product Variant and protected-route files.
-- Three focused Product-route tests pass.
-- API and web lint pass for the touched files.
-- API, web, shared-types, and shared-validation strict TypeScript checks pass.
-- Shared types and validation were rebuilt so the API and web consume the new domain exports.
-- The Product Variant migration was applied locally and migration status reports it completed.
+- Nine focused API tests pass across the Product Variant and protected-route files.
+- Six focused Product-route tests pass.
+- Lint passes for API, web, shared-types, and shared-validation.
+- Strict TypeScript checks pass for API, web, shared-types, and shared-validation.
+- Shared types and validation were rebuilt before the API checks.
 - `git diff --check` passes.
-- The implementation was checked against the current AdonisJS v7 routing/validation, Lucid relationship/migration, and React Hook Form error-preservation guidance.
-- Independent standards and specification reviews found no remaining actionable issues after the concurrency, validation, shared-contract organization, and frontend server-state findings were corrected.
+- The implementation was checked against current AdonisJS v7 route/controller guidance and TanStack Query mutation-cache guidance.
 
-The focused web test still emits React `act(...)` warnings around the existing Radix Select interaction, but all assertions pass. The complete test suites and the human/CI-owned `pnpm quality` gate were not run, as requested. All implementation and documentation changes remain uncommitted for review.
+The focused web test retains the existing React/Radix `act(...)` warnings around the issue-01 status Select interaction; all assertions pass. Complete test suites and `pnpm quality` were not run, per the requested review boundary. The reviewed implementation is ready to commit.

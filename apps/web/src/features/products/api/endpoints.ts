@@ -177,9 +177,16 @@ export async function restoreProduct(token: string, productId: string): Promise<
 
 export async function listProductVariants(
   token: string,
-  productId: string
+  productId: string,
+  options?: { includeDeleted?: boolean }
 ): Promise<ListProductVariantsResponse> {
-  const response = await fetch(resolveApiUrl(`/products/${productId}/variants`), {
+  const url = new URL(resolveApiUrl(`/products/${productId}/variants`), window.location.origin)
+
+  if (options?.includeDeleted) {
+    url.searchParams.set('includeDeleted', 'true')
+  }
+
+  const response = await fetch(url.toString(), {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -234,6 +241,50 @@ export async function updateProductVariant(
 
   if (!response.ok) {
     throw new Error(getResponseErrorMessage(body, 'Unable to save Product Variant.'))
+  }
+
+  return productVariantSchema.parse(body)
+}
+
+export async function deleteProductVariant(
+  token: string,
+  productId: string,
+  variantId: string
+): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/variants/${variantId}`), {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (response.status === 204) {
+    return
+  }
+
+  const body = await response.json()
+
+  throw new Error(getResponseErrorMessage(body, 'Unable to delete Product Variant.'))
+}
+
+export async function restoreProductVariant(
+  token: string,
+  productId: string,
+  variantId: string
+): Promise<ProductVariant> {
+  const response = await fetch(
+    resolveApiUrl(`/products/${productId}/variants/${variantId}/restore`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  )
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to restore Product Variant.'))
   }
 
   return productVariantSchema.parse(body)

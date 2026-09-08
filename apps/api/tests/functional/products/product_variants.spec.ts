@@ -210,6 +210,160 @@ test.group('Product Variants', (group) => {
       },
     })
   })
+
+  test('soft deletes a Product Variant and lets an Admin inspect the preserved record', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const variant = await createVariant(client, session.token, productId, 'Jackie Showroom')
+
+    const deleteResponse = await client
+      .delete(`/products/${productId}/variants/${variant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteResponse.assertStatus(204)
+
+    const ordinaryListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    ordinaryListResponse.assertStatus(200)
+    ordinaryListResponse.assertBody({ variants: [] })
+
+    const operatorRecoveryListResponse = await client
+      .get(`/products/${productId}/variants?includeDeleted=true`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    operatorRecoveryListResponse.assertStatus(200)
+    operatorRecoveryListResponse.assertBody({ variants: [] })
+
+    const adminSession = await authenticateAs(client, 'admin')
+    const recoveryListResponse = await client
+      .get(`/products/${productId}/variants?includeDeleted=true`)
+      .header('Authorization', `Bearer ${adminSession.token}`)
+
+    recoveryListResponse.assertStatus(200)
+    recoveryListResponse.assertBodyContains({
+      variants: [
+        {
+          id: variant.id,
+          productId,
+          name: 'Jackie Showroom',
+          status: 'active',
+        },
+      ],
+    })
+    assert.isString(recoveryListResponse.body().variants[0].deletedAt)
+  })
+
+  test('allows only an Admin to restore a Product Variant without changing its ownership', async ({
+    client,
+  }) => {
+    const adminSession = await authenticateAs(client, 'admin')
+    const productId = await createProduct(client, adminSession.token, 'Jackie')
+    const variant = await createVariant(client, adminSession.token, productId, 'Jackie Showroom')
+
+    await client
+      .delete(`/products/${productId}/variants/${variant.id}`)
+      .header('Authorization', `Bearer ${adminSession.token}`)
+
+    const operatorSession = await authenticateAs(client, 'operator')
+    const forbiddenRestoreResponse = await client
+      .post(`/products/${productId}/variants/${variant.id}/restore`)
+      .header('Authorization', `Bearer ${operatorSession.token}`)
+
+    forbiddenRestoreResponse.assertStatus(403)
+    forbiddenRestoreResponse.assertBody({
+      message: 'Only Admins can restore deleted Product Variants.',
+    })
+
+    const restoreResponse = await client
+      .post(`/products/${productId}/variants/${variant.id}/restore`)
+      .header('Authorization', `Bearer ${adminSession.token}`)
+
+    restoreResponse.assertStatus(200)
+    restoreResponse.assertBodyContains({
+      id: variant.id,
+      productId,
+      name: 'Jackie Showroom',
+      status: 'active',
+      deletedAt: null,
+    })
+
+    const ordinaryListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${operatorSession.token}`)
+
+    ordinaryListResponse.assertStatus(200)
+    ordinaryListResponse.assertBodyContains({
+      variants: [{ id: variant.id, productId, name: 'Jackie Showroom' }],
+    })
+  })
+
+  test('preserves a deleted Variant and blocks its name conflict while the Product is unavailable', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const deletedVariant = await createVariant(client, session.token, productId, 'Jackie Showroom')
+
+    await client
+      .delete(`/products/${productId}/variants/${deletedVariant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    const replacement = await createVariant(client, session.token, productId, 'jackie showroom')
+
+    const inactivateProductResponse = await client
+      .put(`/products/${productId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Jackie',
+        shortDescription: null,
+        lifecycleStatus: 'concept',
+        productStatus: 'inactive',
+        productCategory: null,
+        collectionId: null,
+      })
+
+    inactivateProductResponse.assertStatus(200)
+
+    const restoreResponse = await client
+      .post(`/products/${productId}/variants/${deletedVariant.id}/restore`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    restoreResponse.assertStatus(422)
+    restoreResponse.assertBody({
+      errors: {
+        name: ['Restore blocked: another Product Variant in this Product already uses this name.'],
+      },
+    })
+
+    const recoveryListResponse = await client
+      .get(`/products/${productId}/variants?includeDeleted=true`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    const variants = recoveryListResponse.body().variants as Array<{
+      id: string
+      name: string
+      productId: string
+      deletedAt: string | null
+    }>
+    const preservedVariant = variants.find((variant) => variant.id === deletedVariant.id)
+
+    assert.deepInclude(preservedVariant, {
+      id: deletedVariant.id,
+      name: 'Jackie Showroom',
+      productId,
+    })
+    assert.isString(preservedVariant?.deletedAt)
+    assert.deepInclude(
+      variants.find((variant) => variant.id === replacement.id),
+      { id: replacement.id, name: 'jackie showroom', productId, deletedAt: null }
+    )
+  })
 })
 
 async function authenticateAs(client: any, role: 'admin' | 'operator') {

@@ -20,8 +20,17 @@ export type ProductVariantMutationResult =
   | 'product-unavailable'
   | 'variant-not-found'
 
+type ProductVariantDeletionResult = 'deleted' | 'product-not-found' | 'variant-not-found'
+
+type ProductVariantRestorationResult =
+  | ProductVariantContract
+  | 'duplicate-name'
+  | 'product-not-found'
+  | 'variant-not-found'
+
 export async function listProductVariants(
-  productPublicId: string
+  productPublicId: string,
+  options?: { includeDeleted?: boolean }
 ): Promise<ListProductVariantsResponse | 'product-not-found'> {
   const product = await findProductWithDeleted(productPublicId)
 
@@ -29,9 +38,13 @@ export async function listProductVariants(
     return 'product-not-found'
   }
 
-  const variants = await ProductVariant.query()
-    .where('productId', product.id)
-    .orderBy('createdAt', 'asc')
+  const variantsQuery = ProductVariant.query().where('productId', product.id)
+
+  if (options?.includeDeleted) {
+    ProductVariant.includeDeleted(variantsQuery)
+  }
+
+  const variants = await variantsQuery.orderBy('createdAt', 'asc')
 
   return {
     variants: variants.map((variant) => serializeProductVariant(variant, product.publicId)),
@@ -129,6 +142,74 @@ export async function updateProductVariant(
   }
 }
 
+export async function softDeleteProductVariant(
+  productPublicId: string,
+  variantPublicId: string
+): Promise<ProductVariantDeletionResult> {
+  const product = await findProductWithDeleted(productPublicId)
+
+  if (!product) {
+    return 'product-not-found'
+  }
+
+  const variant = await ProductVariant.query()
+    .where('publicId', variantPublicId)
+    .where('productId', product.id)
+    .first()
+
+  if (!variant) {
+    return 'variant-not-found'
+  }
+
+  await variant.softDelete()
+
+  return 'deleted'
+}
+
+export async function restoreProductVariant(
+  productPublicId: string,
+  variantPublicId: string
+): Promise<ProductVariantRestorationResult> {
+  try {
+    return await db.transaction(async (trx) => {
+      const productQuery = Product.query({ client: trx })
+        .where('publicId', productPublicId)
+        .forUpdate()
+      Product.includeDeleted(productQuery)
+      const product = await productQuery.first()
+
+      if (!product) {
+        return 'product-not-found'
+      }
+
+      const variantQuery = ProductVariant.query({ client: trx })
+        .where('publicId', variantPublicId)
+        .where('productId', product.id)
+        .forUpdate()
+      ProductVariant.includeDeleted(variantQuery)
+      const variant = await variantQuery.first()
+
+      if (!variant || !variant.deletedAt) {
+        return 'variant-not-found'
+      }
+
+      if (await hasDuplicateName(product.id, variant.name, variant.id, trx)) {
+        return 'duplicate-name'
+      }
+
+      await variant.restore()
+
+      return serializeProductVariant(variant, product.publicId)
+    })
+  } catch (error) {
+    if (isProductVariantNameConflict(error)) {
+      return 'duplicate-name'
+    }
+
+    throw error
+  }
+}
+
 function serializeProductVariant(
   variant: ProductVariant,
   productPublicId: string
@@ -138,6 +219,7 @@ function serializeProductVariant(
     productId: productPublicId,
     name: variant.name,
     status: variant.status,
+    deletedAt: variant.deletedAt?.toISO() ?? null,
     createdAt: variant.createdAt.toISO()!,
   }
 }

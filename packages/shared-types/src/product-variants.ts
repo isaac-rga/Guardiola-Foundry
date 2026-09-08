@@ -7,6 +7,7 @@ export interface ProductVariant {
   productId: string
   name: string
   status: ProductVariantStatus
+  deletedAt: string | null
   createdAt: string
 }
 

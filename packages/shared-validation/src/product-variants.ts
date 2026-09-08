@@ -23,6 +23,7 @@ export const productVariantSchema = z.object({
   productId: z.string().min(1),
   name: productVariantNameSchema,
   status: productVariantStatusSchema,
+  deletedAt: z.string().datetime({ offset: true }).nullable(),
   createdAt: z.string().datetime({ offset: true }),
 }) satisfies z.ZodType<ProductVariant>
 

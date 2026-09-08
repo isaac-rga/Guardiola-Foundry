@@ -52,6 +52,14 @@ test.group('Bearer-protected routes', () => {
         send: () => client.put('/products/P-ABC234/variants/PV-ABC234'),
       },
       {
+        route: 'DELETE /products/:productId/variants/:variantId',
+        send: () => client.delete('/products/P-ABC234/variants/PV-ABC234'),
+      },
+      {
+        route: 'POST /products/:productId/variants/:variantId/restore',
+        send: () => client.post('/products/P-ABC234/variants/PV-ABC234/restore'),
+      },
+      {
         route: 'POST /products/:productId/restore',
         send: () => client.post('/products/P-ABC234/restore'),
       },

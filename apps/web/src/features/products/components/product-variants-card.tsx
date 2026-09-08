@@ -31,16 +31,28 @@ const defaultFormValues: UpdateProductVariantRequest = {
 }
 
 export function ProductVariantsCard({
+  includeDeleted,
+  isAdmin,
+  isChangingAvailability,
   isLoading,
   isSaving,
   loadError,
+  onDelete,
+  onIncludeDeletedChange,
+  onRestore,
   onSave,
   product,
   variants,
 }: {
+  includeDeleted: boolean
+  isAdmin: boolean
+  isChangingAvailability: boolean
   isLoading: boolean
   isSaving: boolean
   loadError: unknown
+  onDelete: (variantId: string) => Promise<void>
+  onIncludeDeletedChange: (includeDeleted: boolean) => void
+  onRestore: (variantId: string) => Promise<ProductVariant>
   onSave: (input: {
     currentVariant: ProductVariant | null
     values: UpdateProductVariantRequest
@@ -52,6 +64,8 @@ export function ProductVariantsCard({
   const [editingVariant, setEditingVariant] = useState<ProductVariant | null>(null)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null)
+  const [variantPendingDeletion, setVariantPendingDeletion] = useState<ProductVariant | null>(null)
   const form = useForm<UpdateProductVariantRequest>({
     resolver: zodResolver(updateProductVariantRequestSchema),
     defaultValues: defaultFormValues
@@ -83,9 +97,22 @@ export function ProductVariantsCard({
               Maintain commercially named, constructively distinct Variants without treating them as Product revisions.
             </CardDescription>
           </div>
-          <Button type="button" disabled={!isProductActive} onClick={() => openCreateDialog()}>
-            Add Product Variant
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {isAdmin ? (
+              <Button
+                type="button"
+                variant={includeDeleted ? 'secondary' : 'outline'}
+                aria-pressed={includeDeleted}
+                disabled={isChangingAvailability}
+                onClick={() => onIncludeDeletedChange(!includeDeleted)}
+              >
+                {includeDeleted ? 'Including deleted' : 'Include deleted'}
+              </Button>
+            ) : null}
+            <Button type="button" disabled={!isProductActive} onClick={() => openCreateDialog()}>
+              Add Product Variant
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {!isProductActive ? (
@@ -100,6 +127,15 @@ export function ProductVariantsCard({
               role="status"
             >
               {feedbackMessage}
+            </p>
+          ) : null}
+
+          {availabilityError ? (
+            <p
+              className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+              role="alert"
+            >
+              {availabilityError}
             </p>
           ) : null}
 
@@ -134,16 +170,51 @@ export function ProductVariantsCard({
                   <TableRow key={variant.id}>
                     <TableCell className="font-medium text-foreground">{variant.name}</TableCell>
                     <TableCell>
-                      <StatusBadge
-                        label={variant.status === 'active' ? 'Active' : 'Inactive'}
-                        tone={variant.status === 'active' ? 'success' : 'muted'}
-                      />
+                      {variant.deletedAt ? (
+                        <StatusBadge label="Deleted" tone="danger" />
+                      ) : (
+                        <StatusBadge
+                          label={variant.status === 'active' ? 'Active' : 'Inactive'}
+                          tone={variant.status === 'active' ? 'success' : 'muted'}
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{variant.id}</TableCell>
                     <TableCell className="text-right">
-                      <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(variant)}>
-                        Edit
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        {variant.deletedAt ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isChangingAvailability}
+                            onClick={() => void restoreVariant(variant)}
+                          >
+                            Restore
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isChangingAvailability}
+                              onClick={() => openEditDialog(variant)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isChangingAvailability}
+                              onClick={() => openDeleteDialog(variant)}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -235,6 +306,43 @@ export function ProductVariantsCard({
           </Form>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={variantPendingDeletion !== null}
+        onOpenChange={(open) => {
+          if (!open && !isChangingAvailability) {
+            setVariantPendingDeletion(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {variantPendingDeletion?.name}?</DialogTitle>
+            <DialogDescription>
+              Delete Product Variant {variantPendingDeletion?.name} from Product {product.name}? The record will be
+              removed from ordinary work but preserved for Admin recovery.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isChangingAvailability}
+              onClick={() => setVariantPendingDeletion(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isChangingAvailability}
+              onClick={() => void deleteVariant()}
+            >
+              {isChangingAvailability ? 'Deleting Product Variant…' : 'Delete Product Variant'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 
@@ -250,6 +358,42 @@ export function ProductVariantsCard({
     setSubmissionError(null)
     form.reset({ name: variant.name, status: variant.status })
     setIsDialogOpen(true)
+  }
+
+  function openDeleteDialog(variant: ProductVariant) {
+    setAvailabilityError(null)
+    setFeedbackMessage(null)
+    setVariantPendingDeletion(variant)
+  }
+
+  async function deleteVariant() {
+    if (!variantPendingDeletion) {
+      return
+    }
+
+    try {
+      await onDelete(variantPendingDeletion.id)
+      setFeedbackMessage(`Deleted ${variantPendingDeletion.name}.`)
+      setVariantPendingDeletion(null)
+    } catch (error) {
+      setAvailabilityError(
+        error instanceof Error ? error.message : 'Unable to delete Product Variant.'
+      )
+    }
+  }
+
+  async function restoreVariant(variant: ProductVariant) {
+    setAvailabilityError(null)
+    setFeedbackMessage(null)
+
+    try {
+      const restoredVariant = await onRestore(variant.id)
+      setFeedbackMessage(`Restored ${restoredVariant.name}.`)
+    } catch (error) {
+      setAvailabilityError(
+        error instanceof Error ? error.message : 'Unable to restore Product Variant.'
+      )
+    }
   }
 
   function handleDialogChange(open: boolean) {

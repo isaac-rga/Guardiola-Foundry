@@ -231,6 +231,196 @@ describe('Product Variants on the product route', () => {
       )
     ).toHaveLength(0)
   })
+
+  it('confirms deletion with Product context and lets an Admin include and restore the Variant', async () => {
+    const user = userEvent.setup()
+    let variant = variantFixture({ id: 'PV-SHOW01', name: 'Jackie Showroom' })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse(sessionFixture())
+      }
+
+      if (url.pathname === '/products/P-JACKIE' && init?.method === 'GET') {
+        return jsonResponse(productDetailFixture())
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({ products: [productDetailFixture().product], collections: [] })
+      }
+
+      if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'GET') {
+        return jsonResponse({
+          variants: url.searchParams.get('includeDeleted') === 'true' || !variant.deletedAt ? [variant] : []
+        })
+      }
+
+      if (
+        url.pathname === '/products/P-JACKIE/variants/PV-SHOW01' &&
+        init?.method === 'DELETE'
+      ) {
+        variant = { ...variant, deletedAt: '2026-09-08T16:00:00.000Z' }
+        return new Response(null, { status: 204 })
+      }
+
+      if (
+        url.pathname === '/products/P-JACKIE/variants/PV-SHOW01/restore' &&
+        init?.method === 'POST'
+      ) {
+        variant = { ...variant, deletedAt: null }
+        return jsonResponse(variant)
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+    renderProductRoute()
+
+    const variantName = await screen.findByText('Jackie Showroom')
+    const variantRow = variantName.closest('tr')
+    expect(variantRow).not.toBeNull()
+
+    await user.click(within(variantRow as HTMLTableRowElement).getByRole('button', { name: 'Delete' }))
+
+    const confirmationDialog = screen.getByRole('dialog')
+    expect(
+      within(confirmationDialog).getByRole('heading', { name: 'Delete Jackie Showroom?' })
+    ).toBeInTheDocument()
+    expect(within(confirmationDialog).getByText(/Product Jackie/)).toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.some(([, init]) => init?.method === 'DELETE')
+    ).toBe(false)
+
+    await user.click(
+      within(confirmationDialog).getByRole('button', { name: 'Delete Product Variant' })
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Jackie Showroom')).not.toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
+
+    const deletedVariantName = await screen.findByText('Jackie Showroom')
+    const deletedVariantRow = deletedVariantName.closest('tr')
+    expect(deletedVariantRow).not.toBeNull()
+    expect(within(deletedVariantRow as HTMLTableRowElement).getByText('Deleted')).toBeInTheDocument()
+
+    await user.click(
+      within(deletedVariantRow as HTMLTableRowElement).getByRole('button', { name: 'Restore' })
+    )
+
+    await waitFor(() => {
+      expect(within(deletedVariantRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
+    })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/products/P-JACKIE/variants/PV-SHOW01/restore',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('does not offer deleted Variant history or recovery to an Operator', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse(sessionFixture('operator'))
+      }
+
+      if (url.pathname === '/products/P-JACKIE' && init?.method === 'GET') {
+        return jsonResponse(productDetailFixture())
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({ products: [productDetailFixture().product], collections: [] })
+      }
+
+      if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'GET') {
+        return jsonResponse({ variants: [] })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession('operator')
+    renderProductRoute()
+
+    await screen.findByText('No Product Variants registered yet.')
+    expect(screen.queryByRole('button', { name: /deleted/i })).not.toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.some(([input]) => String(input).includes('includeDeleted=true'))
+    ).toBe(false)
+  })
+
+  it('keeps a deleted Variant visible and explains an Admin restoration name conflict', async () => {
+    const user = userEvent.setup()
+    const deletedVariant = variantFixture({
+      id: 'PV-SHOW01',
+      name: 'Jackie Showroom',
+      deletedAt: '2026-09-08T16:00:00.000Z'
+    })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse(sessionFixture())
+      }
+
+      if (url.pathname === '/products/P-JACKIE' && init?.method === 'GET') {
+        return jsonResponse(productDetailFixture())
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({ products: [productDetailFixture().product], collections: [] })
+      }
+
+      if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'GET') {
+        return jsonResponse({
+          variants: url.searchParams.get('includeDeleted') === 'true' ? [deletedVariant] : []
+        })
+      }
+
+      if (
+        url.pathname === '/products/P-JACKIE/variants/PV-SHOW01/restore' &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            errors: {
+              name: [
+                'Restore blocked: another Product Variant in this Product already uses this name.'
+              ]
+            }
+          },
+          { status: 422 }
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+    renderProductRoute()
+
+    await screen.findByText('No Product Variants registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
+    const deletedVariantRow = (await screen.findByText('Jackie Showroom')).closest('tr')
+    expect(deletedVariantRow).not.toBeNull()
+
+    await user.click(
+      within(deletedVariantRow as HTMLTableRowElement).getByRole('button', { name: 'Restore' })
+    )
+
+    expect(
+      await screen.findByText(
+        'Restore blocked: another Product Variant in this Product already uses this name.'
+      )
+    ).toHaveAttribute('role', 'alert')
+    expect(screen.getByText('Jackie Showroom')).toBeInTheDocument()
+    expect(within(deletedVariantRow as HTMLTableRowElement).getByText('Deleted')).toBeInTheDocument()
+  })
 })
 
 function renderProductRoute() {
@@ -254,26 +444,26 @@ function renderProductRoute() {
   )
 }
 
-function seedStoredSession() {
+function seedStoredSession(role: 'admin' | 'operator' = 'admin') {
   localStorage.setItem(
     AUTH_SESSION_STORAGE_KEY,
     JSON.stringify({
       token: 'opaque-access-token',
       tokenType: 'Bearer',
       expiresAt: '2026-09-08T18:33:00.000Z',
-      user: sessionFixture().user
+      user: sessionFixture(role).user
     })
   )
 }
 
-function sessionFixture() {
+function sessionFixture(role: 'admin' | 'operator' = 'admin') {
   return {
     tokenType: 'Bearer' as const,
     expiresAt: '2026-09-08T18:33:00.000Z',
     user: {
       id: 1,
-      email: 'admin@example.com',
-      role: 'admin' as const,
+      email: `${role}@example.com`,
+      role,
       active: true
     }
   }
@@ -298,12 +488,18 @@ function productDetailFixture() {
   }
 }
 
-function variantFixture(overrides: { id: string; name: string; status?: 'active' | 'inactive' }) {
+function variantFixture(overrides: {
+  id: string
+  name: string
+  status?: 'active' | 'inactive'
+  deletedAt?: string | null
+}) {
   return {
     id: overrides.id,
     productId: 'P-JACKIE',
     name: overrides.name,
     status: overrides.status ?? 'active',
+    deletedAt: overrides.deletedAt ?? null,
     createdAt: '2026-09-08T15:00:00.000Z'
   }
 }

@@ -91,6 +91,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const [removeImage, setRemoveImage] = useState(false)
   const [imageInputKey, setImageInputKey] = useState(0)
   const [isNavigatingAfterDelete, setIsNavigatingAfterDelete] = useState(false)
+  const [includeDeletedVariants, setIncludeDeletedVariants] = useState(false)
   const productQueryKey = productDetailQueryKey(productId)
   const defaultProductsQueryKey = productListQueryKey(false)
   const form = useForm<UpdateProductRequest>({
@@ -109,7 +110,13 @@ export function ProductEditPage({ productId }: { productId: string }) {
   const product = productQuery.data?.state === 'active' ? productQuery.data.product : null
   const deletedProduct = productQuery.data?.state === 'deleted' ? productQuery.data.product : null
   const collections = productQuery.data?.state === 'active' ? productQuery.data.collections : []
-  const productVariants = useProductVariants(session.token, productId, product !== null)
+  const isAdmin = session.user.role === 'admin'
+  const productVariants = useProductVariants(
+    session.token,
+    productId,
+    product !== null,
+    isAdmin && includeDeletedVariants
+  )
   const hasPendingImageChanges = selectedImageFile !== null || removeImage
   const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
 
@@ -608,11 +615,17 @@ export function ProductEditPage({ productId }: { productId: string }) {
       </div>
 
       <ProductVariantsCard
+        isAdmin={isAdmin}
+        includeDeleted={includeDeletedVariants}
         product={product}
         variants={productVariants.variants}
         isLoading={productVariants.isLoading}
         loadError={productVariants.loadError}
         isSaving={productVariants.isSaving}
+        isChangingAvailability={productVariants.isChangingAvailability}
+        onDelete={productVariants.deleteVariant}
+        onIncludeDeletedChange={setIncludeDeletedVariants}
+        onRestore={productVariants.restoreVariant}
         onSave={productVariants.saveVariant}
       />
     </div>
