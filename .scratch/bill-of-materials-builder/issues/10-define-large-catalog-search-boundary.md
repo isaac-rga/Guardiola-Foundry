@@ -1,7 +1,7 @@
 # Define the large-catalog search boundary for BOM workflows
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 02, 05, 06, 08, 09
 
 ## Question
@@ -21,66 +21,72 @@ How should the BOM workflows search and select Materials, Pattern Sets, and Prod
 - Active catalog records are available for new selection. Existing Retired or otherwise unavailable references remain visible and removable on retained BOM Lines but are not ordinary new selections.
 - The prototype uses small in-memory fixtures only. It does not decide the production query, API, caching, pagination, virtualization, stale-reference, or failure behavior.
 
-## Decisions to resolve
+## Answer
 
-### Query ownership and trigger
+### Ownership and request contracts
 
-- Whether each catalog is searched remotely, loaded locally, or uses a measured hybrid strategy.
-- When a query begins, including empty-query behavior, minimum input length, debounce, cancellation, and replacement of older responses.
-- Whether Material, Pattern Set, and Product Variant require different query policies because their expected scale, searchable attributes, eligibility rules, or entry points differ.
-- Whether the Product Variant dialog queries globally and applies a Product constraint or uses a distinct Product-scoped request when deriving from a Template or entering from a Product context.
+- Material, Pattern Set, and Product Variant selection use separate remote-search contracts and never require the browser to load an entire catalog. Materials owns Material identity and search, Pattern Sets owns its catalog and proposals, Products/Product Variants owns Variant identity and availability, and BOM owns Implementation occupancy and final eligibility composition.
+- The dialogs remain idle until the User enters non-empty text. Input is normalized and debounced for approximately 250 milliseconds without a minimum character count. A newer query cancels the previous request where possible, late responses for superseded text are ignored, and clearing the input returns to idle.
+- Material and Pattern Set requests contain only normalized search text. Product Variant requests also carry explicit workflow context: manual creation is global, Product-context creation carries Product ID, and derivation carries Template ID so the server derives and enforces the associated Product.
+- The server fixes the limit at 25; clients cannot request a larger limit. Responses use catalog-specific `items` plus `hasMore`, evaluated by reading at most 26 ordered matches and returning the first 25. There is no pagination, total count, incremental loading, or virtualization in the first delivery.
+- BOM Builder access grants read access to these minimum selection projections. Catalog management permissions still govern creation, editing, retirement, deletion, and restoration.
 
-### Matching and relevance
+### Matching and ordering
 
-- Which fields are searchable for each catalog and which are display-only context.
-- Case, accent, whitespace, identifier, exact-match, prefix-match, and partial-match behavior.
-- Relevance ordering, deterministic tie-breaking, maximum returned results, and whether recent or frequently selected records influence ranking.
-- Whether additional filters are needed without turning the Builder into a second catalog-management screen.
-- How Product Variant eligibility affects ranking and visibility, including whether ineligible matches are omitted or displayed with a non-selectable reason.
+- Matching is case-insensitive and accent-insensitive, trims surrounding whitespace, and collapses consecutive internal whitespace without changing stored or displayed values.
+- Multi-word queries use order-independent AND semantics across searchable fields: every word must match at least one field.
+- Material matches Material ID, name, color, Material Use, and visible Preferred Source context: Source name, Vendor, Vendor Shade or other detail, and width. Material identity matches outrank Source-context-only matches.
+- Pattern Set matches only Pattern Set ID and name. Proposal count is display-only context.
+- Product Variant matches Variant ID and commercial name plus Product ID and name. Availability, occupancy, and ineligibility reasons are display-only context.
+- Results rank by exact ID, exact primary name, ID prefix, primary-name prefix, word match, and partial secondary-context match. Primary name and then stable ID break ties. Product Variant relevance remains primary, with eligible candidates winning only otherwise equivalent ties. Ranking is not personalized by recency or frequency.
 
-### Result contract
+### Result projections and eligibility
 
-- The minimum Material result projection needed to render Material name, Material ID, width, Source name, Vendor, Vendor Shade or Source detail, availability, attention, and any cost context chosen for the Builder.
-- The minimum Pattern Set result projection needed to render identity, name, lifecycle availability, proposal count, and enough context to distinguish similarly named records.
-- The minimum Product Variant result projection needed to render Variant identity and commercial name, Product identity and name, Product and Variant availability, existing-Implementation occupancy, and a canonical eligibility outcome or reason.
-- Whether proposal contents load with search results or only after a Pattern Set is selected or its proposal dialog is opened.
-- How the response distinguishes selectable results from retained unavailable references without treating Source metadata as BOM-owned evidence.
-- Whether Product Variant eligibility is projected by the Product catalog or composed by the BOM application without duplicating the one-Implementation-per-Variant invariant.
+| Catalog | Minimum search item |
+| --- | --- |
+| Material | Material ID, name, color, Material Use, Preferred Source ID and name, Vendor, Vendor Shade or detail, width, and attention signals. Search omits cost; BOM Cost Projection appears after selection. |
+| Pattern Set | Pattern Set ID, name, and proposal count. Search omits description and proposal contents. |
+| Product Variant candidate | Variant ID and name, Product ID and name, relevant availability, `selectable`, one canonical outcome, and existing BOM Implementation ID when occupied. |
 
-### Loading and scale
+- The BOM UI makes one Product Variant candidate request. The server composes Product-owned availability with BOM-owned occupancy and returns `eligible`, `implementation-exists`, `product-unavailable`, or `variant-inactive`. When multiple reasons apply, precedence is `implementation-exists`, then `product-unavailable`, then `variant-inactive`.
+- Ineligible in-scope Variant matches remain visible and non-selectable with their reason. Derivation excludes Variants outside the Template's Product entirely. Soft-deleted Materials, Products, and Product Variants and Retired Pattern Sets are absent from ordinary new-selection results.
+- An Active Material remains selectable when sourcing needs attention; its line follows existing partial or unavailable cost-projection rules.
+- Pattern Set search returns only proposal count. Proposal contents load when the selected Pattern Set or its proposals dialog needs them.
 
-- Pagination, cursor or offset semantics, incremental loading, and whether result virtualization is required for the first delivery.
-- Loading indicators for the initial query and subsequent pages without replacing a usable current selection.
-- Cache scope, freshness, invalidation, and reuse between BOM Lines, catalog entry dialogs, and Builder sessions.
-- A practical performance target and the catalog-size assumptions that justify the selected approach.
+### Cache, freshness, and canonical validation
 
-### Current, retired, and stale references
+- Identical searches reuse the existing session-local in-memory query cache for 30 seconds; cache is not persisted across reloads. Material/Source, Pattern Set, and BOM Implementation mutations in the same client invalidate only their affected search families. There is no polling or real-time cross-user synchronization.
+- Persisted Material and Pattern Set references resolve by stable ID when the Builder loads and again when their cached resolution is stale on selector open. Retained unavailable references stay visible and removable; if details cannot load, the Builder shows the stable ID with `Details unavailable` and still permits saving the unchanged reference.
+- A newly chosen Material deleted before save or Pattern Set retired before save is rejected by atomic save with a field-level reason while preserving the draft. Unchanged retained references remain saveable.
+- Product Variant search provides the first eligibility validation; there is no extra preflight when opening the Builder. Atomic Implementation creation validates again. If another User occupies the Variant first, save preserves the draft and reports the conflict without reassignment or special recovery actions.
+- An existing Implementation remains editable when its fixed Product Variant becomes Inactive or soft-deleted or its Product becomes unavailable. The Builder resolves the fixed context by ID and labels its unavailability without breaking or reassigning the relationship.
+- Preferred Source name, Vendor, Vendor Shade, width, Landed Unit Cost, and BOM Cost Projection remain live projections. Their changes do not block save, and a successful save refreshes current context and projected cost.
 
-- How the Builder resolves and displays an already selected Material or Pattern Set that is absent from ordinary Active search results.
-- What happens when a record becomes Retired, unavailable, changed, or deleted while the Builder is open.
-- How replacing or clearing a retained unavailable reference differs from attempting a new selection.
-- Which conditions require refreshing result metadata and which are validated canonically during atomic BOM save.
-- What happens when a selected Product Variant becomes inactive, its Product becomes unavailable, or another Implementation occupies it after selection but before the first save.
-- How the catalog and Builder preserve the fixed Product Variant context of an already saved Implementation even when that Variant later becomes unavailable.
+### UI state table
 
-### Empty, failure, and recovery behavior
+| State | Dialog behavior | Current selection and saving |
+| --- | --- | --- |
+| Idle | Prompts the User to type; no request or results. | Existing selection remains visible outside the dialog. |
+| Debouncing | Waits approximately 250 ms after the latest input. | Existing selection is unchanged. |
+| Loading | Removes prior-query results and shows one simple loader. | Existing selection is unchanged. |
+| Results | Shows up to 25 deterministically ordered matches. | Selecting an eligible item closes the dialog. |
+| More matches | Shows the first 25 and asks the User to refine the search when `hasMore` is true. | No Load more action exists. |
+| Empty | Shows `No matches for "{query}"` and suggests checking name or ID. | No inline catalog creation or editing is offered. |
+| Recoverable failure | Keeps the dialog open with a concise error and `Try again`. | Does not clear the current selection. |
+| Authentication failure | Delegates to the global session flow. | Does not silently clear the selection. |
+| Authorization failure | Shows a non-retryable dialog message. | Does not silently clear the selection. |
+| Retained unavailable | Shows the resolved record as unavailable and outside ordinary new selection. | May be kept, removed, or replaced; keeping it does not block save. |
+| Retained details unavailable | Shows stable ID and `Details unavailable`. | May be kept or removed; replacement requires validated search. |
+| Newly selected reference becomes unavailable | Atomic save preserves the draft and reports a field-level error. | Must be removed or replaced before save can succeed. |
+| Product Variant becomes occupied | Atomic creation preserves the draft and reports the conflict. | No automatic reassignment or special recovery action. |
+| Pattern proposals fail | Keeps the Pattern Set and shows `Try again` in the proposals dialog. | Final meters remains manually editable and saving is allowed. |
 
-- Distinct UI behavior for no query yet, no matches, initial loading, incremental loading, recoverable failure, authorization failure, and catalog unavailability.
-- Retry behavior and whether a previously selected value remains usable when search temporarily fails.
-- What the Builder may save when catalog lookup is unavailable versus when the API proves that a newly chosen reference is invalid.
-- Whether a Product Variant selection may remain visible after a lookup failure while still requiring canonical eligibility validation before creating the Implementation.
+### Interaction, accessibility, and performance
 
-### Interaction and accessibility
-
-- Keyboard navigation, focus return, selection announcement, dialog closure, and screen-reader result context.
-- Responsive behavior for narrow screens and whether large-result browsing needs a different presentation without reopening the validated field and dialog placement.
-
-## Expected resolution
-
-- Distinct production search contracts for Material, Pattern Set, and Product Variant with explicit request, response, ordering, pagination, lifecycle, and eligibility semantics.
-- A complete state table for idle, loading, results, empty, additional loading, failure, retained unavailable selection, and stale selection.
-- Clear ownership between the BOM workflows and the Product, Product Variant, Material, Source, and Pattern Set catalogs.
-- Decisions specific enough for the later BOM specification and implementation tickets to define focused API and web slices without copying assumptions from the prototype.
+- Successful selection closes the dialog, returns focus to its trigger, and announces the selected item. Activating an ineligible Variant keeps the dialog open and announces its reason.
+- Results remain native interactive controls supporting Tab, Enter or Space, and the dialog's Escape behavior. The first delivery adds no Arrow Up/Down, Home/End, active-descendant, or other advanced listbox navigation.
+- A discreet live region announces loading, result count, no matches, and failures. Narrow screens use the same flow in a near-full-screen dialog with vertically stacked result context.
+- Catalog search targets server-response p95 at or below 500 milliseconds against at least 10,000 active records per catalog, measured separately from the 250-millisecond debounce.
 
 ## Out of scope
 
