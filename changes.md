@@ -1,43 +1,34 @@
-# Manage Reusable Pattern Sets and Quantity Proposals
+# Create and Browse Unassociated BOM Templates
 
-Issue 03 gives authenticated Admins and Operators an independent Pattern Set catalog with reusable width-based Quantity Proposals, stable identity, and recoverable retirement. Proposals remain advisory evidence: this slice does not calculate or persist final Bill of Materials quantities.
+Issue 04 replaces the Bills of Materials fixtures with the first persisted tracer bullet. Authenticated Admins and Operators can enter the approved Construction Board from the operational catalog, save an unassociated Template with its own identity and metadata, and find it again after navigation or reload. Product relationships, origins, BOM Lines, editing, and lifecycle actions remain outside this slice.
 
-## Stable Catalog Records and Proposal Evidence
+## Stable Template Records
 
-The [Pattern Set contract](packages/shared-types/src/pattern-sets.ts) and [runtime schemas](packages/shared-validation/src/pattern-sets.ts) define a required trimmed name, optional description, Active or Retired status, immutable creation metadata, and zero or more Quantity Proposals. Each proposal requires a positive assumed width and positive meter quantity, limits quantity to three decimal places, accepts an optional evidence note, rejects duplicate widths, and is returned in ascending width order.
+The [shared contract](packages/shared-types/src/bills-of-materials.ts) and [runtime schemas](packages/shared-validation/src/bills-of-materials.ts) define the canonical catalog and create payloads: a permanent kind, required trimmed display name, optional normalized description, stable identity, immutable creator and creation time, and latest update time.
 
-The [database migration](apps/api/database/migrations/1788920000000_create_pattern_sets_tables.ts) gives every Pattern Set a permanent internal key and stable `PS-` public identity. Database constraints keep normalized names unique across both Active and Retired records, protect positive proposal values and meter precision, and prevent duplicate widths within one Pattern Set.
+The [database migration](apps/api/database/migrations/1789006400000_create_bills_of_materials_table.ts) creates the shared Bills of Materials table without prematurely adding later Product, Variant, origin, line, or lifecycle fields. The [model and service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) generate stable `BOM-` identities, create Templates atomically, retain creator metadata, and return the newest-updated records through one persisted catalog contract.
 
-## Atomic Management and Recoverable Retirement
+## Authenticated Catalog and Explicit Creation
 
-The [Pattern Set service](apps/api/app/modules/pattern_sets/services/pattern_sets_service.ts) creates and updates each Pattern Set and its complete proposal collection transactionally. Updates replace the exclusively owned proposals as one unit, while row locks coordinate edits, retirement, and restoration so lifecycle changes cannot silently cross.
+The [bearer-protected controller](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts) exposes focused list and create operations. The server accepts only Template creation in this issue and returns structured validation errors without creating a partial record.
 
-The [bearer-protected controller](apps/api/app/modules/pattern_sets/controllers/pattern_sets_controller.ts) lets Admins and Operators browse Active records, create, edit, and retire unused Pattern Sets. Retired records preserve identity, description, proposals, and creation metadata; they cannot be edited or returned by the ordinary list. Only Admins may include Retired records and restore them.
-
-## Independent Pattern Set Workspace
-
-The [Pattern Set catalog](apps/web/src/features/pattern-sets/pattern-sets-page.tsx) is available at `/app/pattern-sets` from the authenticated workspace navigation. Rows expose stable identity, status, description, ordered proposal evidence, and creation metadata. Active records offer focused Edit and Retire actions; Admins additionally receive `Include retired` and Restore controls, while Operators never receive recovery history.
-
-The shared create/edit dialog supports zero or more proposal rows and explains that proposals do not calculate final quantity. Client and server validation failures leave the dialog and entered draft intact. Retirement uses a focused confirmation naming the Pattern Set and the information that remains preserved.
+The [production Bills of Materials route](apps/web/src/routes/app.bills-of-materials.tsx) now opens a database-backed operational catalog instead of the fixture prototype. `Create BOM` offers the in-scope Template action, which enters an empty Construction Board with an editable name, optional description, and one explicit `Save BOM` action. Opening or leaving that Builder performs no mutation; a successful save refreshes the catalog and visibly labels the persisted record as a Template.
 
 ## Focused Coverage
 
-The [API acceptance tests](apps/api/tests/functional/pattern_sets/pattern_sets.spec.ts) prove creation metadata, normalized uniqueness across Active and Retired records, positive values, quantity precision, duplicate-width rejection, ascending ordering, atomic editing, retirement, restoration, authentication, and role boundaries.
+The [API functional tests](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts) prove empty catalog behavior, Admin and Operator creation, trimmed and nullable metadata, stable identity, immutable creation metadata, persisted reload, validation without partial creation, and bearer authentication for both endpoints.
 
-The [catalog route tests](apps/web/src/routes/-pattern-sets.test.tsx) prove Operator browsing and management, Admin-only recovery, proposal rendering, retirement confirmation, and duplicate-width validation without losing the form. The authenticated-shell route tests cover the new navigation entry.
+The [route tests](apps/web/src/routes/-bills-of-materials.test.tsx) prove empty and error states, Template entry from the Create menu, abandoned-draft behavior, client validation without a mutation, explicit save, distinct Template and Implementation catalog treatments, catalog refresh, and a fresh route reload.
 
 ## Focused Verification
 
-- `CI=true node ace.js test functional --files tests/functional/pattern_sets/pattern_sets.spec.ts` — 7 focused API tests passed; the migration executed and rolled back in the isolated test database.
-- `vitest run src/routes/-pattern-sets.test.tsx src/routes/-app.test.tsx` — 13 focused web tests passed across 2 files.
-- `eslint .` and `tsc --noEmit --pretty false` in `apps/api` — passed.
-- `tsr generate`, `tsc -b --pretty false`, and `oxlint` in `apps/web` — passed.
-- `tsc --noEmit --pretty false` and `oxlint src` in both shared contract packages — passed; both packages were also rebuilt with `tsc -p tsconfig.json --pretty false`.
-- `node ace.js migration:status` — passed and reports the new migration as pending in the configured development database.
+- `CI=true node ace.js test functional --files=tests/functional/bills_of_materials/bills_of_materials.spec.ts` — 5 focused API checks passed; the new migration executed and rolled back in the isolated test database.
+- `vitest run src/routes/-bills-of-materials.test.tsx` — 5 focused route tests passed.
+- `tsc --noEmit` for the API and both shared packages, plus `tsr generate` and `tsc -b --pretty false` for the web app — passed.
+- Scoped ESLint/Oxlint for every changed API, web, and shared source — passed.
+- `node ace.js migration:run` and `node ace.js migration:status` — passed; the new migration is completed in the configured development database.
 - `git diff --check` — passed.
 
 ## Scope Boundaries
 
-This slice does not add Pattern files, geometry, grading, sizes, Product ownership, Material or Source compatibility, BOM Line references, retained-reference search, usage-impact confirmations, or automatic meter calculation. Those later BOM integration and large-catalog behaviors remain in their tracker-defined issues.
-
-The configured development database was inspected but not mutated; only the isolated test database ran the migration. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.
+This issue does not add Product or Product Variant relationships, BOM Origins, BOM Lines, Material selection, Pattern Sets in the Builder, editing, search or kind filters, cost projections, deletion, restoration, or Implementation creation. Those capabilities remain in their dependency-ordered tracker issues. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.

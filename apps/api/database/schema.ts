@@ -26,6 +26,27 @@ export class AccessTokenSchema extends BaseModel {
   declare userId: number
 }
 
+export class BillsOfMaterialSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdByUserId', 'description', 'id', 'kind', 'name', 'publicId', 'updatedAt'] as const
+  $columns = BillsOfMaterialSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdByUserId: number
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare kind: string
+  @column()
+  declare name: string
+  @column()
+  declare publicId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class CollectionSchema extends BaseModel {
   static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
   $columns = CollectionSchema.$columns

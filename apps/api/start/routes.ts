@@ -7,6 +7,8 @@ const MaterialsController = () => import('#modules/materials/controllers/materia
 const ProductsController = () => import('#modules/products/controllers/products_controller')
 const PatternSetsController = () =>
   import('#modules/pattern_sets/controllers/pattern_sets_controller')
+const BillsOfMaterialsController = () =>
+  import('#modules/bills_of_materials/controllers/bills_of_materials_controller')
 const ProductVariantsController = () =>
   import('#modules/products/controllers/product_variants_controller')
 const SourcesController = () => import('#modules/sources/controllers/sources_controller')
@@ -57,5 +59,7 @@ router
     router.put('/pattern-sets/:patternSetId', [PatternSetsController, 'update'])
     router.delete('/pattern-sets/:patternSetId', [PatternSetsController, 'destroy'])
     router.post('/pattern-sets/:patternSetId/restore', [PatternSetsController, 'restore'])
+    router.get('/bills-of-materials', [BillsOfMaterialsController, 'index'])
+    router.post('/bills-of-materials', [BillsOfMaterialsController, 'store'])
   })
   .use(middleware.bearerAuth())
