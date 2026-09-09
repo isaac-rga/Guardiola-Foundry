@@ -40,6 +40,7 @@ export interface MaterialSearchItem {
     vendor: string
     vendorShadeOrDetail: string | null
     widthCentimeters: number | null
+    landedUnitCostCents: number | null
   }
   attention: Array<'source-needs-attention'>
 }

@@ -51,7 +51,14 @@ describe('Bills of Materials route', () => {
         if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
           const created = billOfMaterialsFixture()
           billsOfMaterials = [created]
-          return jsonResponse({ ...created, lines: [] }, { status: 201 })
+          return jsonResponse(
+            {
+              ...created,
+              lines: [],
+              costProjection: unavailableProjection(),
+            },
+            { status: 201 },
+          )
         }
         throw new Error(`Unexpected request: ${url.pathname}`)
       })
@@ -179,7 +186,11 @@ describe('Bills of Materials route', () => {
       if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
         postedBodies.push(JSON.parse(String(init.body)))
         return jsonResponse(
-          { ...billOfMaterialsFixture(), lines: [] },
+          {
+            ...billOfMaterialsFixture(),
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
           { status: 201 },
         )
       }
@@ -372,6 +383,76 @@ describe('Bills of Materials route', () => {
     ).not.toBeChecked()
   })
 
+  it('previews live line context, rounded BOM projections, exclusions, and sourcing attention', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [] })
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture(true, true))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    const wholeBom = screen.getByText('Whole BOM').closest('[data-slot="card"]')
+    expect(wholeBom).toHaveTextContent('Material projectionUnavailable')
+
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+
+    expect(
+      screen.getByText(/140 cm width · Italian Silk Crepe/),
+    ).toHaveTextContent('Casa Tessile · Ivory 100 · $42.00/m')
+    expect(wholeBom).toHaveTextContent('1 line excluded from projection.')
+
+    await user.type(screen.getByLabelText('Final meters'), '1.111')
+    expect(screen.getAllByText('$46.66')).toHaveLength(2)
+    expect(wholeBom).not.toHaveTextContent('excluded from projection')
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate line' }))
+    expect(wholeBom).toHaveTextContent('Material projection$93.32')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    expect(wholeBom).toHaveTextContent('Material projection$93.32 · partial')
+    expect(wholeBom).toHaveTextContent('1 line excluded from projection.')
+
+    await user.type(screen.getByLabelText('Construction Piece'), 'Structure')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'satin')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Champagne Structure Satin M-0002/i,
+      }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '1')
+    expect(screen.getAllByText('$0.00')).toHaveLength(1)
+    expect(wholeBom).toHaveTextContent('Material projection$93.32')
+
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'lace')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /White Chantilly Lace M-0003/i,
+      }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '1')
+    expect(screen.getByText('Source needs attention')).toBeInTheDocument()
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
+    expect(wholeBom).toHaveTextContent('Material projection$93.32 · partial')
+  })
+
   it('clears Final meters when Material changes and supports removing a line', async () => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -523,20 +604,24 @@ function billOfMaterialsFixture() {
   }
 }
 
-function materialSearchFixture(includeSecond = false) {
+function materialSearchFixture(
+  includeSecond = false,
+  includeUnavailable = false,
+) {
   const items: Array<{
     id: string
     name: string
-    materialColor: 'ivory' | 'champagne'
-    materialUse: 'base-fabric' | 'structure'
+    materialColor: 'ivory' | 'champagne' | 'white'
+    materialUse: 'base-fabric' | 'structure' | 'lace'
     preferredSource: {
       id: string
       name: string
       vendor: string
       vendorShadeOrDetail: string | null
       widthCentimeters: number | null
+      landedUnitCostCents: number | null
     }
-    attention: []
+    attention: Array<'source-needs-attention'>
   }> = [
     {
       id: 'M-0001',
@@ -549,6 +634,7 @@ function materialSearchFixture(includeSecond = false) {
         vendor: 'Casa Tessile',
         vendorShadeOrDetail: 'Ivory 100',
         widthCentimeters: 140,
+        landedUnitCostCents: 4200,
       },
       attention: [],
     },
@@ -565,11 +651,37 @@ function materialSearchFixture(includeSecond = false) {
         vendor: 'Atelier Supply',
         vendorShadeOrDetail: null,
         widthCentimeters: 150,
+        landedUnitCostCents: 0,
       },
       attention: [],
     })
   }
+  if (includeUnavailable) {
+    items.push({
+      id: 'M-0003',
+      name: 'White Chantilly Lace',
+      materialColor: 'white',
+      materialUse: 'lace',
+      preferredSource: {
+        id: 'S-0004',
+        name: 'White Chantilly Lace',
+        vendor: 'Dentelle House',
+        vendorShadeOrDetail: null,
+        widthCentimeters: 120,
+        landedUnitCostCents: null,
+      },
+      attention: ['source-needs-attention'],
+    })
+  }
   return { items, hasMore: false }
+}
+
+function unavailableProjection() {
+  return {
+    availability: 'unavailable' as const,
+    amountCents: null,
+    excludedLineCount: 0,
+  }
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit) {

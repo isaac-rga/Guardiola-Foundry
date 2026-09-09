@@ -150,6 +150,7 @@ export async function searchMaterials(search: string): Promise<SearchMaterialsRe
         vendor: row.source_vendor,
         vendorShadeOrDetail: row.vendor_shade ?? row.source_description,
         widthCentimeters: row.width_centimeters === null ? null : Number(row.width_centimeters),
+        landedUnitCostCents: row.landed_unit_cost_cents,
       },
       attention:
         row.source_deleted_at !== null ||

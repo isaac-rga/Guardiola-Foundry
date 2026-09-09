@@ -1,11 +1,19 @@
 import Material from '#models/material'
+import MaterialSource from '#models/material_source'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import {
+  calculateBomCostProjection,
+  preferredSourceFor,
+  sourceNeedsAttention,
+} from '#modules/bills_of_materials/services/bom_cost_projection'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   BillOfMaterialsDetail,
   BillOfMaterialsLine,
+  BillOfMaterialsLineCostProjection,
+  BillOfMaterialsLinePreferredSource,
   BillOfMaterialsSummary,
   CreateBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
@@ -119,20 +127,35 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
 }
 
 function serializeBillOfMaterialsDetail(billOfMaterials: BillOfMaterial): BillOfMaterialsDetail {
+  const projection = calculateBomCostProjection(billOfMaterials.lines)
+
   return {
     ...serializeBillOfMaterials(billOfMaterials),
-    lines: billOfMaterials.lines.map(serializeBillOfMaterialsLine),
+    lines: billOfMaterials.lines.map((line, index) =>
+      serializeBillOfMaterialsLine(line, projection.lines[index])
+    ),
+    costProjection: projection.summary,
   }
 }
 
-function serializeBillOfMaterialsLine(line: BillOfMaterialLine): BillOfMaterialsLine {
+function serializeBillOfMaterialsLine(
+  line: BillOfMaterialLine,
+  costProjection: BillOfMaterialsLineCostProjection
+): BillOfMaterialsLine {
   const hasValidQuantity = line.materialQuantity !== null && line.materialQuantity > 0
+  const preferredLink = preferredSourceFor(line)
 
   return {
     id: line.publicId,
     constructionPiece: line.constructionPiece,
     material:
-      line.materialId === null ? null : { id: line.material.publicId, name: line.material.name },
+      line.materialId === null
+        ? null
+        : {
+            id: line.material.publicId,
+            name: line.material.name,
+            preferredSource: preferredLink ? serializeLinePreferredSource(preferredLink) : null,
+          },
     materialQuantity: line.materialQuantity,
     lineNote: line.lineNote,
     order: line.displayOrder,
@@ -148,6 +171,28 @@ function serializeBillOfMaterialsLine(line: BillOfMaterialLine): BillOfMaterials
             verifiedBy: { id: line.verifiedBy.id, email: line.verifiedBy.email },
             verifiedAt: line.verifiedAt.toISO()!,
           },
+    attention: [
+      ...(line.materialId !== null && line.material.deletedAt !== null
+        ? (['material-needs-attention'] as const)
+        : []),
+      ...(sourceNeedsAttention(line) ? (['source-needs-attention'] as const) : []),
+    ],
+    costProjection,
+  }
+}
+
+function serializeLinePreferredSource(
+  preferredLink: Material['sourceLinks'][number]
+): BillOfMaterialsLinePreferredSource {
+  const source = preferredLink.materialSource
+
+  return {
+    id: source.publicId,
+    name: source.name,
+    vendor: source.vendor,
+    vendorShadeOrDetail: preferredLink.vendorShade?.nameOrCode ?? source.description,
+    widthCentimeters: source.widthCentimeters,
+    landedUnitCostCents: source.landedUnitCostCents,
   }
 }
 
@@ -162,7 +207,20 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
     .where('publicId', publicId)
     .preload('createdBy')
     .preload('lines', (lines) => {
-      lines.preload('material').preload('verifiedBy').orderBy('displayOrder', 'asc')
+      lines
+        .preload('material', (materialQuery) => {
+          Material.includeDeleted(materialQuery)
+          materialQuery.preload('sourceLinks', (sourceLinkQuery) => {
+            sourceLinkQuery
+              .where('isPreferred', true)
+              .preload('materialSource', (materialSourceQuery) => {
+                MaterialSource.includeDeleted(materialSourceQuery)
+              })
+              .preload('vendorShade')
+          })
+        })
+        .preload('verifiedBy')
+        .orderBy('displayOrder', 'asc')
     })
     .first()
 }

@@ -31,6 +31,16 @@ const billOfMaterialsNameSchema = z
 const billOfMaterialsLineMaterialSchema = z.object({
   id: z.string().regex(/^M-\d{4,}$/),
   name: z.string().min(1),
+  preferredSource: z
+    .object({
+      id: z.string().regex(/^S-\d{4,}$/),
+      name: z.string().min(1),
+      vendor: z.string().min(1),
+      vendorShadeOrDetail: z.string().nullable(),
+      widthCentimeters: z.number().positive().nullable(),
+      landedUnitCostCents: z.number().int().nonnegative().nullable(),
+    })
+    .nullable(),
 })
 
 const billOfMaterialsUserReferenceSchema = z.object({
@@ -51,6 +61,23 @@ const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
   }),
 ])
 
+const billOfMaterialsLineCostProjectionSchema = z.object({
+  amountCents: z.number().int().nonnegative().nullable(),
+  exclusionReason: z
+    .enum([
+      'missing-material',
+      'missing-material-quantity',
+      'no-usable-landed-unit-cost',
+    ])
+    .nullable(),
+})
+
+const billOfMaterialsCostProjectionSchema = z.object({
+  availability: z.enum(['complete', 'partial', 'unavailable']),
+  amountCents: z.number().int().nonnegative().nullable(),
+  excludedLineCount: z.number().int().nonnegative(),
+})
+
 export const billOfMaterialsLineSchema = z.object({
   id: z.string().regex(/^BML-[A-Z2-9]{6}$/),
   constructionPiece: z.string(),
@@ -60,6 +87,10 @@ export const billOfMaterialsLineSchema = z.object({
   order: z.number().int().nonnegative(),
   completeness: z.enum(['complete', 'incomplete']),
   verification: billOfMaterialsLineVerificationSchema,
+  attention: z.array(
+    z.enum(['material-needs-attention', 'source-needs-attention']),
+  ),
+  costProjection: billOfMaterialsLineCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsLine>
 
 export const billOfMaterialsSummarySchema = z.object({
@@ -78,6 +109,7 @@ export const listBillsOfMaterialsResponseSchema = z.object({
 
 export const billOfMaterialsDetailSchema = billOfMaterialsSummarySchema.extend({
   lines: z.array(billOfMaterialsLineSchema),
+  costProjection: billOfMaterialsCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsDetail>
 
 export const createBillOfMaterialsLineRequestSchema = z

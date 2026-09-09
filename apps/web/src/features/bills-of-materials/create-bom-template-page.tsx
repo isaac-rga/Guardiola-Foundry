@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import type {
+  BillOfMaterialsCostProjectionExclusionReason,
   CreateBillOfMaterialsLineRequest,
   CreateBillOfMaterialsTemplateRequest,
   MaterialSearchItem,
@@ -40,6 +41,7 @@ import {
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
 import { useCreateBillOfMaterialsTemplate } from './api/bills-of-materials'
+import { calculateDraftBomCostProjection } from './bom-cost-projection'
 import {
   isCompleteBillOfMaterialsLine,
   resolveBillOfMaterialsLineVerification,
@@ -153,6 +155,16 @@ export function CreateBomTemplatePage({
   const activeLine = activeIndex === null ? null : lines[activeIndex]
   const activeMaterial =
     activeLine?.materialId ? (materialsById[activeLine.materialId] ?? null) : null
+  const costProjection = calculateDraftBomCostProjection(lines, materialsById)
+  const activeCostProjection =
+    activeIndex === null ? null : costProjection.lines[activeIndex]
+  const attentionCount = lines.filter((line) =>
+    line.materialId
+      ? materialsById[line.materialId]?.attention.includes(
+          'source-needs-attention',
+        )
+      : false,
+  ).length
 
   return (
     <div className="space-y-6">
@@ -578,7 +590,7 @@ export function CreateBomTemplatePage({
                           {activeMaterial ? (
                             <p className="text-xs text-muted-foreground">
                               {activeMaterial.preferredSource.widthCentimeters
-                                ? `${activeMaterial.preferredSource.widthCentimeters} cm`
+                                ? `${activeMaterial.preferredSource.widthCentimeters} cm width`
                                 : 'Width unavailable'}{' '}
                               · {activeMaterial.preferredSource.name} ·{' '}
                               {activeMaterial.preferredSource.vendor}
@@ -586,7 +598,25 @@ export function CreateBomTemplatePage({
                                 .vendorShadeOrDetail
                                 ? ` · ${activeMaterial.preferredSource.vendorShadeOrDetail}`
                                 : ''}
+                              {activeMaterial.preferredSource
+                                .landedUnitCostCents !== null
+                                ? ` · ${formatCurrencyFromCents(activeMaterial.preferredSource.landedUnitCostCents)}/m`
+                                : ' · Landed Unit Cost unavailable'}
                             </p>
+                          ) : null}
+                          {activeCostProjection?.amountCents !== null &&
+                          activeCostProjection?.amountCents !== undefined ? (
+                            <span className="text-xs font-medium">
+                              {formatCurrencyFromCents(
+                                activeCostProjection.amountCents,
+                              )}
+                            </span>
+                          ) : activeCostProjection ? (
+                            <span className="text-xs text-muted-foreground">
+                              {costExclusionLabel(
+                                activeCostProjection.exclusionReason,
+                              )}
+                            </span>
                           ) : null}
                         </div>
                       </>
@@ -621,6 +651,29 @@ export function CreateBomTemplatePage({
                     {lines.filter((line) => line.verified === true).length}
                   </span>
                 </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">Need attention</span>
+                  <span className="font-medium">{attentionCount}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Material projection
+                  </span>
+                  <span className="font-medium">
+                    {costProjection.summary.amountCents === null
+                      ? 'Unavailable'
+                      : `${formatCurrencyFromCents(costProjection.summary.amountCents)}${costProjection.summary.availability === 'partial' ? ' · partial' : ''}`}
+                  </span>
+                </div>
+                {costProjection.summary.excludedLineCount > 0 ? (
+                  <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {costProjection.summary.excludedLineCount}{' '}
+                    {costProjection.summary.excludedLineCount === 1
+                      ? 'line'
+                      : 'lines'}{' '}
+                    excluded from projection.
+                  </p>
+                ) : null}
                 <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
                   Incomplete or unverified lines do not block saving.
                 </p>
@@ -631,4 +684,20 @@ export function CreateBomTemplatePage({
       </Form>
     </div>
   )
+}
+
+function formatCurrencyFromCents(amountCents: number) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+  }).format(amountCents / 100)
+}
+
+function costExclusionLabel(
+  reason: BillOfMaterialsCostProjectionExclusionReason | null,
+) {
+  if (reason === 'missing-material') return 'Material required for projection'
+  if (reason === 'missing-material-quantity')
+    return 'Final meters required for projection'
+  return 'Landed Unit Cost unavailable'
 }

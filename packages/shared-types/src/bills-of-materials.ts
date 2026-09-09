@@ -25,6 +25,36 @@ export interface ListBillsOfMaterialsResponse {
 export interface BillOfMaterialsLineMaterial {
   id: string
   name: string
+  preferredSource: BillOfMaterialsLinePreferredSource | null
+}
+
+export interface BillOfMaterialsLinePreferredSource {
+  id: string
+  name: string
+  vendor: string
+  vendorShadeOrDetail: string | null
+  widthCentimeters: number | null
+  landedUnitCostCents: number | null
+}
+
+export type BillOfMaterialsLineAttention =
+  | 'material-needs-attention'
+  | 'source-needs-attention'
+
+export type BillOfMaterialsCostProjectionExclusionReason =
+  | 'missing-material'
+  | 'missing-material-quantity'
+  | 'no-usable-landed-unit-cost'
+
+export interface BillOfMaterialsLineCostProjection {
+  amountCents: number | null
+  exclusionReason: BillOfMaterialsCostProjectionExclusionReason | null
+}
+
+export interface BillOfMaterialsCostProjection {
+  availability: 'complete' | 'partial' | 'unavailable'
+  amountCents: number | null
+  excludedLineCount: number
 }
 
 export type BillOfMaterialsLineVerification =
@@ -48,10 +78,13 @@ export interface BillOfMaterialsLine {
   order: number
   completeness: 'complete' | 'incomplete'
   verification: BillOfMaterialsLineVerification
+  attention: BillOfMaterialsLineAttention[]
+  costProjection: BillOfMaterialsLineCostProjection
 }
 
 export interface BillOfMaterialsDetail extends BillOfMaterialsSummary {
   lines: BillOfMaterialsLine[]
+  costProjection: BillOfMaterialsCostProjection
 }
 
 export interface CreateBillOfMaterialsLineRequest {

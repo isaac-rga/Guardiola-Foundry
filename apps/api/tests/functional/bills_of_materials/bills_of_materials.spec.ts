@@ -1,5 +1,7 @@
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import Material from '#models/material'
+import MaterialSource from '#models/material_source'
+import MaterialSourceLink from '#models/material_source_link'
 import User from '#models/user'
 import {
   MATERIAL_IMPORT_FIXTURE,
@@ -164,6 +166,235 @@ test.group('Bills of Materials', (group) => {
 
     reloaded.assertStatus(200)
     assert.deepEqual(reloaded.body(), created.body())
+  })
+
+  test('returns canonical rounded line and Partial BOM cost projections', async ({
+    assert,
+    client,
+  }) => {
+    await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
+    const zeroCostSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-200')
+    zeroCostSource.landedUnitCostCents = 0
+    await zeroCostSource.save()
+    const unavailableCostSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-300')
+    unavailableCostSource.landedUnitCostCents = null
+    await unavailableCostSource.save()
+    const session = await authenticateAs(client, 'operator')
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Projected construction',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 1.111,
+            lineNote: null,
+          },
+          {
+            constructionPiece: 'Outer skirt repeat',
+            materialId: 'M-0001',
+            materialQuantity: 1.111,
+            lineNote: null,
+          },
+          {
+            constructionPiece: 'Structure',
+            materialId: 'M-0002',
+            materialQuantity: 2.5,
+            lineNote: null,
+          },
+          {
+            constructionPiece: 'Unresolved',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+          },
+          {
+            constructionPiece: 'Quantity pending',
+            materialId: 'M-0001',
+            materialQuantity: null,
+            lineNote: null,
+          },
+          {
+            constructionPiece: 'Cost pending',
+            materialId: 'M-0003',
+            materialQuantity: 1,
+            lineNote: null,
+          },
+        ],
+      })
+
+    unavailableCostSource.landedUnitCostCents = 7600
+    await unavailableCostSource.save()
+
+    response.assertStatus(201)
+    assert.deepEqual(
+      response.body().lines.map((line: Record<string, unknown>) => line.costProjection),
+      [
+        { amountCents: 4666, exclusionReason: null },
+        { amountCents: 4666, exclusionReason: null },
+        { amountCents: 0, exclusionReason: null },
+        { amountCents: null, exclusionReason: 'missing-material' },
+        { amountCents: null, exclusionReason: 'missing-material-quantity' },
+        { amountCents: null, exclusionReason: 'no-usable-landed-unit-cost' },
+      ]
+    )
+    assert.deepEqual(response.body().costProjection, {
+      availability: 'partial',
+      amountCents: 9332,
+      excludedLineCount: 3,
+    })
+    assert.deepEqual(response.body().lines[2].material.preferredSource, {
+      id: 'S-0003',
+      name: 'Champagne Structure Satin',
+      vendor: 'Atelier Supply',
+      vendorShadeOrDetail: null,
+      widthCentimeters: null,
+      landedUnitCostCents: 0,
+    })
+    assert.deepEqual(response.body().lines[5].attention, ['source-needs-attention'])
+  })
+
+  test('refreshes live sourcing context and independent attention without changing BOM data', async ({
+    assert,
+    client,
+  }) => {
+    await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
+    const session = await authenticateAs(client, 'operator')
+    const created = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Retained construction',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 2,
+            lineNote: null,
+            verified: true,
+          },
+        ],
+      })
+    created.assertStatus(201)
+
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    await material.softDelete()
+    const preferredSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-100')
+    preferredSource.landedUnitCostCents = null
+    await preferredSource.save()
+
+    const needsAttention = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    needsAttention.assertStatus(200)
+    assert.deepEqual(needsAttention.body().lines[0].attention, [
+      'material-needs-attention',
+      'source-needs-attention',
+    ])
+    assert.equal(needsAttention.body().lines[0].completeness, 'complete')
+    assert.equal(needsAttention.body().lines[0].verification.status, 'verified')
+    assert.deepEqual(needsAttention.body().costProjection, {
+      availability: 'unavailable',
+      amountCents: null,
+      excludedLineCount: 1,
+    })
+
+    preferredSource.landedUnitCostCents = 5100
+    await preferredSource.save()
+    const refreshed = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    await material.restore()
+    preferredSource.landedUnitCostCents = 4200
+    await preferredSource.save()
+
+    refreshed.assertStatus(200)
+    assert.deepEqual(refreshed.body().lines[0].attention, ['material-needs-attention'])
+    assert.deepEqual(refreshed.body().lines[0].costProjection, {
+      amountCents: 10200,
+      exclusionReason: null,
+    })
+    assert.equal(refreshed.body().updatedAt, created.body().updatedAt)
+  })
+
+  test('excludes missing, Retired, and deleted Preferred Sources without blocking verified lines', async ({
+    assert,
+    client,
+  }) => {
+    await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
+    const session = await authenticateAs(client, 'operator')
+    const created = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Defensive sourcing projection',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 2,
+            lineNote: null,
+            verified: true,
+          },
+        ],
+      })
+    created.assertStatus(201)
+
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    const preferredSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-100')
+    const preferredLink = await MaterialSourceLink.query()
+      .where('materialId', material.id)
+      .where('materialSourceId', preferredSource.id)
+      .where('isPreferred', true)
+      .firstOrFail()
+
+    preferredSource.sourceStatus = 'retired'
+    await preferredSource.save()
+    const retired = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    preferredSource.sourceStatus = 'active'
+    await preferredSource.save()
+    await preferredSource.softDelete()
+    const deleted = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    await preferredSource.restore()
+    await preferredLink.delete()
+    const missing = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    await MaterialSourceLink.create({
+      materialId: preferredLink.materialId,
+      materialSourceId: preferredLink.materialSourceId,
+      sortOrder: preferredLink.sortOrder,
+      isPreferred: preferredLink.isPreferred,
+      vendorShadeId: preferredLink.vendorShadeId,
+    })
+
+    for (const response of [retired, deleted, missing]) {
+      response.assertStatus(200)
+      assert.deepEqual(response.body().lines[0].attention, ['source-needs-attention'])
+      assert.equal(response.body().lines[0].verification.status, 'verified')
+      assert.deepEqual(response.body().lines[0].costProjection, {
+        amountCents: null,
+        exclusionReason: 'no-usable-landed-unit-cost',
+      })
+    }
   })
 
   test('records current Operator evidence only for Complete lines', async ({ assert, client }) => {

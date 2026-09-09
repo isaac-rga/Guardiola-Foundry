@@ -220,6 +220,7 @@ test.group('Materials list', (group) => {
             vendor: 'Casa Tessile',
             vendorShadeOrDetail: 'Ivory 100',
             widthCentimeters: 140,
+            landedUnitCostCents: 4200,
           },
           attention: [],
         },

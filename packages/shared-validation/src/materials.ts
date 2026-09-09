@@ -71,6 +71,7 @@ export const materialSearchItemSchema = z.object({
     vendor: z.string().min(1),
     vendorShadeOrDetail: z.string().nullable(),
     widthCentimeters: z.number().positive().nullable(),
+    landedUnitCostCents: z.number().int().nonnegative().nullable(),
   }),
   attention: z.array(z.literal('source-needs-attention')),
 }) satisfies z.ZodType<MaterialSearchItem>

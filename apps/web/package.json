@@ -14,6 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@guardiola-foundry/bom-cost-projection": "workspace:*",
     "@guardiola-foundry/shared-types": "workspace:*",
     "@guardiola-foundry/shared-validation": "workspace:*",
     "@hookform/resolvers": "^5.4.0",
