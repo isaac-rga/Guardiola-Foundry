@@ -9,6 +9,7 @@ import {
   linkMaterialSource,
   listMaterials,
   replacePreferredSource,
+  searchMaterials,
   unlinkMaterialSource,
 } from '@/features/materials/api/endpoints'
 import {
@@ -27,6 +28,15 @@ export function useMaterialDetail(token: string, materialId: string) {
   return useQuery({
     queryKey: materialDetailQueryKey(materialId),
     queryFn: () => getMaterial(token, materialId),
+  })
+}
+
+export function useMaterialSearch(token: string, search: string) {
+  return useQuery({
+    queryKey: ['materials', 'search', search],
+    queryFn: ({ signal }) => searchMaterials(token, search, signal),
+    enabled: search.length > 0,
+    staleTime: 30_000,
   })
 }
 

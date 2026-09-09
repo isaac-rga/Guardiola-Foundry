@@ -1,34 +1,39 @@
-# Create and Browse Unassociated BOM Templates
+# Compose Template BOM Lines with Materials
 
-Issue 04 replaces the Bills of Materials fixtures with the first persisted tracer bullet. Authenticated Admins and Operators can enter the approved Construction Board from the operational catalog, save an unassociated Template with its own identity and metadata, and find it again after navigation or reload. Product relationships, origins, BOM Lines, editing, and lifecycle actions remain outside this slice.
+Issue 05 turns Template creation into a persisted Construction Board workflow for Admins and Operators. Users can progressively compose independently identified BOM Lines, select Materials without loading the full catalog, and save ordered complete or incomplete construction work atomically. Verification, Pattern Sets, cost projection, Product association, and editing an existing Bill of Materials remain outside this slice.
 
-## Stable Template Records
+## Persisted Ordered Construction Lines
 
-The [shared contract](packages/shared-types/src/bills-of-materials.ts) and [runtime schemas](packages/shared-validation/src/bills-of-materials.ts) define the canonical catalog and create payloads: a permanent kind, required trimmed display name, optional normalized description, stable identity, immutable creator and creation time, and latest update time.
+The [shared Bills of Materials contract](packages/shared-types/src/bills-of-materials.ts) now carries ordered create-line inputs and canonical persisted line details. Each line receives a stable `BML-` identity, belongs to exactly one Bill of Materials, and stores only its required Construction Piece, optional Material reference, optional positive quantity in meters, optional Line Note, and logical display order.
 
-The [database migration](apps/api/database/migrations/1789006400000_create_bills_of_materials_table.ts) creates the shared Bills of Materials table without prematurely adding later Product, Variant, origin, line, or lifecycle fields. The [model and service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) generate stable `BOM-` identities, create Templates atomically, retain creator metadata, and return the newest-updated records through one persisted catalog contract.
+The [BOM Line migration](apps/api/database/migrations/1789092800000_create_bill_of_materials_lines_table.ts) enforces ownership, unique order within a Bill of Materials, Material-reference integrity, positive quantities, the three-decimal precision boundary, and the rule that quantity cannot exist without Material. The [Bills of Materials service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) validates newly selected Materials as active and creates the Template plus every line in one transaction. Repeated and otherwise identical-looking lines remain separate records, while completeness is derived from Construction Piece, Material, and a valid quantity rather than persisted as mutable status.
 
-## Authenticated Catalog and Explicit Creation
+## Bounded Material Selection
 
-The [bearer-protected controller](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts) exposes focused list and create operations. The server accepts only Template creation in this issue and returns structured validation errors without creating a partial record.
+The Materials domain exposes an authenticated selection search through the [Material search projection](apps/api/app/modules/materials/materials_service.ts). Non-empty, normalized multi-word searches match Material identity, color, Material Use, and visible Preferred Source context; deleted Materials are excluded. Results are deterministically ordered, capped at 25, and report `hasMore` after reading at most one additional match.
 
-The [production Bills of Materials route](apps/web/src/routes/app.bills-of-materials.tsx) now opens a database-backed operational catalog instead of the fixture prototype. `Create BOM` offers the in-scope Template action, which enters an empty Construction Board with an editable name, optional description, and one explicit `Save BOM` action. Opening or leaving that Builder performs no mutation; a successful save refreshes the catalog and visibly labels the persisted record as a Template.
+The selection response includes Material identity plus color, use, Preferred Source name and ID, Vendor, Vendor Shade or detail, width, and sourcing-attention context. It deliberately omits cost and stores none of that Source information on a BOM Line.
+
+## Construction Board Builder
+
+The [Template Builder](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) follows the approved prototype direction: BOM Name is the quiet editable page heading, and an ordered line navigator stays visible beside one focused line editor. Users can add, focus, duplicate, remove, drag, or use Arrow Up and Arrow Down on a drag handle to reorder lines. Repetition is unrestricted and order is treated as display logic rather than identity or manufacturing sequence.
+
+Material selection opens an on-demand dialog that remains idle until text is entered, debounces for 250 milliseconds, cancels superseded requests, caches identical queries for 30 seconds, and presents loading, empty, bounded-more-results, and recoverable-error states. Changing or removing Material clears Final meters. Final meters remains disabled without Material and accepts only a positive value with at most three decimals. The optional Line Note and derived Complete or Incomplete state stay visible in the focused editor, and explicit Save sends the whole ordered draft once.
 
 ## Focused Coverage
 
-The [API functional tests](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts) prove empty catalog behavior, Admin and Operator creation, trimmed and nullable metadata, stable identity, immutable creation metadata, persisted reload, validation without partial creation, and bearer authentication for both endpoints.
+The [API functional coverage](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts) proves repeated identities, incomplete lines, normalized notes and Construction Pieces, Material selection, quantity invariants, three-decimal validation, explicit ordering, atomic rejection, authentication, and reload by stable BOM ID. The [Material API coverage](apps/api/tests/functional/materials/list_materials.spec.ts) proves identity and Preferred Source matching, projection context, deleted-Material exclusion, authentication, the 25-item cap, and `hasMore`.
 
-The [route tests](apps/web/src/routes/-bills-of-materials.test.tsx) prove empty and error states, Template entry from the Create menu, abandoned-draft behavior, client validation without a mutation, explicit save, distinct Template and Implementation catalog treatments, catalog refresh, and a fresh route reload.
+The [Builder route coverage](apps/web/src/routes/-bills-of-materials.test.tsx) proves idle remote search, Material selection, quantity clearing, precision feedback, notes, duplication, keyboard reorder, removal, ordered save payloads, and the existing abandoned-draft and save-error behavior.
 
 ## Focused Verification
 
-- `CI=true node ace.js test functional --files=tests/functional/bills_of_materials/bills_of_materials.spec.ts` — 5 focused API checks passed; the new migration executed and rolled back in the isolated test database.
-- `vitest run src/routes/-bills-of-materials.test.tsx` — 5 focused route tests passed.
+- `CI=true node ace.js test functional --files tests/functional/bills_of_materials/bills_of_materials.spec.ts --files tests/functional/materials/list_materials.spec.ts` — 17 focused API checks passed; all 19 migrations executed and rolled back in the isolated test database.
+- `vitest run src/routes/-bills-of-materials.test.tsx` — 7 focused Builder-route checks passed.
 - `tsc --noEmit` for the API and both shared packages, plus `tsr generate` and `tsc -b --pretty false` for the web app — passed.
-- Scoped ESLint/Oxlint for every changed API, web, and shared source — passed.
-- `node ace.js migration:run` and `node ace.js migration:status` — passed; the new migration is completed in the configured development database.
-- `git diff --check` — passed.
+- Scoped ESLint/Oxlint for every changed API, web, and shared source and test file — passed.
+- `node ace.js migration:run` and `node ace.js migration:status` — passed; the BOM Line migration is completed in the configured development database.
 
 ## Scope Boundaries
 
-This issue does not add Product or Product Variant relationships, BOM Origins, BOM Lines, Material selection, Pattern Sets in the Builder, editing, search or kind filters, cost projections, deletion, restoration, or Implementation creation. Those capabilities remain in their dependency-ordered tracker issues. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.
+This issue does not add BOM Line Verification, Pattern Set selection or proposals, live cost projection, Product or Product Variant relationships, derivation, editing or concurrent-save protection, lifecycle actions, or the completed operational catalog. Retained unavailable Material hardening remains in its later tracker slice. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.

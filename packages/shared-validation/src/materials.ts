@@ -7,6 +7,8 @@ import type {
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  MaterialSearchItem,
+  SearchMaterialsResponse,
   ReplacePreferredSourceRequest,
   ReplacePreferredSourceResponse,
   UnlinkMaterialSourceResponse,
@@ -43,6 +45,40 @@ export const materialSummarySchema = z.object({
 export const listMaterialsResponseSchema = z.object({
   materials: z.array(materialSummarySchema),
 }) satisfies z.ZodType<ListMaterialsResponse>
+
+export const searchMaterialsQuerySchema = z.object({
+  search: z
+    .string()
+    .transform((value) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase(),
+    )
+    .pipe(z.string().min(1)),
+})
+
+export const materialSearchItemSchema = z.object({
+  id: z.string().regex(/^M-\d{4,}$/),
+  name: z.string().min(1),
+  materialColor: materialColorSchema,
+  materialUse: materialUseSchema,
+  preferredSource: z.object({
+    id: z.string().regex(/^S-\d{4,}$/),
+    name: z.string().min(1),
+    vendor: z.string().min(1),
+    vendorShadeOrDetail: z.string().nullable(),
+    widthCentimeters: z.number().positive().nullable(),
+  }),
+  attention: z.array(z.literal('source-needs-attention')),
+}) satisfies z.ZodType<MaterialSearchItem>
+
+export const searchMaterialsResponseSchema = z.object({
+  items: z.array(materialSearchItemSchema).max(25),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<SearchMaterialsResponse>
 
 export const materialSourceRelationshipSummarySchema = z.object({
   id: z.string().regex(/^S-\d{4,}$/),

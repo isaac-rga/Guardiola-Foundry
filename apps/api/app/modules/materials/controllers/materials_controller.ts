@@ -4,11 +4,13 @@ import {
   listMaterials,
   MaterialRelationshipError,
   replacePreferredSource,
+  searchMaterials,
   unlinkMaterialSource,
 } from '#modules/materials/materials_service'
 import {
   linkMaterialSourceRequestSchema,
   replacePreferredSourceRequestSchema,
+  searchMaterialsQuerySchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -25,6 +27,14 @@ export default class MaterialsController {
     }
 
     return response.ok(result)
+  }
+
+  async search({ request, response }: HttpContext) {
+    const query = searchMaterialsQuerySchema.safeParse(request.qs())
+    if (!query.success) {
+      return response.unprocessableEntity({ message: 'Enter a Material search.' })
+    }
+    return response.ok(await searchMaterials(query.data.search))
   }
 
   async linkSource({ params, request, response }: HttpContext) {

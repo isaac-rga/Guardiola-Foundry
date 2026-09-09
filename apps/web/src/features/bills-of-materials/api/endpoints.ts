@@ -1,10 +1,10 @@
 import {
-  billOfMaterialsSummarySchema,
+  billOfMaterialsDetailSchema,
   createBillOfMaterialsTemplateRequestSchema,
   listBillsOfMaterialsResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
-  BillOfMaterialsSummary,
+  BillOfMaterialsDetail,
   CreateBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
 } from '@guardiola-foundry/shared-types'
@@ -30,7 +30,7 @@ export async function listBillsOfMaterials(
 export async function createBillOfMaterialsTemplate(
   token: string,
   payload: CreateBillOfMaterialsTemplateRequest,
-): Promise<BillOfMaterialsSummary> {
+): Promise<BillOfMaterialsDetail> {
   const response = await fetch(resolveApiUrl('/bills-of-materials'), {
     method: 'POST',
     headers: {
@@ -47,5 +47,5 @@ export async function createBillOfMaterialsTemplate(
       getResponseErrorMessage(body, 'Unable to save the BOM Template.'),
     )
   }
-  return billOfMaterialsSummarySchema.parse(body)
+  return billOfMaterialsDetailSchema.parse(body)
 }

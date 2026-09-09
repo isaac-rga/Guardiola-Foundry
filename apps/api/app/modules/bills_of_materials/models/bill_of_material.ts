@@ -1,6 +1,7 @@
 import User from '#models/user'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type { BillOfMaterialsKind } from '@guardiola-foundry/shared-types'
 import { DateTime } from 'luxon'
 
@@ -33,4 +34,7 @@ export default class BillOfMaterial extends BaseModel {
 
   @belongsTo(() => User, { foreignKey: 'createdByUserId' })
   declare createdBy: BelongsTo<typeof User>
+
+  @hasMany(() => BillOfMaterialLine, { foreignKey: 'billOfMaterialsId' })
+  declare lines: HasMany<typeof BillOfMaterialLine>
 }

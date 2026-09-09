@@ -1,5 +1,6 @@
 import Material from '#models/material'
 import MaterialSource from '#models/material_source'
+import MaterialSourceLink from '#models/material_source_link'
 import User from '#models/user'
 import db from '@adonisjs/lucid/services/db'
 import testUtils from '@adonisjs/core/services/test_utils'
@@ -193,6 +194,99 @@ test.group('Materials list', (group) => {
     assert.equal(material.preferredSource.id, 'S-0003')
     assert.isTrue(material.preferredSource.needsAttention)
     assert.isNotNull(persistedSource?.deletedAt)
+  })
+
+  test('searches a bounded active Material selection projection by identity and Source context', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+
+    const response = await client
+      .get('/materials/search?search=ivory%20casa')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(response.body(), {
+      items: [
+        {
+          id: 'M-0001',
+          name: 'Ivory Silk Crepe',
+          materialColor: 'ivory',
+          materialUse: 'base-fabric',
+          preferredSource: {
+            id: 'S-0001',
+            name: 'Italian Silk Crepe',
+            vendor: 'Casa Tessile',
+            vendorShadeOrDetail: 'Ivory 100',
+            widthCentimeters: 140,
+          },
+          attention: [],
+        },
+      ],
+      hasMore: false,
+    })
+  })
+
+  test('requires non-empty authenticated Material selection search and omits deleted Materials', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    await material.softDelete()
+
+    const [empty, deleted, unauthenticated] = await Promise.all([
+      client
+        .get('/materials/search?search=%20%20')
+        .header('Authorization', `Bearer ${session.token}`),
+      client
+        .get('/materials/search?search=Ivory')
+        .header('Authorization', `Bearer ${session.token}`),
+      client.get('/materials/search?search=Ivory'),
+    ])
+
+    empty.assertStatus(422)
+    deleted.assertStatus(200)
+    assert.deepEqual(deleted.body(), { items: [], hasMore: false })
+    unauthenticated.assertStatus(401)
+  })
+
+  test('caps Material selection search at 25 and reports additional matches', async ({
+    assert,
+    client,
+  }) => {
+    const source = await MaterialSource.findByOrFail('publicId', 'S-0001')
+    const materials = await Material.createMany(
+      Array.from({ length: 26 }, (_, index) => ({
+        publicId: `M-${String(index + 1000).padStart(4, '0')}`,
+        legacyMaterialId: `SEARCH-${index + 1}`,
+        name: `Search Material ${String(index + 1).padStart(2, '0')}`,
+        materialColor: 'ivory' as const,
+        materialUse: 'base-fabric' as const,
+        materialUnit: 'meter' as const,
+        comments: null,
+        sourceLinksImportSnapshot: null,
+      }))
+    )
+    await MaterialSourceLink.createMany(
+      materials.map((material) => ({
+        materialId: material.id,
+        materialSourceId: source.id,
+        sortOrder: 1,
+        isPreferred: true,
+        vendorShadeId: null,
+      }))
+    )
+    const session = await authenticateAs(client, 'operator')
+
+    const response = await client
+      .get('/materials/search?search=search%20material')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.lengthOf(response.body().items, 25)
+    assert.isTrue(response.body().hasMore)
   })
 })
 
