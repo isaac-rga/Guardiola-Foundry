@@ -33,6 +33,24 @@ const billOfMaterialsLineMaterialSchema = z.object({
   name: z.string().min(1),
 })
 
+const billOfMaterialsUserReferenceSchema = z.object({
+  id: z.number().int().positive(),
+  email: z.string().email(),
+})
+
+const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('unverified'),
+    verifiedBy: z.null(),
+    verifiedAt: z.null(),
+  }),
+  z.object({
+    status: z.literal('verified'),
+    verifiedBy: billOfMaterialsUserReferenceSchema,
+    verifiedAt: z.string().datetime({ offset: true }),
+  }),
+])
+
 export const billOfMaterialsLineSchema = z.object({
   id: z.string().regex(/^BML-[A-Z2-9]{6}$/),
   constructionPiece: z.string(),
@@ -41,6 +59,7 @@ export const billOfMaterialsLineSchema = z.object({
   lineNote: z.string().nullable(),
   order: z.number().int().nonnegative(),
   completeness: z.enum(['complete', 'incomplete']),
+  verification: billOfMaterialsLineVerificationSchema,
 }) satisfies z.ZodType<BillOfMaterialsLine>
 
 export const billOfMaterialsSummarySchema = z.object({
@@ -48,10 +67,7 @@ export const billOfMaterialsSummarySchema = z.object({
   kind: z.enum(['template', 'implementation']),
   name: billOfMaterialsNameSchema,
   description: z.string().nullable(),
-  createdBy: z.object({
-    id: z.number().int().positive(),
-    email: z.string().email(),
-  }),
+  createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
 }) satisfies z.ZodType<BillOfMaterialsSummary>
@@ -91,6 +107,7 @@ export const createBillOfMaterialsLineRequestSchema = z
       )
       .nullable(),
     lineNote: optionalTrimmedText,
+    verified: z.boolean().default(false),
   })
   .superRefine((line, context) => {
     if (line.materialId === null && line.materialQuantity !== null) {
@@ -98,6 +115,16 @@ export const createBillOfMaterialsLineRequestSchema = z
         code: 'custom',
         path: ['materialQuantity'],
         message: 'Select a Material before entering Final meters.',
+      })
+    }
+    if (
+      line.verified &&
+      (line.materialId === null || line.materialQuantity === null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['verified'],
+        message: 'Only a Complete BOM Line can be verified.',
       })
     }
   }) satisfies z.ZodType<CreateBillOfMaterialsLineRequest>

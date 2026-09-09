@@ -247,15 +247,129 @@ describe('Bills of Materials route', () => {
           materialId: 'M-0001',
           materialQuantity: 1.234,
           lineNote: 'Cut on grain',
+          verified: false,
         },
         {
           constructionPiece: 'Outer skirt',
           materialId: 'M-0001',
           materialQuantity: 1.234,
           lineNote: 'Cut on grain',
+          verified: false,
         },
       ],
     })
+  })
+
+  it('verifies only Complete lines and resets only when reviewed construction facts change', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [] })
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture(true))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+
+    const verification = screen.getByRole('checkbox', {
+      name: 'Manually verified',
+    })
+    expect(verification).toBeDisabled()
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '3.125')
+
+    expect(verification).toBeEnabled()
+    await user.click(verification)
+    expect(verification).toBeChecked()
+    const wholeBom = screen.getByText('Whole BOM').closest('[data-slot="card"]')
+    expect(
+      within(wholeBom as HTMLElement).getByText('Complete').parentElement,
+    ).toHaveTextContent('Complete1')
+    expect(
+      within(wholeBom as HTMLElement).getByText('Verified').parentElement,
+    ).toHaveTextContent('Verified1')
+
+    await user.type(screen.getByLabelText('Line Note'), 'Cut on grain')
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Reviewed',
+    )
+    await user.type(screen.getByLabelText('Description'), 'Stable context')
+    expect(verification).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Lining')
+    await user.click(screen.getByLabelText('Reorder Lining'))
+    await user.keyboard('{ArrowUp}')
+    await user.click(screen.getAllByText('Outer skirt')[0])
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate line' }))
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+    await user.click(screen.getAllByText('Outer skirt')[0])
+    await user.clear(screen.getByLabelText('Construction Piece'))
+    await user.type(
+      screen.getByLabelText('Construction Piece'),
+      'Outer overskirt',
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.clear(screen.getByLabelText('Final meters'))
+    await user.type(screen.getByLabelText('Final meters'), '3.25')
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'satin')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Champagne Structure Satin M-0002/i,
+      }),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
   })
 
   it('clears Final meters when Material changes and supports removing a line', async () => {
@@ -350,9 +464,9 @@ describe('Bills of Materials route', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Authentication is required.',
     )
-    expect(
-      screen.getByRole('textbox', { name: 'BOM Name' }),
-    ).toHaveValue('Preserved draft')
+    expect(screen.getByRole('textbox', { name: 'BOM Name' })).toHaveValue(
+      'Preserved draft',
+    )
     expect(
       screen.getByRole('heading', { name: 'Preserved draft' }),
     ).toBeInTheDocument()

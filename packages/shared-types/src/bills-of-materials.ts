@@ -3,7 +3,7 @@ export const BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH = 255
 
 export type BillOfMaterialsKind = 'template' | 'implementation'
 
-export interface BillOfMaterialsCreator {
+export interface BillOfMaterialsUserReference {
   id: number
   email: string
 }
@@ -13,7 +13,7 @@ export interface BillOfMaterialsSummary {
   kind: BillOfMaterialsKind
   name: string
   description: string | null
-  createdBy: BillOfMaterialsCreator
+  createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string
 }
@@ -27,6 +27,18 @@ export interface BillOfMaterialsLineMaterial {
   name: string
 }
 
+export type BillOfMaterialsLineVerification =
+  | {
+      status: 'unverified'
+      verifiedBy: null
+      verifiedAt: null
+    }
+  | {
+      status: 'verified'
+      verifiedBy: BillOfMaterialsUserReference
+      verifiedAt: string
+    }
+
 export interface BillOfMaterialsLine {
   id: string
   constructionPiece: string
@@ -35,6 +47,7 @@ export interface BillOfMaterialsLine {
   lineNote: string | null
   order: number
   completeness: 'complete' | 'incomplete'
+  verification: BillOfMaterialsLineVerification
 }
 
 export interface BillOfMaterialsDetail extends BillOfMaterialsSummary {
@@ -46,6 +59,7 @@ export interface CreateBillOfMaterialsLineRequest {
   materialId: string | null
   materialQuantity: number | null
   lineNote: string | null
+  verified: boolean
 }
 
 export interface CreateBillOfMaterialsTemplateRequest {

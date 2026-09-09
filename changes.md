@@ -1,39 +1,31 @@
-# Compose Template BOM Lines with Materials
+# Verify Complete BOM Lines
 
-Issue 05 turns Template creation into a persisted Construction Board workflow for Admins and Operators. Users can progressively compose independently identified BOM Lines, select Materials without loading the full catalog, and save ordered complete or incomplete construction work atomically. Verification, Pattern Sets, cost projection, Product association, and editing an existing Bill of Materials remain outside this slice.
+Issue 06 adds informational, line-specific verification to Template creation for Admins and Operators. Complete BOM Lines can be manually verified with server-owned Operator evidence, while incomplete or unverified work remains saveable. Aggregate BOM approval and editing already-persisted Bills of Materials remain outside this slice.
 
-## Persisted Ordered Construction Lines
+## Line Verification Contract
 
-The [shared Bills of Materials contract](packages/shared-types/src/bills-of-materials.ts) now carries ordered create-line inputs and canonical persisted line details. Each line receives a stable `BML-` identity, belongs to exactly one Bill of Materials, and stores only its required Construction Piece, optional Material reference, optional positive quantity in meters, optional Line Note, and logical display order.
+The [shared Bills of Materials contract](packages/shared-types/src/bills-of-materials.ts) now keeps derived completeness separate from a discriminated verification record. An Unverified line carries no verifier or timestamp; a Verified line carries both. Create requests send only verification intent, never caller-supplied evidence.
 
-The [BOM Line migration](apps/api/database/migrations/1789092800000_create_bill_of_materials_lines_table.ts) enforces ownership, unique order within a Bill of Materials, Material-reference integrity, positive quantities, the three-decimal precision boundary, and the rule that quantity cannot exist without Material. The [Bills of Materials service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) validates newly selected Materials as active and creates the Template plus every line in one transaction. Repeated and otherwise identical-looking lines remain separate records, while completeness is derived from Construction Piece, Material, and a valid quantity rather than persisted as mutable status.
+The [verification migration](apps/api/database/migrations/1789179200000_add_bill_of_materials_line_verification.ts) stores the current verifier and timestamp as one optional evidence pair and enforces that both values are present or both are absent. The [Bills of Materials service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) records the authenticated current Operator and server time for requested Complete lines, rejects verification of Incomplete lines before persistence, and returns the canonical evidence on create and reload. No aggregate verification or approval state is persisted.
 
-## Bounded Material Selection
+## Prototype-Faithful Builder Behavior
 
-The Materials domain exposes an authenticated selection search through the [Material search projection](apps/api/app/modules/materials/materials_service.ts). Non-empty, normalized multi-word searches match Material identity, color, Material Use, and visible Preferred Source context; deleted Materials are excluded. Results are deterministically ordered, capped at 25, and report `hasMore` after reading at most one additional match.
+The [Template Builder](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) presents Verification as a primary field beside Final meters. The control remains disabled until the focused line is Complete, supports explicit verification and withdrawal, and never blocks Save.
 
-The selection response includes Material identity plus color, use, Preferred Source name and ID, Vendor, Vendor Shade or detail, width, and sourcing-attention context. It deliberately omits cost and stores none of that Source information on a BOM Line.
-
-## Construction Board Builder
-
-The [Template Builder](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) follows the approved prototype direction: BOM Name is the quiet editable page heading, and an ordered line navigator stays visible beside one focused line editor. Users can add, focus, duplicate, remove, drag, or use Arrow Up and Arrow Down on a drag handle to reorder lines. Repetition is unrestricted and order is treated as display logic rather than identity or manufacturing sequence.
-
-Material selection opens an on-demand dialog that remains idle until text is entered, debounces for 250 milliseconds, cancels superseded requests, caches identical queries for 30 seconds, and presents loading, empty, bounded-more-results, and recoverable-error states. Changing or removing Material clears Final meters. Final meters remains disabled without Material and accepts only a positive value with at most three decimals. The optional Line Note and derived Complete or Incomplete state stay visible in the focused editor, and explicit Save sends the whole ordered draft once.
+Changing Construction Piece, Material, or Material Quantity immediately returns the local line to Unverified. Line Note, logical order, BOM Name, and description preserve verification. A duplicated line begins Unverified. The separate Whole BOM summary derives current construction-line, Complete, and Verified counts directly from the draft.
 
 ## Focused Coverage
 
-The [API functional coverage](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts) proves repeated identities, incomplete lines, normalized notes and Construction Pieces, Material selection, quantity invariants, three-decimal validation, explicit ordering, atomic rejection, authentication, and reload by stable BOM ID. The [Material API coverage](apps/api/tests/functional/materials/list_materials.spec.ts) proves identity and Preferred Source matching, projection context, deleted-Material exclusion, authentication, the 25-item cap, and `hasMore`.
-
-The [Builder route coverage](apps/web/src/routes/-bills-of-materials.test.tsx) proves idle remote search, Material selection, quantity clearing, precision feedback, notes, duplication, keyboard reorder, removal, ordered save payloads, and the existing abandoned-draft and save-error behavior.
+The [focused domain coverage](apps/web/src/features/bills-of-materials/bom-line-verification.test.ts) proves verification eligibility and the reset-versus-preserve transition rule independently. The [API functional coverage](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts) proves atomic rejection, server-owned Operator identity and time, explicit Unverified evidence, and persistence across reload. The [Builder route coverage](apps/web/src/routes/-bills-of-materials.test.tsx) proves manual withdrawal, construction-fact resets, preserved unrelated edits and reorder, duplicate reset, and live Whole BOM counts.
 
 ## Focused Verification
 
-- `CI=true node ace.js test functional --files tests/functional/bills_of_materials/bills_of_materials.spec.ts --files tests/functional/materials/list_materials.spec.ts` — 17 focused API checks passed; all 19 migrations executed and rolled back in the isolated test database.
-- `vitest run src/routes/-bills-of-materials.test.tsx` — 7 focused Builder-route checks passed.
-- `tsc --noEmit` for the API and both shared packages, plus `tsr generate` and `tsc -b --pretty false` for the web app — passed.
+- `CI=true node ace.js test functional --files=tests/functional/bills_of_materials/bills_of_materials.spec.ts` — 9 focused API checks passed; all 20 migrations executed and rolled back in the isolated test database.
+- `vitest run src/features/bills-of-materials/bom-line-verification.test.ts src/routes/-bills-of-materials.test.tsx` — 2 focused domain and 8 Builder-route checks passed.
+- API, web, shared-types, and shared-validation typechecks — passed.
 - Scoped ESLint/Oxlint for every changed API, web, and shared source and test file — passed.
-- `node ace.js migration:run` and `node ace.js migration:status` — passed; the BOM Line migration is completed in the configured development database.
+- `node ace.js migration:run` and `node ace.js migration:status` — passed; the verification migration is completed in the configured development database.
 
 ## Scope Boundaries
 
-This issue does not add BOM Line Verification, Pattern Set selection or proposals, live cost projection, Product or Product Variant relationships, derivation, editing or concurrent-save protection, lifecycle actions, or the completed operational catalog. Retained unavailable Material hardening remains in its later tracker slice. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.
+This issue does not add aggregate BOM verification or approval, Pattern Sets, cost projection, Product relationships, derivation, or lifecycle behavior. Verification can be authored and persisted through the current create-Template Builder; opening and atomically updating an existing Bill of Materials remains issue 11. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.

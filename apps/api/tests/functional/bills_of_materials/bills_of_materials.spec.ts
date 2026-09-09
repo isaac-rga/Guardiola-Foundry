@@ -166,6 +166,95 @@ test.group('Bills of Materials', (group) => {
     assert.deepEqual(reloaded.body(), created.body())
   })
 
+  test('records current Operator evidence only for Complete lines', async ({ assert, client }) => {
+    await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
+    const session = await authenticateAs(client, 'operator')
+    const requestedAt = Date.now()
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Reviewed construction',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 3.125,
+            lineNote: null,
+            verified: true,
+          },
+          {
+            constructionPiece: 'Lining',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+            verified: false,
+          },
+        ],
+      })
+
+    response.assertStatus(201)
+    assert.equal(response.body().lines[0].completeness, 'complete')
+    assert.equal(response.body().lines[0].verification.status, 'verified')
+    assert.deepEqual(response.body().lines[0].verification.verifiedBy, {
+      id: session.userId,
+      email: 'operator@example.com',
+    })
+    assert.isString(response.body().lines[0].verification.verifiedAt)
+    assert.isAtLeast(Date.parse(response.body().lines[0].verification.verifiedAt), requestedAt)
+    assert.deepInclude(response.body().lines[1], {
+      completeness: 'incomplete',
+      verification: {
+        status: 'unverified',
+        verifiedBy: null,
+        verifiedAt: null,
+      },
+    })
+
+    const reloaded = await client
+      .get(`/bills-of-materials/${response.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    reloaded.assertStatus(200)
+    assert.deepEqual(reloaded.body(), response.body())
+  })
+
+  test('rejects verification for an Incomplete line without creating anything', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Must remain atomic',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Lining',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+            verified: true,
+          },
+        ],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({
+      errors: {
+        lines: ['Only a Complete BOM Line can be verified.'],
+      },
+    })
+    const count = await BillOfMaterial.query().count('* as total').firstOrFail()
+    assert.equal(Number(count.$extras.total), 0)
+  })
+
   test('rejects invalid or unavailable Material line data without creating anything', async ({
     assert,
     client,

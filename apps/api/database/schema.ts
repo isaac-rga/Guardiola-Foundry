@@ -27,7 +27,7 @@ export class AccessTokenSchema extends BaseModel {
 }
 
 export class BillOfMaterialsLineSchema extends BaseModel {
-  static $columns = ['billOfMaterialsId', 'constructionPiece', 'createdAt', 'displayOrder', 'id', 'lineNote', 'materialId', 'materialQuantity', 'publicId', 'updatedAt'] as const
+  static $columns = ['billOfMaterialsId', 'constructionPiece', 'createdAt', 'displayOrder', 'id', 'lineNote', 'materialId', 'materialQuantity', 'publicId', 'updatedAt', 'verifiedAt', 'verifiedByUserId'] as const
   $columns = BillOfMaterialsLineSchema.$columns
   @column()
   declare billOfMaterialsId: number
@@ -49,6 +49,10 @@ export class BillOfMaterialsLineSchema extends BaseModel {
   declare publicId: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
+  @column.dateTime()
+  declare verifiedAt: DateTime | null
+  @column()
+  declare verifiedByUserId: number | null
 }
 
 export class BillsOfMaterialSchema extends BaseModel {

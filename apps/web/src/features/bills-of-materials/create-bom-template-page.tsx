@@ -20,6 +20,7 @@ import { createBillOfMaterialsTemplateRequestSchema } from '@guardiola-foundry/s
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -39,6 +40,10 @@ import {
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
 import { useCreateBillOfMaterialsTemplate } from './api/bills-of-materials'
+import {
+  isCompleteBillOfMaterialsLine,
+  resolveBillOfMaterialsLineVerification,
+} from './bom-line-verification'
 import { MaterialPicker } from './components/material-picker'
 
 const emptyLine: CreateBillOfMaterialsLineRequest = {
@@ -46,6 +51,7 @@ const emptyLine: CreateBillOfMaterialsLineRequest = {
   materialId: null,
   materialQuantity: null,
   lineNote: null,
+  verified: false,
 }
 
 const emptyTemplate: CreateBillOfMaterialsTemplateRequest = {
@@ -105,7 +111,7 @@ export function CreateBomTemplatePage({
 
   const duplicateLine = () => {
     if (activeIndex === null) return
-    append({ ...lines[activeIndex] })
+    append({ ...lines[activeIndex], verified: false })
     setActiveIndex(fields.length)
   }
 
@@ -120,6 +126,20 @@ export function CreateBomTemplatePage({
     if (to < 0 || to >= fields.length || from === to) return
     move(from, to)
     setActiveIndex(to)
+  }
+
+  const updateLineVerification = (
+    index: number,
+    change: Partial<CreateBillOfMaterialsLineFormValues>,
+  ) => {
+    form.setValue(
+      `lines.${index}.verified`,
+      resolveBillOfMaterialsLineVerification(lines[index] ?? emptyLine, change),
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      },
+    )
   }
 
   const submit = form.handleSubmit(async (values) => {
@@ -150,9 +170,9 @@ export function CreateBomTemplatePage({
           id="create-bom-template"
           noValidate
           onSubmit={submit}
-          className="space-y-6"
+          className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start"
         >
-          <Card>
+          <Card className="xl:col-span-2">
             <CardHeader>
               <FormField
                 control={form.control}
@@ -229,7 +249,8 @@ export function CreateBomTemplatePage({
                 <CardTitle>Construction Board</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {lines.length} {lines.length === 1 ? 'line' : 'lines'} ·{' '}
-                  {lines.filter(isCompleteLine).length} complete
+                  {lines.filter(isCompleteBillOfMaterialsLine).length} complete ·{' '}
+                  {lines.filter((line) => line.verified === true).length} verified
                 </p>
               </div>
               <Button type="button" onClick={addLine} disabled={isSaving}>
@@ -330,11 +351,11 @@ export function CreateBomTemplatePage({
                           </button>
                           <span
                             aria-label={
-                              isCompleteLine(line) ? 'Complete' : 'Incomplete'
+                              isCompleteBillOfMaterialsLine(line) ? 'Complete' : 'Incomplete'
                             }
                             className={cn(
                               'size-2 rounded-full',
-                              isCompleteLine(line)
+                              isCompleteBillOfMaterialsLine(line)
                                 ? 'bg-emerald-500'
                                 : 'bg-stone-300',
                             )}
@@ -368,6 +389,12 @@ export function CreateBomTemplatePage({
                                         className="-ml-2 h-auto w-[calc(100%+1rem)] rounded-none border-0 border-b border-border/70 bg-transparent px-2 py-1 font-editorial text-3xl! leading-tight text-foreground shadow-none transition-[border-color,background-color,box-shadow,border-radius] placeholder:text-muted-foreground/45 hover:rounded-md hover:border hover:border-input hover:bg-background/70 focus-visible:rounded-md focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/20 md:text-3xl!"
                                         placeholder="Untitled construction piece"
                                         value={field.value ?? ''}
+                                        onChange={(event) => {
+                                          field.onChange(event)
+                                          updateLineVerification(activeIndex, {
+                                            constructionPiece: event.target.value,
+                                          })
+                                        }}
                                       />
                                     </FormControl>
                                   </h2>
@@ -399,7 +426,7 @@ export function CreateBomTemplatePage({
                         </div>
 
                         <div className="grid gap-5 md:grid-cols-2">
-                          <FormItem>
+                          <FormItem className="md:col-span-2">
                             <FormLabel>Material</FormLabel>
                             <MaterialPicker
                               selected={activeMaterial}
@@ -424,6 +451,9 @@ export function CreateBomTemplatePage({
                                       shouldValidate: true,
                                     },
                                   )
+                                  updateLineVerification(activeIndex, {
+                                    materialId: material?.id ?? null,
+                                  })
                                 }
                                 if (material) {
                                   setMaterialsById((current) => ({
@@ -450,19 +480,58 @@ export function CreateBomTemplatePage({
                                       step="0.001"
                                       type="number"
                                       value={field.value ?? ''}
-                                      onChange={(event) =>
+                                      onChange={(event) => {
                                         field.onChange(
                                           event.target.value === ''
                                             ? null
                                             : Number(event.target.value),
                                         )
-                                      }
+                                        updateLineVerification(activeIndex, {
+                                          materialQuantity:
+                                            event.target.value === ''
+                                              ? null
+                                              : Number(event.target.value),
+                                        })
+                                      }}
                                     />
                                     <span className="absolute top-2.5 right-3 text-xs text-muted-foreground">
                                       m
                                     </span>
                                   </div>
                                 </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`lines.${activeIndex}.verified`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Verification</FormLabel>
+                                <label
+                                  className={cn(
+                                    'flex h-10 items-center gap-2 rounded-xl border border-input/90 bg-card px-3 text-sm font-medium transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30',
+                                    isCompleteBillOfMaterialsLine(activeLine)
+                                      ? 'cursor-pointer'
+                                      : 'cursor-not-allowed opacity-50',
+                                  )}
+                                >
+                                  <Checkbox
+                                    aria-label="Manually verified"
+                                    checked={field.value === true}
+                                    disabled={!isCompleteBillOfMaterialsLine(activeLine)}
+                                    onCheckedChange={(checked) =>
+                                      field.onChange(
+                                        resolveBillOfMaterialsLineVerification(
+                                          activeLine,
+                                          { verified: checked === true },
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  Manually verified
+                                </label>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -490,12 +559,12 @@ export function CreateBomTemplatePage({
                         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 px-3 py-3">
                           <StatusBadge
                             label={
-                              isCompleteLine(activeLine)
+                              isCompleteBillOfMaterialsLine(activeLine)
                                 ? 'Complete'
                                 : 'Incomplete'
                             }
                             tone={
-                              isCompleteLine(activeLine) ? 'success' : 'muted'
+                              isCompleteBillOfMaterialsLine(activeLine) ? 'success' : 'muted'
                             }
                           />
                           {activeMaterial?.attention.includes(
@@ -527,20 +596,39 @@ export function CreateBomTemplatePage({
               )}
             </CardContent>
           </Card>
+
+          <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+            <Card>
+              <CardHeader>
+                <CardTitle>Whole BOM</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Construction lines
+                  </span>
+                  <span className="font-medium">{lines.length}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">Complete</span>
+                  <span className="font-medium">
+                    {lines.filter(isCompleteBillOfMaterialsLine).length}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">Verified</span>
+                  <span className="font-medium">
+                    {lines.filter((line) => line.verified === true).length}
+                  </span>
+                </div>
+                <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
+                  Incomplete or unverified lines do not block saving.
+                </p>
+              </CardContent>
+            </Card>
+          </aside>
         </form>
       </Form>
     </div>
-  )
-}
-
-function isCompleteLine(line: CreateBillOfMaterialsLineFormValues) {
-  return Boolean(
-    line.constructionPiece?.trim() &&
-    line.materialId &&
-    line.materialQuantity !== null &&
-    line.materialQuantity > 0 &&
-    Math.abs(
-      line.materialQuantity * 1000 - Math.round(line.materialQuantity * 1000),
-    ) < 1e-8,
   )
 }

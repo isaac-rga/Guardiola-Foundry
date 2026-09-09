@@ -10,6 +10,7 @@ import type {
   CreateBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
 } from '@guardiola-foundry/shared-types'
+import { DateTime } from 'luxon'
 import { randomBytes } from 'node:crypto'
 
 const BILL_OF_MATERIALS_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -61,6 +62,7 @@ export async function createBillOfMaterialsTemplate(
 
     const reservedLineIds = new Set<string>()
     if (payload.lines.length > 0) {
+      const verifiedAt = DateTime.utc()
       const linePublicIds: string[] = []
       for (let index = 0; index < payload.lines.length; index += 1) {
         linePublicIds.push(await generateBillOfMaterialsLineId(trx, reservedLineIds))
@@ -75,6 +77,8 @@ export async function createBillOfMaterialsTemplate(
           materialQuantity: line.materialQuantity,
           lineNote: line.lineNote,
           displayOrder,
+          verifiedByUserId: line.verified ? createdByUserId : null,
+          verifiedAt: line.verified ? verifiedAt : null,
         })),
         { client: trx }
       )
@@ -136,6 +140,14 @@ function serializeBillOfMaterialsLine(line: BillOfMaterialLine): BillOfMaterials
       line.constructionPiece.length > 0 && line.materialId !== null && hasValidQuantity
         ? 'complete'
         : 'incomplete',
+    verification:
+      line.verifiedAt === null
+        ? { status: 'unverified', verifiedBy: null, verifiedAt: null }
+        : {
+            status: 'verified',
+            verifiedBy: { id: line.verifiedBy.id, email: line.verifiedBy.email },
+            verifiedAt: line.verifiedAt.toISO()!,
+          },
   }
 }
 
@@ -150,7 +162,7 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
     .where('publicId', publicId)
     .preload('createdBy')
     .preload('lines', (lines) => {
-      lines.preload('material').orderBy('displayOrder', 'asc')
+      lines.preload('material').preload('verifiedBy').orderBy('displayOrder', 'asc')
     })
     .first()
 }

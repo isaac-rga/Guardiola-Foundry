@@ -1,4 +1,5 @@
 import Material from '#models/material'
+import User from '#models/user'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -34,6 +35,12 @@ export default class BillOfMaterialLine extends BaseModel {
   @column({ columnName: 'display_order' })
   declare displayOrder: number
 
+  @column({ columnName: 'verified_by_user_id' })
+  declare verifiedByUserId: number | null
+
+  @column.dateTime({ columnName: 'verified_at' })
+  declare verifiedAt: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -45,4 +52,7 @@ export default class BillOfMaterialLine extends BaseModel {
 
   @belongsTo(() => Material, { foreignKey: 'materialId' })
   declare material: BelongsTo<typeof Material>
+
+  @belongsTo(() => User, { foreignKey: 'verifiedByUserId' })
+  declare verifiedBy: BelongsTo<typeof User>
 }
