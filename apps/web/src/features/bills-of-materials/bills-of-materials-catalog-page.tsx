@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { useBillsOfMaterials } from './api/bills-of-materials'
+import { AssociateTemplateProductButton } from './components/associate-template-product-button'
 
 export function BillsOfMaterialsCatalogPage({
   onCreateTemplate,
@@ -56,28 +57,27 @@ export function BillsOfMaterialsCatalogPage({
             </div>
           ) : null}
           {billsOfMaterials.length > 0 ? (
-            <Table>
+            <Table className="min-w-[58rem]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Bill of Materials</TableHead>
-                  <TableHead>Kind</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Product context</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Last updated</TableHead>
+                  <TableHead className="w-12">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {billsOfMaterials.map((billOfMaterials) => (
                   <TableRow key={billOfMaterials.id}>
-                    <TableCell className="whitespace-normal align-top">
+                    <TableCell className="max-w-[18rem] whitespace-normal align-top">
                       <p className="font-medium">{billOfMaterials.name}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                         BOM ID {billOfMaterials.id}
                       </p>
-                      {billOfMaterials.description ? (
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {billOfMaterials.description}
-                        </p>
-                      ) : null}
                     </TableCell>
                     <TableCell className="align-top">
                       <Badge
@@ -92,6 +92,29 @@ export function BillsOfMaterialsCatalogPage({
                           : 'Implementation'}
                       </Badge>
                     </TableCell>
+                    <TableCell className="whitespace-normal align-top">
+                      {billOfMaterials.product ? (
+                        <div className="space-y-1">
+                          <p className="font-medium">
+                            {billOfMaterials.product.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {billOfMaterials.product.id} ·{' '}
+                            {billOfMaterials.product.availability ===
+                            'available'
+                              ? 'Available'
+                              : 'Unavailable'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="font-medium">No Product associated</p>
+                          <p className="text-xs text-muted-foreground">
+                            Product relationship is optional
+                          </p>
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="whitespace-normal align-top text-sm">
                       <p>{billOfMaterials.createdBy.email}</p>
                       <p className="text-muted-foreground">
@@ -102,6 +125,16 @@ export function BillsOfMaterialsCatalogPage({
                     </TableCell>
                     <TableCell className="align-top text-sm">
                       {new Date(billOfMaterials.updatedAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      {billOfMaterials.kind === 'template' &&
+                      billOfMaterials.product === null ? (
+                        <AssociateTemplateProductButton
+                          billOfMaterialsId={billOfMaterials.id}
+                          billOfMaterialsName={billOfMaterials.name}
+                          token={session.token}
+                        />
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}

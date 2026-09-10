@@ -1,9 +1,11 @@
 import {
+  associateBillOfMaterialsTemplateProductRequestSchema,
   billOfMaterialsDetailSchema,
   createBillOfMaterialsTemplateRequestSchema,
   listBillsOfMaterialsResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
+  AssociateBillOfMaterialsTemplateProductRequest,
   BillOfMaterialsDetail,
   CreateBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
@@ -25,6 +27,33 @@ export async function listBillsOfMaterials(
     )
   }
   return listBillsOfMaterialsResponseSchema.parse(body)
+}
+
+export async function associateBillOfMaterialsTemplateProduct(
+  token: string,
+  billOfMaterialsId: string,
+  payload: AssociateBillOfMaterialsTemplateProductRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}/product`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        associateBillOfMaterialsTemplateProductRequestSchema.parse(payload),
+      ),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to associate the Product.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
 }
 
 export async function createBillOfMaterialsTemplate(

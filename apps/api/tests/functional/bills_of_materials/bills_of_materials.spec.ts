@@ -54,6 +54,190 @@ test.group('Bills of Materials', (group) => {
     assert.isString(response.body().createdAt)
     assert.isString(response.body().updatedAt)
     assert.isAtLeast(Date.parse(response.body().updatedAt), Date.parse(response.body().createdAt))
+    assert.isNull(response.body().product)
+  })
+
+  test('creates a Product-associated Template and exposes immutable Product context', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'admin')
+    const productId = await createProduct(client, session.token, 'Jackie', {
+      lifecycleStatus: 'finished',
+    })
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Jackie base construction',
+        description: null,
+        productId,
+      })
+
+    response.assertStatus(201)
+    response.assertBodyContains({
+      product: { id: productId, name: 'Jackie', availability: 'available' },
+    })
+
+    const reloaded = await client
+      .get(`/bills-of-materials/${response.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    reloaded.assertStatus(200)
+    reloaded.assertBodyContains({
+      product: { id: productId, name: 'Jackie', availability: 'available' },
+    })
+  })
+
+  test('associates an unassociated Template once and rejects reassignment', async ({ client }) => {
+    const session = await authenticateAs(client, 'operator')
+    const firstProductId = await createProduct(client, session.token, 'Jackie')
+    const secondProductId = await createProduct(client, session.token, 'Paloma')
+    const template = await createTemplate(client, session.token, 'Shared construction')
+
+    const associated = await client
+      .post(`/bills-of-materials/${template.id}/product`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ productId: firstProductId })
+
+    associated.assertStatus(200)
+    associated.assertBodyContains({
+      id: template.id,
+      product: { id: firstProductId, name: 'Jackie', availability: 'available' },
+    })
+
+    const reassigned = await client
+      .post(`/bills-of-materials/${template.id}/product`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ productId: secondProductId })
+
+    reassigned.assertStatus(422)
+    reassigned.assertBodyContains({
+      errors: { productId: ['A Template Product association is permanent once assigned.'] },
+    })
+  })
+
+  test('rejects unavailable Products while preserving an existing association', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const inactiveProductId = await createProduct(client, session.token, 'Inactive Jackie', {
+      productStatus: 'inactive',
+    })
+    const deletedProductId = await createProduct(client, session.token, 'Deleted Paloma')
+    await client
+      .delete(`/products/${deletedProductId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    for (const productId of [inactiveProductId, deletedProductId]) {
+      const response = await client
+        .post('/bills-of-materials')
+        .header('Authorization', `Bearer ${session.token}`)
+        .json({ kind: 'template', name: `Blocked ${productId}`, description: null, productId })
+
+      response.assertStatus(422)
+      response.assertBodyContains({
+        errors: { productId: ['BOM Templates can only be associated with an active Product.'] },
+      })
+    }
+
+    const activeProductId = await createProduct(client, session.token, 'Associated Jackie')
+    const template = await createTemplate(client, session.token, 'Associated construction', {
+      productId: activeProductId,
+    })
+    await client
+      .put(`/products/${activeProductId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        name: 'Associated Jackie',
+        shortDescription: null,
+        lifecycleStatus: 'approved',
+        productStatus: 'inactive',
+        productCategory: null,
+        collectionId: null,
+      })
+
+    const preserved = await client
+      .get(`/bills-of-materials/${template.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    preserved.assertStatus(200)
+    preserved.assertBodyContains({
+      product: { id: activeProductId, name: 'Associated Jackie', availability: 'unavailable' },
+    })
+
+    await client
+      .delete(`/products/${activeProductId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const preservedAfterDeletion = await client
+      .get(`/bills-of-materials/${template.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    preservedAfterDeletion.assertStatus(200)
+    preservedAfterDeletion.assertBodyContains({
+      product: { id: activeProductId, name: 'Associated Jackie', availability: 'unavailable' },
+    })
+  })
+
+  test('atomically gives a Product slot to only one competing Template creation', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Contended Jackie')
+
+    const responses = await Promise.all(
+      ['First construction', 'Second construction'].map((name) =>
+        client
+          .post('/bills-of-materials')
+          .header('Authorization', `Bearer ${session.token}`)
+          .json({ kind: 'template', name, description: null, productId })
+      )
+    )
+
+    assert.deepEqual(responses.map((response) => response.status()).sort(), [201, 409])
+    const conflict = responses.find((response) => response.status() === 409)!
+    assert.match(conflict.body().conflictingTemplate.id, /^BOM-[A-Z2-9]{6}$/)
+    assert.include(
+      ['First construction', 'Second construction'],
+      conflict.body().conflictingTemplate.name
+    )
+
+    const associatedCount = await BillOfMaterial.query()
+      .whereNotNull('productId')
+      .count('* as total')
+    assert.equal(Number(associatedCount[0].$extras.total), 1)
+  })
+
+  test('atomically gives a Product slot to only one competing existing Template', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Association race Jackie')
+    const templates = await Promise.all([
+      createTemplate(client, session.token, 'First existing construction'),
+      createTemplate(client, session.token, 'Second existing construction'),
+    ])
+
+    const responses = await Promise.all(
+      templates.map((template) =>
+        client
+          .post(`/bills-of-materials/${template.id}/product`)
+          .header('Authorization', `Bearer ${session.token}`)
+          .json({ productId })
+      )
+    )
+
+    assert.deepEqual(responses.map((response) => response.status()).sort(), [200, 409])
+    const winner = responses.find((response) => response.status() === 200)!
+    const conflict = responses.find((response) => response.status() === 409)!
+    assert.equal(conflict.body().conflictingTemplate.id, winner.body().id)
+
+    const associated = await BillOfMaterial.query().whereNotNull('productId')
+    assert.lengthOf(associated, 1)
+    assert.equal(associated[0].publicId, winner.body().id)
   })
 
   test('persists a saved Template so a later catalog request can reload it', async ({ client }) => {
@@ -594,4 +778,32 @@ async function authenticateAs(client: any, role: 'admin' | 'operator') {
   })
   response.assertStatus(200)
   return { token: response.body().token as string, userId: user.id }
+}
+
+async function createProduct(
+  client: any,
+  token: string,
+  name: string,
+  overrides?: { lifecycleStatus?: string; productStatus?: string }
+) {
+  const response = await client
+    .post('/products')
+    .header('Authorization', `Bearer ${token}`)
+    .json({ name, ...overrides })
+  response.assertStatus(201)
+  return response.body().id as string
+}
+
+async function createTemplate(
+  client: any,
+  token: string,
+  name: string,
+  options?: { productId?: string }
+) {
+  const response = await client
+    .post('/bills-of-materials')
+    .header('Authorization', `Bearer ${token}`)
+    .json({ kind: 'template', name, description: null, ...options })
+  response.assertStatus(201)
+  return response.body() as { id: string }
 }

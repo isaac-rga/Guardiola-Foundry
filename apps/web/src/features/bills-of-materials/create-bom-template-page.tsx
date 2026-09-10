@@ -15,6 +15,7 @@ import type {
   CreateBillOfMaterialsLineRequest,
   CreateBillOfMaterialsTemplateRequest,
   MaterialSearchItem,
+  ProductSummary,
 } from '@guardiola-foundry/shared-types'
 import { createBillOfMaterialsTemplateRequestSchema } from '@guardiola-foundry/shared-validation'
 
@@ -47,6 +48,7 @@ import {
   resolveBillOfMaterialsLineVerification,
 } from './bom-line-verification'
 import { MaterialPicker } from './components/material-picker'
+import { TemplateProductScope } from './components/template-product-scope'
 
 const emptyLine: CreateBillOfMaterialsLineRequest = {
   constructionPiece: '',
@@ -60,6 +62,7 @@ const emptyTemplate: CreateBillOfMaterialsTemplateRequest = {
   kind: 'template',
   name: '',
   description: null,
+  productId: null,
   lines: [],
 }
 
@@ -103,6 +106,9 @@ export function CreateBomTemplatePage({
   const [materialsById, setMaterialsById] = useState<
     Record<string, MaterialSearchItem>
   >({})
+  const [selectedProduct, setSelectedProduct] = useState<ProductSummary | null>(
+    null,
+  )
   const dragHandleIndex = useRef<number | null>(null)
   const draggedIndex = useRef<number | null>(null)
 
@@ -229,10 +235,23 @@ export function CreateBomTemplatePage({
                 )}
               />
               <p className="mt-2 text-sm text-muted-foreground">
-                BOM Template · No Product association
+                {selectedProduct
+                  ? `BOM Template · ${selectedProduct.name} · ${selectedProduct.id}`
+                  : 'BOM Template · No Product association'}
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
+              <TemplateProductScope
+                selectedProduct={selectedProduct}
+                token={session.token}
+                onSelect={(product) => {
+                  setSelectedProduct(product)
+                  form.setValue('productId', product?.id ?? null, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }}
+              />
               <FormField
                 control={form.control}
                 name="description"

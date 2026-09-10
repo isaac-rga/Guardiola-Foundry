@@ -4,6 +4,7 @@ import {
   type BillOfMaterialsDetail,
   type BillOfMaterialsLine,
   type BillOfMaterialsSummary,
+  type AssociateBillOfMaterialsTemplateProductRequest,
   type CreateBillOfMaterialsLineRequest,
   type CreateBillOfMaterialsTemplateRequest,
   type ListBillsOfMaterialsResponse,
@@ -46,6 +47,12 @@ const billOfMaterialsLineMaterialSchema = z.object({
 const billOfMaterialsUserReferenceSchema = z.object({
   id: z.number().int().positive(),
   email: z.string().email(),
+})
+
+const billOfMaterialsProductReferenceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  availability: z.enum(['available', 'unavailable']),
 })
 
 const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
@@ -98,6 +105,7 @@ export const billOfMaterialsSummarySchema = z.object({
   kind: z.enum(['template', 'implementation']),
   name: billOfMaterialsNameSchema,
   description: z.string().nullable(),
+  product: billOfMaterialsProductReferenceSchema.nullable(),
   createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -165,5 +173,14 @@ export const createBillOfMaterialsTemplateRequestSchema = z.object({
   kind: z.literal('template'),
   name: billOfMaterialsNameSchema,
   description: optionalTrimmedText,
+  productId: z
+    .string()
+    .regex(/^P-[A-Z2-9]{6}$/)
+    .nullable()
+    .default(null),
   lines: z.array(createBillOfMaterialsLineRequestSchema).default([]),
 }) satisfies z.ZodType<CreateBillOfMaterialsTemplateRequest>
+
+export const associateBillOfMaterialsTemplateProductRequestSchema = z.object({
+  productId: z.string().regex(/^P-[A-Z2-9]{6}$/),
+}) satisfies z.ZodType<AssociateBillOfMaterialsTemplateProductRequest>

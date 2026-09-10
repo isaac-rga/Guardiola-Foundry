@@ -106,6 +106,7 @@ describe('Bills of Materials route', () => {
             kind: 'template',
             name: 'Jackie base construction',
             description: 'Reusable starting point',
+            productId: null,
             lines: [],
           }),
         }),
@@ -116,12 +117,117 @@ describe('Bills of Materials route', () => {
     ) as HTMLTableRowElement
     expect(within(row).getByText('Template')).toBeInTheDocument()
     expect(within(row).getByText('BOM ID BOM-ABC234')).toBeInTheDocument()
+    expect(within(row).getByText('No Product associated')).toBeInTheDocument()
+    expect(
+      within(row).getByText('Product relationship is optional'),
+    ).toBeInTheDocument()
+    expect(
+      within(row).queryByText('Reusable starting point'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Type' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Product context' }),
+    ).toBeInTheDocument()
 
     view.unmount()
     renderBillsOfMaterialsRoute()
     expect(
       await screen.findByText('Jackie base construction'),
     ).toBeInTheDocument()
+  })
+
+  it('recommends Product scope without blocking an unassociated Template', async () => {
+    const user = userEvent.setup()
+    const postedBodies: unknown[] = []
+    let billsOfMaterials: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials })
+      }
+      if (url.pathname === '/products') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-JACKIE',
+              name: 'Jackie',
+              lifecycleStatus: 'finished',
+              productStatus: 'active',
+              productCategory: 'dress',
+              collection: null,
+              createdAt: '2026-09-08T12:00:00.000Z',
+              createdBy: { id: 1, email: 'operator@example.com' },
+            },
+          ],
+          collections: [],
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        const created = {
+          ...billOfMaterialsFixture(),
+          name: 'Jackie base',
+          product: {
+            id: 'P-JACKIE',
+            name: 'Jackie',
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [created]
+        return jsonResponse(
+          {
+            ...created,
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+
+    expect(
+      screen.getByText('Product association recommended'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('BOM Template · No Product association'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Choose Product' }))
+    await user.click(
+      await screen.findByRole('button', { name: /Jackie.*P-JACKIE/ }),
+    )
+    expect(
+      screen.getByText('BOM Template · Jackie · P-JACKIE'),
+    ).toBeInTheDocument()
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Jackie base',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(postedBodies).toHaveLength(1))
+    expect(postedBodies[0]).toEqual({
+      kind: 'template',
+      name: 'Jackie base',
+      description: null,
+      productId: 'P-JACKIE',
+      lines: [],
+    })
+    const row = (await screen.findByText('Jackie base')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(row).getByText('Jackie')).toBeInTheDocument()
+    expect(within(row).getByText('P-JACKIE · Available')).toBeInTheDocument()
   })
 
   it('visibly distinguishes Templates from Implementations in the catalog', async () => {
@@ -168,6 +274,81 @@ describe('Bills of Materials route', () => {
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('menuitem', { name: /BOM Implementation/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('assigns a previously unassociated Template once from the catalog', async () => {
+    const user = userEvent.setup()
+    let template = {
+      ...billOfMaterialsFixture(),
+      product: null as null | {
+        id: string
+        name: string
+        availability: 'available' | 'unavailable'
+      },
+    }
+    const associationBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [template] })
+      }
+      if (url.pathname === '/products') {
+        return jsonResponse({
+          products: [productFixture()],
+          collections: [],
+        })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}/product` &&
+        init?.method === 'POST'
+      ) {
+        associationBodies.push(JSON.parse(String(init.body)))
+        template = {
+          ...template,
+          product: {
+            id: 'P-JACKIE',
+            name: 'Jackie',
+            availability: 'available',
+          },
+        }
+        return jsonResponse({
+          ...template,
+          lines: [],
+          costProjection: unavailableProjection(),
+        })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('Jackie base construction')
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Actions for Jackie base construction',
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Associate Product' }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: /Jackie.*P-JACKIE/ }),
+    )
+
+    await waitFor(() =>
+      expect(associationBodies).toEqual([{ productId: 'P-JACKIE' }]),
+    )
+    const row = screen
+      .getByText('Jackie base construction')
+      .closest('tr') as HTMLTableRowElement
+    expect(within(row).getByText('Jackie')).toBeInTheDocument()
+    expect(within(row).getByText('P-JACKIE · Available')).toBeInTheDocument()
+    expect(
+      within(row).queryByRole('button', {
+        name: 'Actions for Jackie base construction',
+      }),
     ).not.toBeInTheDocument()
   })
 
@@ -252,6 +433,7 @@ describe('Bills of Materials route', () => {
       kind: 'template',
       name: 'Layered skirt',
       description: null,
+      productId: null,
       lines: [
         {
           constructionPiece: 'Lining',
@@ -598,9 +780,23 @@ function billOfMaterialsFixture() {
     kind: 'template' as const,
     name: 'Jackie base construction',
     description: 'Reusable starting point',
+    product: null,
     createdBy: { id: 1, email: 'operator@example.com' },
     createdAt: '2026-09-08T12:00:00.000Z',
     updatedAt: '2026-09-08T12:00:00.000Z',
+  }
+}
+
+function productFixture() {
+  return {
+    id: 'P-JACKIE',
+    name: 'Jackie',
+    lifecycleStatus: 'finished' as const,
+    productStatus: 'active' as const,
+    productCategory: 'dress' as const,
+    collection: null,
+    createdAt: '2026-09-08T12:00:00.000Z',
+    createdBy: { id: 1, email: 'operator@example.com' },
   }
 }
 

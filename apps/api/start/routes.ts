@@ -63,5 +63,9 @@ router
     router.get('/bills-of-materials', [BillsOfMaterialsController, 'index'])
     router.get('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'show'])
     router.post('/bills-of-materials', [BillsOfMaterialsController, 'store'])
+    router.post('/bills-of-materials/:billOfMaterialsId/product', [
+      BillsOfMaterialsController,
+      'associateProduct',
+    ])
   })
   .use(middleware.bearerAuth())

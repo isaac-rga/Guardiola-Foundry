@@ -8,11 +8,18 @@ export interface BillOfMaterialsUserReference {
   email: string
 }
 
+export interface BillOfMaterialsProductReference {
+  id: string
+  name: string
+  availability: 'available' | 'unavailable'
+}
+
 export interface BillOfMaterialsSummary {
   id: string
   kind: BillOfMaterialsKind
   name: string
   description: string | null
+  product: BillOfMaterialsProductReference | null
   createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string
@@ -99,5 +106,10 @@ export interface CreateBillOfMaterialsTemplateRequest {
   kind: 'template'
   name: string
   description: string | null
+  productId: string | null
   lines: CreateBillOfMaterialsLineRequest[]
+}
+
+export interface AssociateBillOfMaterialsTemplateProductRequest {
+  productId: string
 }

@@ -1,5 +1,6 @@
 import Material from '#models/material'
 import MaterialSource from '#models/material_source'
+import Product from '#models/product'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
 import {
@@ -28,6 +29,7 @@ const BILL_OF_MATERIALS_LINE_ID_PREFIX = 'BML-'
 export async function listBillsOfMaterials(): Promise<ListBillsOfMaterialsResponse> {
   const billsOfMaterials = await BillOfMaterial.query()
     .preload('createdBy')
+    .preload('product', (productQuery) => Product.includeDeleted(productQuery))
     .orderBy('updatedAt', 'desc')
 
   return { billsOfMaterials: billsOfMaterials.map(serializeBillOfMaterials) }
@@ -38,6 +40,21 @@ export async function createBillOfMaterialsTemplate(
   payload: CreateBillOfMaterialsTemplateRequest
 ): Promise<BillOfMaterialsDetail> {
   return db.transaction(async (trx) => {
+    const product =
+      payload.productId === null ? null : await lockEligibleProduct(payload.productId, trx)
+
+    if (product === 'not-found' || product === 'unavailable') {
+      throw new BillOfMaterialsValidationError(
+        'productId',
+        'BOM Templates can only be associated with an active Product.'
+      )
+    }
+
+    const conflictingTemplate = product ? await findAssociatedTemplate(product.id, trx) : null
+    if (conflictingTemplate) {
+      throw new BillOfMaterialsProductConflictError(conflictingTemplate)
+    }
+
     const materialPublicIds = payload.lines.flatMap((line) =>
       line.materialId === null ? [] : [line.materialId]
     )
@@ -64,6 +81,7 @@ export async function createBillOfMaterialsTemplate(
         name: payload.name,
         description: payload.description,
         createdByUserId,
+        productId: product?.id ?? null,
       },
       { client: trx }
     )
@@ -96,6 +114,39 @@ export async function createBillOfMaterialsTemplate(
   })
 }
 
+export type AssociateTemplateProductResult =
+  | BillOfMaterialsDetail
+  | 'template-not-found'
+  | 'template-already-associated'
+  | 'product-unavailable'
+  | { conflict: { id: string; name: string } }
+
+export async function associateBillOfMaterialsTemplateProduct(
+  billOfMaterialsPublicId: string,
+  productPublicId: string
+): Promise<AssociateTemplateProductResult> {
+  return db.transaction(async (trx) => {
+    const billOfMaterials = await BillOfMaterial.query({ client: trx })
+      .where('publicId', billOfMaterialsPublicId)
+      .where('kind', 'template')
+      .forUpdate()
+      .first()
+
+    if (!billOfMaterials) return 'template-not-found'
+    if (billOfMaterials.productId !== null) return 'template-already-associated'
+
+    const product = await lockEligibleProduct(productPublicId, trx)
+    if (product === 'not-found' || product === 'unavailable') return 'product-unavailable'
+
+    const conflictingTemplate = await findAssociatedTemplate(product.id, trx)
+    if (conflictingTemplate) return { conflict: conflictingTemplate }
+
+    billOfMaterials.productId = product.id
+    await billOfMaterials.save()
+    return loadBillOfMaterialsDetail(billOfMaterials.publicId, trx)
+  })
+}
+
 export async function getBillOfMaterials(publicId: string): Promise<BillOfMaterialsDetail | null> {
   const billOfMaterials = await loadBillOfMaterials(publicId)
   return billOfMaterials ? serializeBillOfMaterialsDetail(billOfMaterials) : null
@@ -111,12 +162,31 @@ export class BillOfMaterialsValidationError extends Error {
   }
 }
 
+export class BillOfMaterialsProductConflictError extends Error {
+  constructor(readonly conflictingTemplate: { id: string; name: string }) {
+    super(`Product is already associated with ${conflictingTemplate.name}.`)
+    this.name = 'BillOfMaterialsProductConflictError'
+  }
+}
+
 function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMaterialsSummary {
   return {
     id: billOfMaterials.publicId,
     kind: billOfMaterials.kind,
     name: billOfMaterials.name,
     description: billOfMaterials.description,
+    product:
+      billOfMaterials.productId === null
+        ? null
+        : {
+            id: billOfMaterials.product.publicId,
+            name: billOfMaterials.product.name,
+            availability:
+              billOfMaterials.product.deletedAt === null &&
+              billOfMaterials.product.productStatus === 'active'
+                ? 'available'
+                : 'unavailable',
+          },
     createdBy: {
       id: billOfMaterials.createdBy.id,
       email: billOfMaterials.createdBy.email,
@@ -206,6 +276,7 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
   return BillOfMaterial.query(trx ? { client: trx } : undefined)
     .where('publicId', publicId)
     .preload('createdBy')
+    .preload('product', (productQuery) => Product.includeDeleted(productQuery))
     .preload('lines', (lines) => {
       lines
         .preload('material', (materialQuery) => {
@@ -223,6 +294,26 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
         .orderBy('displayOrder', 'asc')
     })
     .first()
+}
+
+async function lockEligibleProduct(publicId: string, trx: TransactionClientContract) {
+  const query = Product.query({ client: trx }).where('publicId', publicId).forUpdate()
+  Product.includeDeleted(query)
+  const product = await query.first()
+
+  if (!product) return 'not-found' as const
+  if (product.deletedAt !== null || product.productStatus !== 'active')
+    return 'unavailable' as const
+  return product
+}
+
+async function findAssociatedTemplate(productId: number, trx: TransactionClientContract) {
+  const template = await BillOfMaterial.query({ client: trx })
+    .where('productId', productId)
+    .where('kind', 'template')
+    .first()
+
+  return template ? { id: template.publicId, name: template.name } : null
 }
 
 async function generateBillOfMaterialsId(trx: TransactionClientContract) {
