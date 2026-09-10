@@ -1,17 +1,32 @@
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import PatternSetQuantityProposal from '#modules/pattern_sets/models/pattern_set_quantity_proposal'
+import { countPatternSetUsage } from '#modules/bills_of_materials/services/pattern_set_usage'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   CreatePatternSetRequest,
   ListPatternSetsResponse,
+  PatternSetUsageImpact,
   PatternSet as PatternSetContract,
+  SearchPatternSetsResponse,
   UpdatePatternSetRequest,
 } from '@guardiola-foundry/shared-types'
 import { randomBytes } from 'node:crypto'
 
 const PATTERN_SET_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PATTERN_SET_ID_LENGTH = 6
+const PATTERN_SET_SEARCH_LIMIT = 25
+const NORMALIZED_PATTERN_SET_SEARCH_DOCUMENT = `
+  regexp_replace(
+    translate(lower(concat_ws(' ', pattern_sets.public_id, pattern_sets.name)),
+      'áéíóúüñ',
+      'aeiouun'
+    ),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
 
 type MutationResult = PatternSetContract | 'duplicate-name' | 'not-found' | 'retired'
 
@@ -28,6 +43,61 @@ export async function listPatternSets(includeRetired = false): Promise<ListPatte
   const patternSets = await query
 
   return { patternSets: patternSets.map(serializePatternSet) }
+}
+
+export async function searchPatternSets(search: string): Promise<SearchPatternSetsResponse> {
+  const normalizedId = 'lower(pattern_sets.public_id)'
+  const normalizedName = `translate(lower(pattern_sets.name), 'áéíóúüñ', 'aeiouun')`
+  const query = db
+    .from('pattern_sets')
+    .leftJoin(
+      'pattern_set_quantity_proposals',
+      'pattern_set_quantity_proposals.pattern_set_id',
+      'pattern_sets.id'
+    )
+    .where('pattern_sets.status', 'active')
+    .select('pattern_sets.public_id', 'pattern_sets.name')
+    .count('pattern_set_quantity_proposals.id as quantity_proposal_count')
+    .groupBy('pattern_sets.id')
+    .orderByRaw(
+      `CASE
+        WHEN ${normalizedId} = ? THEN 0
+        WHEN ${normalizedName} = ? THEN 1
+        WHEN ${normalizedId} LIKE ? THEN 2
+        WHEN ${normalizedName} LIKE ? THEN 3
+        ELSE 4
+      END`,
+      [search, search, `${search}%`, `${search}%`]
+    )
+    .orderBy('pattern_sets.name', 'asc')
+    .orderBy('pattern_sets.public_id', 'asc')
+    .limit(PATTERN_SET_SEARCH_LIMIT + 1)
+
+  search.split(' ').forEach((term) => {
+    query.whereRaw(`position(? in ${NORMALIZED_PATTERN_SET_SEARCH_DOCUMENT}) > 0`, [term])
+  })
+
+  const rows = await query
+  return {
+    items: rows.slice(0, PATTERN_SET_SEARCH_LIMIT).map((row) => ({
+      id: row.public_id,
+      name: row.name,
+      quantityProposalCount: Number(row.quantity_proposal_count),
+    })),
+    hasMore: rows.length > PATTERN_SET_SEARCH_LIMIT,
+  }
+}
+
+export async function getPatternSet(publicId: string): Promise<PatternSetContract | null> {
+  const patternSet = await loadPatternSetOrNull(publicId)
+  return patternSet ? serializePatternSet(patternSet) : null
+}
+
+export async function getPatternSetUsageImpact(
+  publicId: string
+): Promise<PatternSetUsageImpact | null> {
+  const patternSet = await PatternSet.findBy('publicId', publicId)
+  return patternSet ? countPatternSetUsage(patternSet.id) : null
 }
 
 export async function createPatternSet(
@@ -132,12 +202,17 @@ async function replaceQuantityProposals(
 }
 
 async function loadPatternSet(publicId: string, trx?: TransactionClientContract) {
-  const patternSet = await PatternSet.query(trx ? { client: trx } : undefined)
+  const patternSet = await loadPatternSetOrNull(publicId, trx)
+  if (!patternSet) throw new Error(`Pattern Set ${publicId} could not be reloaded.`)
+  return serializePatternSet(patternSet)
+}
+
+async function loadPatternSetOrNull(publicId: string, trx?: TransactionClientContract) {
+  return PatternSet.query(trx ? { client: trx } : undefined)
     .where('publicId', publicId)
     .preload('createdBy')
     .preload('quantityProposals', (query) => query.orderBy('assumedWidthCm', 'asc'))
-    .firstOrFail()
-  return serializePatternSet(patternSet)
+    .first()
 }
 
 function serializePatternSet(patternSet: PatternSet): PatternSetContract {

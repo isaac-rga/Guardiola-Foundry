@@ -1,6 +1,7 @@
 import Material from '#models/material'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import { lockTemplateProductSlot } from '#modules/bills_of_materials/services/template_product_slot'
 import db from '@adonisjs/lucid/services/db'
@@ -53,6 +54,30 @@ export async function createBillOfMaterialsTemplate(
       )
     }
 
+    const patternSetPublicIds = payload.lines.flatMap((line) =>
+      line.patternSetId === null ? [] : [line.patternSetId]
+    )
+    const patternSets =
+      patternSetPublicIds.length === 0
+        ? []
+        : await PatternSet.query({ client: trx })
+            .whereIn('publicId', [...new Set(patternSetPublicIds)])
+            .where('status', 'active')
+            .forUpdate()
+    const patternSetByPublicId = new Map(
+      patternSets.map((patternSet) => [patternSet.publicId, patternSet])
+    )
+    const unavailablePatternSetIndex = payload.lines.findIndex(
+      (line) => line.patternSetId !== null && !patternSetByPublicId.has(line.patternSetId)
+    )
+
+    if (unavailablePatternSetIndex !== -1) {
+      throw new BillOfMaterialsValidationError(
+        `lines.${unavailablePatternSetIndex}.patternSetId`,
+        'The selected Pattern Set is no longer available.'
+      )
+    }
+
     const billOfMaterials = await BillOfMaterial.create(
       {
         publicId: await generateBillOfMaterialsId(trx),
@@ -80,6 +105,8 @@ export async function createBillOfMaterialsTemplate(
           constructionPiece: line.constructionPiece,
           materialId: line.materialId === null ? null : materialByPublicId.get(line.materialId)!.id,
           materialQuantity: line.materialQuantity,
+          patternSetId:
+            line.patternSetId === null ? null : patternSetByPublicId.get(line.patternSetId)!.id,
           lineNote: line.lineNote,
           displayOrder,
           verifiedByUserId: line.verified ? createdByUserId : null,

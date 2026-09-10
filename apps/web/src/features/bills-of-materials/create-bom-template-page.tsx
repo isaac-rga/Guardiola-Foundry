@@ -15,6 +15,7 @@ import type {
   CreateBillOfMaterialsLineRequest,
   CreateBillOfMaterialsTemplateRequest,
   MaterialSearchItem,
+  PatternSetSearchItem,
   ProductSummary,
 } from '@guardiola-foundry/shared-types'
 import { createBillOfMaterialsTemplateRequestSchema } from '@guardiola-foundry/shared-validation'
@@ -42,18 +43,22 @@ import {
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
 import { useCreateBillOfMaterialsTemplate } from './api/bills-of-materials'
+import { BillOfMaterialsRequestError } from './api/endpoints'
 import { calculateDraftBomCostProjection } from './bom-cost-projection'
 import {
   isCompleteBillOfMaterialsLine,
   resolveBillOfMaterialsLineVerification,
 } from './bom-line-verification'
 import { MaterialPicker } from './components/material-picker'
+import { PatternProposalDialog } from './components/pattern-proposal-dialog'
+import { PatternSetPicker } from './components/pattern-set-picker'
 import { TemplateProductScope } from './components/template-product-scope'
 
 const emptyLine: CreateBillOfMaterialsLineRequest = {
   constructionPiece: '',
   materialId: null,
   materialQuantity: null,
+  patternSetId: null,
   lineNote: null,
   verified: false,
 }
@@ -106,6 +111,9 @@ export function CreateBomTemplatePage({
   const [materialsById, setMaterialsById] = useState<
     Record<string, MaterialSearchItem>
   >({})
+  const [patternSetsById, setPatternSetsById] = useState<
+    Record<string, PatternSetSearchItem>
+  >({})
   const [selectedProduct, setSelectedProduct] = useState<ProductSummary | null>(
     null,
   )
@@ -154,22 +162,33 @@ export function CreateBomTemplatePage({
     try {
       await createTemplate(values)
       onSaved()
-    } catch {
+    } catch (error) {
+      if (error instanceof BillOfMaterialsRequestError) {
+        Object.entries(error.fieldErrors).forEach(([field, messages]) => {
+          const match = /^lines\.(\d+)\.patternSetId$/.exec(field)
+          if (!match || !messages[0]) return
+          form.setError(`lines.${Number(match[1])}.patternSetId`, {
+            message: messages[0],
+          })
+        })
+      }
       // The mutation error is visible while the unsaved draft remains in place.
     }
   })
   const activeLine = activeIndex === null ? null : lines[activeIndex]
-  const activeMaterial =
-    activeLine?.materialId ? (materialsById[activeLine.materialId] ?? null) : null
+  const activeMaterial = activeLine?.materialId
+    ? (materialsById[activeLine.materialId] ?? null)
+    : null
+  const activePatternSet = activeLine?.patternSetId
+    ? (patternSetsById[activeLine.patternSetId] ?? null)
+    : null
   const costProjection = calculateDraftBomCostProjection(lines, materialsById)
   const activeCostProjection =
     activeIndex === null ? null : costProjection.lines[activeIndex]
-  const attentionCount = lines.filter((line) =>
-    line.materialId
-      ? materialsById[line.materialId]?.attention.includes(
-          'source-needs-attention',
-        )
-      : false,
+  const attentionCount = lines.filter(
+    (line) =>
+      line.materialId &&
+      (materialsById[line.materialId]?.attention.length ?? 0) > 0,
   ).length
 
   return (
@@ -212,9 +231,13 @@ export function CreateBomTemplatePage({
                               <InfoIcon className="size-3.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent className="max-w-72 leading-5" side="right">
-                            Name the construction by its distinguishing attributes,
-                            such as design, color, train, or silhouette.
+                          <TooltipContent
+                            className="max-w-72 leading-5"
+                            side="right"
+                          >
+                            Name the construction by its distinguishing
+                            attributes, such as design, color, train, or
+                            silhouette.
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -270,7 +293,11 @@ export function CreateBomTemplatePage({
                   </FormItem>
                 )}
               />
-              {saveError ? <p role="alert">{saveError.message}</p> : null}
+              {saveError &&
+              (!(saveError instanceof BillOfMaterialsRequestError) ||
+                Object.keys(saveError.fieldErrors).length === 0) ? (
+                <p role="alert">{saveError.message}</p>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -280,8 +307,9 @@ export function CreateBomTemplatePage({
                 <CardTitle>Construction Board</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {lines.length} {lines.length === 1 ? 'line' : 'lines'} ·{' '}
-                  {lines.filter(isCompleteBillOfMaterialsLine).length} complete ·{' '}
-                  {lines.filter((line) => line.verified === true).length} verified
+                  {lines.filter(isCompleteBillOfMaterialsLine).length} complete
+                  · {lines.filter((line) => line.verified === true).length}{' '}
+                  verified
                 </p>
               </div>
               <Button type="button" onClick={addLine} disabled={isSaving}>
@@ -382,7 +410,9 @@ export function CreateBomTemplatePage({
                           </button>
                           <span
                             aria-label={
-                              isCompleteBillOfMaterialsLine(line) ? 'Complete' : 'Incomplete'
+                              isCompleteBillOfMaterialsLine(line)
+                                ? 'Complete'
+                                : 'Incomplete'
                             }
                             className={cn(
                               'size-2 rounded-full',
@@ -423,7 +453,8 @@ export function CreateBomTemplatePage({
                                         onChange={(event) => {
                                           field.onChange(event)
                                           updateLineVerification(activeIndex, {
-                                            constructionPiece: event.target.value,
+                                            constructionPiece:
+                                              event.target.value,
                                           })
                                         }}
                                       />
@@ -457,7 +488,7 @@ export function CreateBomTemplatePage({
                         </div>
 
                         <div className="grid gap-5 md:grid-cols-2">
-                          <FormItem className="md:col-span-2">
+                          <FormItem>
                             <FormLabel>Material</FormLabel>
                             <MaterialPicker
                               selected={activeMaterial}
@@ -495,6 +526,59 @@ export function CreateBomTemplatePage({
                               }}
                             />
                           </FormItem>
+                          <FormField
+                            control={form.control}
+                            name={`lines.${activeIndex}.patternSetId`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex items-center justify-between gap-2">
+                                  <FormLabel>Pattern Set (optional)</FormLabel>
+                                  {activePatternSet &&
+                                  activePatternSet.quantityProposalCount > 0 ? (
+                                    <PatternProposalDialog
+                                      materialId={activeLine.materialId}
+                                      materialWidthCentimeters={
+                                        activeMaterial?.preferredSource
+                                          .widthCentimeters ?? null
+                                      }
+                                      patternSetId={activePatternSet.id}
+                                      proposalCount={
+                                        activePatternSet.quantityProposalCount
+                                      }
+                                      token={session.token}
+                                      onUse={(quantityMeters) => {
+                                        form.setValue(
+                                          `lines.${activeIndex}.materialQuantity`,
+                                          quantityMeters,
+                                          {
+                                            shouldDirty: true,
+                                            shouldValidate: true,
+                                          },
+                                        )
+                                        updateLineVerification(activeIndex, {
+                                          materialQuantity: quantityMeters,
+                                        })
+                                      }}
+                                    />
+                                  ) : null}
+                                </div>
+                                <PatternSetPicker
+                                  selected={activePatternSet}
+                                  token={session.token}
+                                  onSelect={(patternSet) => {
+                                    field.onChange(patternSet?.id ?? null)
+                                    if (patternSet) {
+                                      setPatternSetsById((current) => ({
+                                        ...current,
+                                        [patternSet.id]: patternSet,
+                                      }))
+                                    }
+                                  }}
+                                />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                           <FormField
                             control={form.control}
                             name={`lines.${activeIndex}.materialQuantity`}
@@ -551,7 +635,9 @@ export function CreateBomTemplatePage({
                                   <Checkbox
                                     aria-label="Manually verified"
                                     checked={field.value === true}
-                                    disabled={!isCompleteBillOfMaterialsLine(activeLine)}
+                                    disabled={
+                                      !isCompleteBillOfMaterialsLine(activeLine)
+                                    }
                                     onCheckedChange={(checked) =>
                                       field.onChange(
                                         resolveBillOfMaterialsLineVerification(
@@ -595,7 +681,9 @@ export function CreateBomTemplatePage({
                                 : 'Incomplete'
                             }
                             tone={
-                              isCompleteBillOfMaterialsLine(activeLine) ? 'success' : 'muted'
+                              isCompleteBillOfMaterialsLine(activeLine)
+                                ? 'success'
+                                : 'muted'
                             }
                           />
                           {activeMaterial?.attention.includes(

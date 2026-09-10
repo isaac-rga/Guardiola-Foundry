@@ -510,6 +510,135 @@ test.group('Bills of Materials', (group) => {
     assert.equal(refreshed.body().updatedAt, created.body().updatedAt)
   })
 
+  test('retains Pattern Set context and derives independent live retirement attention', async ({
+    assert,
+    client,
+  }) => {
+    await importMaterialsFromRows(MATERIAL_SOURCE_IMPORT_FIXTURE, MATERIAL_IMPORT_FIXTURE)
+    const session = await authenticateAs(client, 'operator')
+    const patternSet = await createPatternSet(client, session.token, 'Skirt patterns')
+    const created = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Pattern-aware construction',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 3.25,
+            patternSetId: patternSet.id,
+            lineNote: null,
+            verified: true,
+          },
+        ],
+      })
+
+    created.assertStatus(201)
+    created.assertBodyContains({
+      lines: [
+        {
+          materialQuantity: 3.25,
+          patternSet: {
+            id: patternSet.id,
+            name: 'Skirt patterns',
+            status: 'active',
+            quantityProposalCount: 1,
+          },
+          verification: { status: 'verified' },
+          attention: [],
+        },
+      ],
+    })
+
+    const retireResponse = await client
+      .delete(`/pattern-sets/${patternSet.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    retireResponse.assertStatus(204)
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    await material.softDelete()
+    const preferredSource = await MaterialSource.findByOrFail('legacySourceId', 'SRC-100')
+    preferredSource.landedUnitCostCents = null
+    await preferredSource.save()
+
+    const retired = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    retired.assertStatus(200)
+    assert.deepEqual(retired.body().lines[0].attention, [
+      'material-needs-attention',
+      'source-needs-attention',
+      'pattern-needs-attention',
+    ])
+    assert.equal(retired.body().lines[0].materialQuantity, 3.25)
+    assert.equal(retired.body().lines[0].verification.status, 'verified')
+    assert.equal(retired.body().lines[0].completeness, 'complete')
+    assert.equal(retired.body().attentionCount, 1)
+    assert.equal(retired.body().updatedAt, created.body().updatedAt)
+
+    const admin = await authenticateAs(client, 'admin')
+    const restoreResponse = await client
+      .post(`/pattern-sets/${patternSet.id}/restore`)
+      .header('Authorization', `Bearer ${admin.token}`)
+    restoreResponse.assertStatus(200)
+    const restored = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    assert.deepEqual(restored.body().lines[0].attention, [
+      'material-needs-attention',
+      'source-needs-attention',
+    ])
+    assert.equal(restored.body().lines[0].materialQuantity, 3.25)
+    assert.equal(restored.body().lines[0].verification.status, 'verified')
+    assert.equal(restored.body().attentionCount, 1)
+    assert.equal(restored.body().updatedAt, created.body().updatedAt)
+
+    preferredSource.landedUnitCostCents = 4200
+    await preferredSource.save()
+  })
+
+  test('rejects a newly selected Pattern Set retired before save without creating anything', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const patternSet = await createPatternSet(client, session.token, 'Stale selection')
+    await client
+      .delete(`/pattern-sets/${patternSet.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'template',
+        name: 'Preserved draft',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Skirt',
+            materialId: null,
+            materialQuantity: null,
+            patternSetId: patternSet.id,
+            lineNote: null,
+          },
+        ],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({
+      errors: {
+        'lines.0.patternSetId': ['The selected Pattern Set is no longer available.'],
+      },
+    })
+    const count = await BillOfMaterial.query().count('* as total').firstOrFail()
+    assert.equal(Number(count.$extras.total), 0)
+  })
+
   test('excludes missing, Retired, and deleted Preferred Sources without blocking verified lines', async ({
     assert,
     client,
@@ -804,6 +933,21 @@ async function createTemplate(
     .post('/bills-of-materials')
     .header('Authorization', `Bearer ${token}`)
     .json({ kind: 'template', name, description: null, ...options })
+  response.assertStatus(201)
+  return response.body() as { id: string }
+}
+
+async function createPatternSet(client: any, token: string, name: string) {
+  const response = await client
+    .post('/pattern-sets')
+    .header('Authorization', `Bearer ${token}`)
+    .json({
+      name,
+      description: 'Reusable pattern evidence',
+      quantityProposals: [
+        { assumedWidthCm: 140, quantityMeters: 3.25, evidenceNote: 'Marker study' },
+      ],
+    })
   response.assertStatus(201)
   return response.body() as { id: string }
 }

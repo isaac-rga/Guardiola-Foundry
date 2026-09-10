@@ -47,6 +47,14 @@ export interface BillOfMaterialsLinePreferredSource {
 export type BillOfMaterialsLineAttention =
   | 'material-needs-attention'
   | 'source-needs-attention'
+  | 'pattern-needs-attention'
+
+export interface BillOfMaterialsLinePatternSet {
+  id: string
+  name: string
+  status: 'active' | 'retired'
+  quantityProposalCount: number
+}
 
 export type BillOfMaterialsCostProjectionExclusionReason =
   | 'missing-material'
@@ -81,6 +89,7 @@ export interface BillOfMaterialsLine {
   constructionPiece: string
   material: BillOfMaterialsLineMaterial | null
   materialQuantity: number | null
+  patternSet: BillOfMaterialsLinePatternSet | null
   lineNote: string | null
   order: number
   completeness: 'complete' | 'incomplete'
@@ -91,6 +100,7 @@ export interface BillOfMaterialsLine {
 
 export interface BillOfMaterialsDetail extends BillOfMaterialsSummary {
   lines: BillOfMaterialsLine[]
+  attentionCount: number
   costProjection: BillOfMaterialsCostProjection
 }
 
@@ -98,6 +108,7 @@ export interface CreateBillOfMaterialsLineRequest {
   constructionPiece: string
   materialId: string | null
   materialQuantity: number | null
+  patternSetId: string | null
   lineNote: string | null
   verified: boolean
 }

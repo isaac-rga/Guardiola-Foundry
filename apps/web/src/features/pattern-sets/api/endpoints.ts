@@ -2,12 +2,16 @@ import {
   createPatternSetRequestSchema,
   listPatternSetsResponseSchema,
   patternSetSchema,
+  patternSetUsageImpactSchema,
+  searchPatternSetsResponseSchema,
   updatePatternSetRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   CreatePatternSetRequest,
   ListPatternSetsResponse,
   PatternSet,
+  PatternSetUsageImpact,
+  SearchPatternSetsResponse,
   UpdatePatternSetRequest,
 } from '@guardiola-foundry/shared-types'
 
@@ -29,6 +33,64 @@ export async function listPatternSets(
       getResponseErrorMessage(body, 'Unable to load Pattern Sets.'),
     )
   return listPatternSetsResponseSchema.parse(body)
+}
+
+export async function searchPatternSets(
+  token: string,
+  search: string,
+  signal?: AbortSignal,
+): Promise<SearchPatternSetsResponse> {
+  const url = new URL(resolveApiUrl('/pattern-sets/search'))
+  url.searchParams.set('search', search)
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to search Pattern Sets.'),
+    )
+  }
+  return searchPatternSetsResponseSchema.parse(body)
+}
+
+export async function getPatternSet(
+  token: string,
+  patternSetId: string,
+): Promise<PatternSet> {
+  const response = await fetch(resolveApiUrl(`/pattern-sets/${patternSetId}`), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to load the Pattern Set.'),
+    )
+  }
+  return patternSetSchema.parse(body)
+}
+
+export async function getPatternSetUsageImpact(
+  token: string,
+  patternSetId: string,
+): Promise<PatternSetUsageImpact> {
+  const response = await fetch(
+    resolveApiUrl(`/pattern-sets/${patternSetId}/usage`),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to check Pattern Set usage.'),
+    )
+  }
+  return patternSetUsageImpactSchema.parse(body)
 }
 
 export async function createPatternSet(

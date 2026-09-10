@@ -13,6 +13,16 @@ import type {
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
 
+export class BillOfMaterialsRequestError extends Error {
+  readonly fieldErrors: Record<string, string[]>
+
+  constructor(message: string, fieldErrors: Record<string, string[]>) {
+    super(message)
+    this.name = 'BillOfMaterialsRequestError'
+    this.fieldErrors = fieldErrors
+  }
+}
+
 export async function listBillsOfMaterials(
   token: string,
 ): Promise<ListBillsOfMaterialsResponse> {
@@ -72,9 +82,30 @@ export async function createBillOfMaterialsTemplate(
   })
   const body = await response.json()
   if (!response.ok) {
-    throw new Error(
+    throw new BillOfMaterialsRequestError(
       getResponseErrorMessage(body, 'Unable to save the BOM Template.'),
+      readFieldErrors(body),
     )
   }
   return billOfMaterialsDetailSchema.parse(body)
+}
+
+function readFieldErrors(body: unknown): Record<string, string[]> {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('errors' in body) ||
+    typeof body.errors !== 'object' ||
+    body.errors === null
+  ) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(body.errors).filter(
+      (entry): entry is [string, string[]] =>
+        Array.isArray(entry[1]) &&
+        entry[1].every((message) => typeof message === 'string'),
+    ),
+  )
 }

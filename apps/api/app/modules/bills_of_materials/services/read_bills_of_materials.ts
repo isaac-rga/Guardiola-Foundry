@@ -67,12 +67,14 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
 
 function serializeBillOfMaterialsDetail(billOfMaterials: BillOfMaterial): BillOfMaterialsDetail {
   const projection = calculateBomCostProjection(billOfMaterials.lines)
+  const lines = billOfMaterials.lines.map((line, index) =>
+    serializeBillOfMaterialsLine(line, projection.lines[index])
+  )
 
   return {
     ...serializeBillOfMaterials(billOfMaterials),
-    lines: billOfMaterials.lines.map((line, index) =>
-      serializeBillOfMaterialsLine(line, projection.lines[index])
-    ),
+    lines,
+    attentionCount: lines.filter((line) => line.attention.length > 0).length,
     costProjection: projection.summary,
   }
 }
@@ -96,6 +98,15 @@ function serializeBillOfMaterialsLine(
             preferredSource: preferredLink ? serializeLinePreferredSource(preferredLink) : null,
           },
     materialQuantity: line.materialQuantity,
+    patternSet:
+      line.patternSetId === null
+        ? null
+        : {
+            id: line.patternSet.publicId,
+            name: line.patternSet.name,
+            status: line.patternSet.status,
+            quantityProposalCount: line.patternSet.quantityProposals.length,
+          },
     lineNote: line.lineNote,
     order: line.displayOrder,
     completeness:
@@ -115,6 +126,9 @@ function serializeBillOfMaterialsLine(
         ? (['material-needs-attention'] as const)
         : []),
       ...(sourceNeedsAttention(line) ? (['source-needs-attention'] as const) : []),
+      ...(line.patternSetId !== null && line.patternSet.status === 'retired'
+        ? (['pattern-needs-attention'] as const)
+        : []),
     ],
     costProjection,
   }
@@ -154,6 +168,9 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
           })
         })
         .preload('verifiedBy')
+        .preload('patternSet', (patternSetQuery) => {
+          patternSetQuery.preload('quantityProposals')
+        })
         .orderBy('displayOrder', 'asc')
     })
     .first()

@@ -1,6 +1,7 @@
 import Material from '#models/material'
 import User from '#models/user'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
+import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { DateTime } from 'luxon'
@@ -29,6 +30,9 @@ export default class BillOfMaterialLine extends BaseModel {
   })
   declare materialQuantity: number | null
 
+  @column({ columnName: 'pattern_set_id' })
+  declare patternSetId: number | null
+
   @column({ columnName: 'line_note', prepare: (value: string | null) => value?.trim() || null })
   declare lineNote: string | null
 
@@ -52,6 +56,9 @@ export default class BillOfMaterialLine extends BaseModel {
 
   @belongsTo(() => Material, { foreignKey: 'materialId' })
   declare material: BelongsTo<typeof Material>
+
+  @belongsTo(() => PatternSet, { foreignKey: 'patternSetId' })
+  declare patternSet: BelongsTo<typeof PatternSet>
 
   @belongsTo(() => User, { foreignKey: 'verifiedByUserId' })
   declare verifiedBy: BelongsTo<typeof User>

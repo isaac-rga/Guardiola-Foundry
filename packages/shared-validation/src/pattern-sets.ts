@@ -3,12 +3,17 @@ import {
   type CreatePatternSetRequest,
   type ListPatternSetsResponse,
   type PatternSet,
+  type PatternSetSearchItem,
   type PatternSetQuantityProposal,
+  type PatternSetUsageImpact,
+  type SearchPatternSetsResponse,
   type UpdatePatternSetRequest,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
-const optionalTrimmedText = z.union([z.string(), z.null()]).transform((value) => {
+const optionalTrimmedText = z
+  .union([z.string(), z.null()])
+  .transform((value) => {
     if (value === null) {
       return null
     }
@@ -83,6 +88,36 @@ export const patternSetSchema = z.object({
 export const listPatternSetsResponseSchema = z.object({
   patternSets: z.array(patternSetSchema),
 }) satisfies z.ZodType<ListPatternSetsResponse>
+
+export const searchPatternSetsQuerySchema = z.object({
+  search: z
+    .string()
+    .transform((value) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase(),
+    )
+    .pipe(z.string().min(1)),
+})
+
+export const patternSetSearchItemSchema = z.object({
+  id: z.string().regex(/^PS-[A-Z2-9]{6}$/),
+  name: z.string().min(1),
+  quantityProposalCount: z.number().int().nonnegative(),
+}) satisfies z.ZodType<PatternSetSearchItem>
+
+export const searchPatternSetsResponseSchema = z.object({
+  items: z.array(patternSetSearchItemSchema).max(25),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<SearchPatternSetsResponse>
+
+export const patternSetUsageImpactSchema = z.object({
+  billOfMaterialsLineCount: z.number().int().nonnegative(),
+  billOfMaterialsCount: z.number().int().nonnegative(),
+}) satisfies z.ZodType<PatternSetUsageImpact>
 
 export const createPatternSetRequestSchema =
   patternSetMutationSchema satisfies z.ZodType<CreatePatternSetRequest>

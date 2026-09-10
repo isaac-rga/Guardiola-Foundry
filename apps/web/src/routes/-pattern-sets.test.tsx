@@ -36,6 +36,12 @@ describe('Pattern Set catalog route', () => {
         if (url.pathname === '/pattern-sets' && init?.method === 'GET') {
           return jsonResponse({ patternSets })
         }
+        if (url.pathname === '/pattern-sets/PS-BASE01/usage') {
+          return jsonResponse({
+            billOfMaterialsLineCount: 0,
+            billOfMaterialsCount: 0,
+          })
+        }
         if (url.pathname === '/pattern-sets' && init?.method === 'POST') {
           const created = patternSetFixture({
             id: 'PS-NEW001',
@@ -236,6 +242,76 @@ describe('Pattern Set catalog route', () => {
       fetchSpy.mock.calls.filter(([, init]) => init?.method === 'POST'),
     ).toHaveLength(0)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('confirms the current BOM impact before editing or retiring a referenced Pattern Set', async () => {
+    const user = userEvent.setup()
+    const mutations: string[] = []
+    let patternSets = [patternSetFixture()]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('operator'))
+      if (url.pathname === '/pattern-sets' && init?.method === 'GET') {
+        return jsonResponse({ patternSets })
+      }
+      if (url.pathname === '/pattern-sets/PS-BASE01/usage') {
+        return jsonResponse({
+          billOfMaterialsLineCount: 3,
+          billOfMaterialsCount: 2,
+        })
+      }
+      if (
+        url.pathname === '/pattern-sets/PS-BASE01' &&
+        init?.method === 'PUT'
+      ) {
+        mutations.push('edit')
+        const updated = patternSetFixture({ name: 'Revised patterns' })
+        patternSets = [updated]
+        return jsonResponse(updated)
+      }
+      if (
+        url.pathname === '/pattern-sets/PS-BASE01' &&
+        init?.method === 'DELETE'
+      ) {
+        mutations.push('retire')
+        patternSets = []
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('operator')
+    renderPatternSetsRoute()
+    const row = (await screen.findByText('Skirt patterns')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    const nameInput = screen.getByLabelText('Pattern Set name')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Revised patterns')
+    await user.click(screen.getByRole('button', { name: 'Save Pattern Set' }))
+
+    expect(mutations).toEqual([])
+    expect(
+      await screen.findByText(
+        'This change affects 3 BOM Lines across 2 Bills of Materials.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Confirm edit' }))
+    await waitFor(() => expect(mutations).toEqual(['edit']))
+
+    const revisedRow = (await screen.findByText('Revised patterns')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    await user.click(within(revisedRow).getByRole('button', { name: 'Retire' }))
+    expect(
+      await screen.findByText(
+        'Retiring this Pattern Set affects 3 BOM Lines across 2 Bills of Materials.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retire Pattern Set' }))
+    await waitFor(() => expect(mutations).toEqual(['edit', 'retire']))
   })
 })
 

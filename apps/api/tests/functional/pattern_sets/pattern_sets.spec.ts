@@ -1,3 +1,4 @@
+import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import PatternSetQuantityProposal from '#modules/pattern_sets/models/pattern_set_quantity_proposal'
 import User from '#models/user'
@@ -6,6 +7,7 @@ import { test } from '@japa/runner'
 
 test.group('Pattern Sets', (group) => {
   group.each.setup(async () => {
+    await BillOfMaterial.query().delete()
     await PatternSetQuantityProposal.query().delete()
     await PatternSet.query().delete()
     await testUtils.db('postgres_test').truncate()
@@ -179,10 +181,84 @@ test.group('Pattern Sets', (group) => {
     restoreResponse.assertStatus(403)
   })
 
+  test('searches Active Pattern Sets and reports their current proposal counts', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const active = await createPatternSet(client, session.token, 'Circle Skirt')
+    const retired = await createPatternSet(client, session.token, 'Retired Skirt')
+    await client
+      .delete(`/pattern-sets/${retired.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    const response = await client
+      .get('/pattern-sets/search?search=skirt')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(response.body(), {
+      items: [{ id: active.id, name: 'Circle Skirt', quantityProposalCount: 1 }],
+      hasMore: false,
+    })
+  })
+
+  test('resolves retained records and counts affected lines and Bills of Materials', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const patternSet = await createPatternSet(client, session.token, 'Used patterns')
+
+    for (const [name, lineCount] of [
+      ['First construction', 2],
+      ['Second construction', 1],
+    ] as const) {
+      const response = await client
+        .post('/bills-of-materials')
+        .header('Authorization', `Bearer ${session.token}`)
+        .json({
+          kind: 'template',
+          name,
+          description: null,
+          lines: Array.from({ length: lineCount }, (_, index) => ({
+            constructionPiece: `Piece ${index + 1}`,
+            materialId: null,
+            materialQuantity: null,
+            patternSetId: patternSet.id,
+            lineNote: null,
+          })),
+        })
+      response.assertStatus(201)
+    }
+
+    const impact = await client
+      .get(`/pattern-sets/${patternSet.id}/usage`)
+      .header('Authorization', `Bearer ${session.token}`)
+    impact.assertStatus(200)
+    assert.deepEqual(impact.body(), {
+      billOfMaterialsLineCount: 3,
+      billOfMaterialsCount: 2,
+    })
+
+    const retireResponse = await client
+      .delete(`/pattern-sets/${patternSet.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    retireResponse.assertStatus(204)
+    const retained = await client
+      .get(`/pattern-sets/${patternSet.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    retained.assertStatus(200)
+    retained.assertBodyContains({ id: patternSet.id, status: 'retired' })
+  })
+
   test('requires bearer authentication for every Pattern Set route', async ({ client }) => {
     const payload = patternSetPayload('Unauthenticated')
     const responses = await Promise.all([
       client.get('/pattern-sets'),
+      client.get('/pattern-sets/search?search=pattern'),
+      client.get('/pattern-sets/PS-NOAUTH'),
+      client.get('/pattern-sets/PS-NOAUTH/usage'),
       client.post('/pattern-sets').json(payload),
       client.put('/pattern-sets/PS-NOAUTH').json(payload),
       client.delete('/pattern-sets/PS-NOAUTH'),

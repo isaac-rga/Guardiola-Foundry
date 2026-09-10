@@ -44,6 +44,13 @@ const billOfMaterialsLineMaterialSchema = z.object({
     .nullable(),
 })
 
+const billOfMaterialsLinePatternSetSchema = z.object({
+  id: z.string().regex(/^PS-[A-Z2-9]{6}$/),
+  name: z.string().min(1),
+  status: z.enum(['active', 'retired']),
+  quantityProposalCount: z.number().int().nonnegative(),
+})
+
 const billOfMaterialsUserReferenceSchema = z.object({
   id: z.number().int().positive(),
   email: z.string().email(),
@@ -90,12 +97,17 @@ export const billOfMaterialsLineSchema = z.object({
   constructionPiece: z.string(),
   material: billOfMaterialsLineMaterialSchema.nullable(),
   materialQuantity: z.number().positive().nullable(),
+  patternSet: billOfMaterialsLinePatternSetSchema.nullable(),
   lineNote: z.string().nullable(),
   order: z.number().int().nonnegative(),
   completeness: z.enum(['complete', 'incomplete']),
   verification: billOfMaterialsLineVerificationSchema,
   attention: z.array(
-    z.enum(['material-needs-attention', 'source-needs-attention']),
+    z.enum([
+      'material-needs-attention',
+      'source-needs-attention',
+      'pattern-needs-attention',
+    ]),
   ),
   costProjection: billOfMaterialsLineCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsLine>
@@ -117,6 +129,7 @@ export const listBillsOfMaterialsResponseSchema = z.object({
 
 export const billOfMaterialsDetailSchema = billOfMaterialsSummarySchema.extend({
   lines: z.array(billOfMaterialsLineSchema),
+  attentionCount: z.number().int().nonnegative(),
   costProjection: billOfMaterialsCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsDetail>
 
@@ -146,6 +159,11 @@ export const createBillOfMaterialsLineRequestSchema = z
         'Final meters must have at most three decimal places.',
       )
       .nullable(),
+    patternSetId: z
+      .string()
+      .regex(/^PS-[A-Z2-9]{6}$/, 'Select a valid Pattern Set.')
+      .nullable()
+      .default(null),
     lineNote: optionalTrimmedText,
     verified: z.boolean().default(false),
   })

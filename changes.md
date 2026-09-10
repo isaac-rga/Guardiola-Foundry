@@ -1,30 +1,46 @@
-# Separate Bills of Materials Responsibilities
+# Use Pattern Sets in BOM Lines
 
-The Bills of Materials application module keeps its existing controller-facing interface and behavior while separating creation, Product association, and read projection into focused implementations. This refactor prepares the module for the next BOM slices without adding new domain behavior, transport contracts, persistence abstractions, or dependencies.
+BOM Template lines can now retain an optional Pattern Set, consult its current width-based Quantity Proposals, and explicitly copy a proposal into editable Final meters. Pattern guidance remains advisory: the BOM persists only the Pattern Set reference and final quantity, while API reads retain retired Pattern Sets as historical construction context.
 
-## Stable Public Interface
+## Scope Anchor
 
-The [Bills of Materials module interface](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) continues to expose the same list, detail, Template creation, Product association, result type, and domain errors consumed by the controller. Callers do not need to know how those operations are organized internally.
+This slice implements `.scratch/bill-of-materials-builder/issues/09-use-pattern-sets-in-bom-lines.md` on the existing Bills of Materials and Pattern Set modules. It preserves the approved Construction Board layout and language while adding the Pattern Set control beside Material and exposing proposals as a secondary action.
 
-Template creation now owns its transaction, Material resolution, line persistence, verification evidence, and identity generation in one implementation. Product association owns its separate transaction and immutable assignment behavior. Read operations own Lucid hydration and response projection, including current Material, Source, Product availability, verification, attention, and cost context.
+## Implementation Journey
 
-## One Product Slot Rule
+The shared contracts now describe the optional line reference, active bounded Pattern Set search results, usage-impact counts, and the independent `pattern-needs-attention` signal. A nullable restricted foreign key retains the Pattern Set identity on each BOM Line without coupling it to Material completeness, verification, or cost projection.
 
-The [Template Product slot module](apps/api/app/modules/bills_of_materials/services/template_product_slot.ts) centralizes the exact rule shared by create-time and later association: lock the Product row, reject unavailable Products, and identify an occupying Template before mutation. Both commands use this internal seam while retaining their existing error interfaces and transaction boundaries.
+Template creation locks and resolves all selected Pattern Sets inside the existing transaction and rejects a retired or missing selection before any BOM record is written. Read projection hydrates the current Pattern Set name, lifecycle status, and proposal count, so retirement and restoration change live attention without mutating the saved BOM.
 
-The implementation remains concrete and Lucid-backed. No repository interface or port was introduced because there is only one persistence adapter, and the existing database-backed functional tests already exercise the public module through HTTP.
+Pattern Set routes now support authenticated active search, retained-detail lookup including proposals, and BOM-owned usage counts. The catalog consults those counts before editing or retiring a referenced Pattern Set and presents a non-blocking confirmation with both affected BOM Line and Bill of Materials totals.
 
-## Focused Coverage
+In the Builder, Pattern Set selection is independent from Material and Final meters. Proposal cards show assumed width, proposed meters, evidence, and the current Material width match. `Use proposed quantity` performs the same ordinary quantity edit as manual entry, including the existing verification-reset rule; changing or removing the Pattern Set itself leaves quantity and verification untouched.
 
-The existing Bills of Materials functional coverage proves that the refactor preserves Template creation and reload, line validation and verification, live cost projection, Product eligibility and permanent association, conflict reporting, and database-enforced concurrent winners without partial changes.
+## Important Behavior
 
-## Focused Verification
+- Ordinary selection returns at most 25 active Pattern Sets and signals when more matches exist; retired Pattern Sets are excluded from new choices.
+- Retained Pattern Sets are loaded by stable identity even after retirement, preserving their current proposal context for the existing-BOM Builder workflow in issue 11.
+- Material, Source, and Pattern attention are derived independently, may coexist on one line, and contribute once per affected line to the derived Whole BOM count.
+- Pattern Set edit and retirement confirmations report distinct affected BOM and line counts without blocking unreferenced catalog changes.
+- A Pattern Set retired after selection is rejected at save with a Pattern Set field error, and the Builder keeps the unsaved draft in place.
 
-- `CI=true node ace.js test functional --files tests/functional/bills_of_materials/bills_of_materials.spec.ts` — 17 focused API tests passed; all 21 migrations executed and rolled back in the isolated test database.
-- API TypeScript check — passed.
-- Scoped API ESLint and Prettier checks for the five refactored module files — passed.
-- `git diff --check` — passed.
+## Responsibility Check
 
-## Scope Boundaries
+- Pattern Sets own catalog lifecycle, searchable identity, and Quantity Proposal detail.
+- Bills of Materials own the optional persisted reference, save-time eligibility check, usage-impact counting, and live line attention.
+- The Builder owns the explicit copy interaction only; it does not persist a proposal choice, assumed width, evidence note, or derived history.
 
-This change does not alter HTTP responses, validation messages, transaction ordering, locking, Product or Material eligibility, persistence schema, controller behavior, or Builder behavior. It does not add speculative repository interfaces or pre-implement Pattern Set, Implementation, update, derivation, lifecycle, or complete-catalog work.
+This keeps the cross-domain dependency narrow: Pattern Set mutation asks a BOM-owned query for impact, while BOM reads current Pattern Set context without moving construction decisions into the Pattern Set catalog.
+
+## Evidence
+
+- Pattern Set API functional file: 9 tests passed, covering active bounded search, retained detail, usage counts, lifecycle, and authorization.
+- Issue-specific BOM API tests: 2 tests passed independently, covering retained/retired/restored context, coexisting attention, and atomic stale-selection rejection.
+- Builder and Pattern Set route tests: 2 files and 17 tests passed, covering remote selection, proposal copying, verification interaction, removal/reselection, save payloads, field-level stale-selection handling, and referenced mutation confirmations.
+- API, web, shared-types, and shared-validation lint and TypeScript checks passed.
+- The new development migration applied successfully and migration status reports it complete.
+- Scoped Prettier verification and `git diff --check` passed.
+
+## Boundaries
+
+This slice does not add automatic meter calculation, persist which proposal was used, introduce BOM update semantics, or redesign the approved prototype. Because issue 11 owns opening and atomically saving existing BOMs, persisted retired-reference removal/copying and unchanged retained-reference saving remain pending there; issue 09 is marked partially complete rather than claiming those two workflow assertions prematurely. Complete test suites and `pnpm quality` were intentionally not run. A combined run of the existing BOM functional file was not used as acceptance evidence because its shared mutable Material fixtures interfere when run together; the two issue-specific cases pass independently, and repairing that broader test isolation is outside issue 09.

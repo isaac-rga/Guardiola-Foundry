@@ -1,17 +1,41 @@
 import {
   createPatternSet,
+  getPatternSet,
+  getPatternSetUsageImpact,
   listPatternSets,
   restorePatternSet,
   retirePatternSet,
+  searchPatternSets,
   updatePatternSet,
 } from '#modules/pattern_sets/services/pattern_sets_service'
 import {
   createPatternSetRequestSchema,
+  searchPatternSetsQuerySchema,
   updatePatternSetRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class PatternSetsController {
+  async search({ request, response }: HttpContext) {
+    const query = searchPatternSetsQuerySchema.safeParse(request.qs())
+    if (!query.success) {
+      return response.unprocessableEntity({ message: 'Enter a Pattern Set search.' })
+    }
+    return response.ok(await searchPatternSets(query.data.search))
+  }
+
+  async show({ params, response }: HttpContext) {
+    const patternSet = await getPatternSet(params.patternSetId)
+    if (!patternSet) return response.notFound({ message: 'Pattern Set not found.' })
+    return response.ok(patternSet)
+  }
+
+  async usage({ params, response }: HttpContext) {
+    const impact = await getPatternSetUsageImpact(params.patternSetId)
+    if (!impact) return response.notFound({ message: 'Pattern Set not found.' })
+    return response.ok(impact)
+  }
+
   async index({ authenticatedSession, request, response }: HttpContext) {
     const includeRetired =
       authenticatedSession.user.role === 'admin' &&

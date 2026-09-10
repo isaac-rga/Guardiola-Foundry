@@ -25,6 +25,22 @@ export interface ListPatternSetsResponse {
   patternSets: PatternSet[]
 }
 
+export interface PatternSetSearchItem {
+  id: string
+  name: string
+  quantityProposalCount: number
+}
+
+export interface SearchPatternSetsResponse {
+  items: PatternSetSearchItem[]
+  hasMore: boolean
+}
+
+export interface PatternSetUsageImpact {
+  billOfMaterialsLineCount: number
+  billOfMaterialsCount: number
+}
+
 export interface PatternSetMutationRequest {
   name: string
   description: string | null

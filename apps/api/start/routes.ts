@@ -56,6 +56,9 @@ router
       'restore',
     ])
     router.get('/pattern-sets', [PatternSetsController, 'index'])
+    router.get('/pattern-sets/search', [PatternSetsController, 'search'])
+    router.get('/pattern-sets/:patternSetId', [PatternSetsController, 'show'])
+    router.get('/pattern-sets/:patternSetId/usage', [PatternSetsController, 'usage'])
     router.post('/pattern-sets', [PatternSetsController, 'store'])
     router.put('/pattern-sets/:patternSetId', [PatternSetsController, 'update'])
     router.delete('/pattern-sets/:patternSetId', [PatternSetsController, 'destroy'])

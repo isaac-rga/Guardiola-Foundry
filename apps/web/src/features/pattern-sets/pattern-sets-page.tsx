@@ -5,6 +5,7 @@ import { useFieldArray, useForm } from 'react-hook-form'
 import type {
   PatternSet,
   PatternSetMutationRequest,
+  PatternSetUsageImpact,
 } from '@guardiola-foundry/shared-types'
 import { createPatternSetRequestSchema } from '@guardiola-foundry/shared-validation'
 
@@ -53,7 +54,14 @@ export function PatternSetsPage() {
   const [includeRetired, setIncludeRetired] = useState(false)
   const [editing, setEditing] = useState<PatternSet | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [retiring, setRetiring] = useState<PatternSet | null>(null)
+  const [pendingEdit, setPendingEdit] = useState<{
+    values: PatternSetMutationRequest
+    impact: PatternSetUsageImpact
+  } | null>(null)
+  const [retiring, setRetiring] = useState<{
+    patternSet: PatternSet
+    impact: PatternSetUsageImpact
+  } | null>(null)
   const {
     patternSets,
     isLoading,
@@ -63,6 +71,7 @@ export function PatternSetsPage() {
     saveError,
     statusError,
     savePatternSet,
+    getUsageImpact,
     retirePatternSet,
     restorePatternSet,
   } = usePatternSets(session.token, isAdmin && includeRetired)
@@ -93,6 +102,14 @@ export function PatternSetsPage() {
 
   const submit = form.handleSubmit(async (values) => {
     try {
+      if (editing) {
+        const impact = await getUsageImpact(editing.id)
+        if (impact.billOfMaterialsLineCount > 0) {
+          setPendingEdit({ values, impact })
+          setFormOpen(false)
+          return
+        }
+      }
       await savePatternSet({ current: editing, values })
       setFormOpen(false)
     } catch {
@@ -203,7 +220,16 @@ export function PatternSetsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setRetiring(patternSet)}
+                              onClick={async () => {
+                                try {
+                                  setRetiring({
+                                    patternSet,
+                                    impact: await getUsageImpact(patternSet.id),
+                                  })
+                                } catch {
+                                  // The impact request error remains query-owned.
+                                }
+                              }}
                             >
                               Retire
                             </Button>
@@ -399,6 +425,57 @@ export function PatternSetsPage() {
       </Dialog>
 
       <Dialog
+        open={Boolean(pendingEdit)}
+        onOpenChange={(open) => {
+          if (!open) setPendingEdit(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit referenced Pattern Set?</DialogTitle>
+            <DialogDescription>
+              <span className="block">
+                {pendingEdit
+                  ? `This change affects ${pendingEdit.impact.billOfMaterialsLineCount} ${pendingEdit.impact.billOfMaterialsLineCount === 1 ? 'BOM Line' : 'BOM Lines'} across ${pendingEdit.impact.billOfMaterialsCount} ${pendingEdit.impact.billOfMaterialsCount === 1 ? 'Bill of Materials' : 'Bills of Materials'}.`
+                  : ''}
+              </span>
+              <span className="block">
+                Their final quantities and verification will remain unchanged.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPendingEdit(null)
+                setFormOpen(true)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isSaving}
+              onClick={async () => {
+                if (!pendingEdit || !editing) return
+                try {
+                  await savePatternSet({
+                    current: editing,
+                    values: pendingEdit.values,
+                  })
+                  setPendingEdit(null)
+                } catch {
+                  // Mutation error remains available to the form workflow.
+                }
+              }}
+            >
+              Confirm edit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={Boolean(retiring)}
         onOpenChange={(open) => {
           if (!open) setRetiring(null)
@@ -408,8 +485,9 @@ export function PatternSetsPage() {
           <DialogHeader>
             <DialogTitle>Retire Pattern Set?</DialogTitle>
             <DialogDescription>
-              Retire {retiring?.name}? Its identity, description, and proposals
-              will be preserved.
+              {retiring && retiring.impact.billOfMaterialsLineCount > 0
+                ? `Retiring this Pattern Set affects ${retiring.impact.billOfMaterialsLineCount} ${retiring.impact.billOfMaterialsLineCount === 1 ? 'BOM Line' : 'BOM Lines'} across ${retiring.impact.billOfMaterialsCount} ${retiring.impact.billOfMaterialsCount === 1 ? 'Bill of Materials' : 'Bills of Materials'}.`
+                : `Retire ${retiring?.patternSet.name}? Its identity, description, and proposals will be preserved.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -421,7 +499,7 @@ export function PatternSetsPage() {
               onClick={async () => {
                 if (!retiring) return
                 try {
-                  await retirePatternSet(retiring.id)
+                  await retirePatternSet(retiring.patternSet.id)
                   setRetiring(null)
                 } catch {
                   // Mutation error is rendered above the catalog.

@@ -439,6 +439,7 @@ describe('Bills of Materials route', () => {
           constructionPiece: 'Lining',
           materialId: 'M-0001',
           materialQuantity: 1.234,
+          patternSetId: null,
           lineNote: 'Cut on grain',
           verified: false,
         },
@@ -446,6 +447,7 @@ describe('Bills of Materials route', () => {
           constructionPiece: 'Outer skirt',
           materialId: 'M-0001',
           materialQuantity: 1.234,
+          patternSetId: null,
           lineNote: 'Cut on grain',
           verified: false,
         },
@@ -563,6 +565,185 @@ describe('Bills of Materials route', () => {
     expect(
       screen.getByRole('checkbox', { name: 'Manually verified' }),
     ).not.toBeChecked()
+  })
+
+  it('selects Pattern Sets and explicitly copies proposal evidence into Final meters', async () => {
+    const user = userEvent.setup()
+    const postedBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [] })
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture())
+      }
+      if (url.pathname === '/pattern-sets/search') {
+        return jsonResponse({
+          items: [
+            {
+              id: 'PS-SKRT23',
+              name: 'Skirt patterns',
+              quantityProposalCount: 2,
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/pattern-sets/PS-SKRT23') {
+        return jsonResponse(patternSetFixture())
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        return jsonResponse(
+          {
+            ...billOfMaterialsFixture(),
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(screen.getByLabelText('BOM Name'), 'Pattern-aware skirt')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '3.125')
+    await user.click(screen.getByLabelText('Manually verified'))
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    expect(
+      screen.getByText('Type to search the Pattern Set catalog.'),
+    ).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.125)
+    expect(screen.getByLabelText('Manually verified')).toBeChecked()
+    await user.click(screen.getByRole('button', { name: '2 proposals' }))
+    expect(await screen.findByText('Assumes 140 cm')).toBeInTheDocument()
+    expect(screen.getByText('Marker study')).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Use proposed quantity 3.25 meters',
+      }),
+    )
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.25)
+    expect(screen.getByLabelText('Manually verified')).not.toBeChecked()
+
+    await user.click(screen.getByLabelText('Manually verified'))
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'No Pattern Set' }))
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.25)
+    expect(screen.getByLabelText('Manually verified')).toBeChecked()
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(postedBodies).toHaveLength(1))
+    expect(postedBodies[0]).toMatchObject({
+      lines: [
+        {
+          materialQuantity: 3.25,
+          patternSetId: 'PS-SKRT23',
+          verified: true,
+        },
+      ],
+    })
+  })
+
+  it('keeps a stale Pattern Set rejection on its field without discarding the draft', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [] })
+      }
+      if (url.pathname === '/pattern-sets/search') {
+        return jsonResponse({
+          items: [
+            {
+              id: 'PS-SKRT23',
+              name: 'Skirt patterns',
+              quantityProposalCount: 2,
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            errors: {
+              'lines.0.patternSetId': [
+                'The selected Pattern Set is no longer available.',
+              ],
+            },
+          },
+          { status: 422 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(screen.getByLabelText('BOM Name'), 'Preserved draft')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText(
+        'The selected Pattern Set is no longer available.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('BOM Name')).toHaveValue('Preserved draft')
+    expect(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    ).toHaveTextContent('Skirt patterns')
   })
 
   it('previews live line context, rounded BOM projections, exclusions, and sourcing attention', async () => {
@@ -784,6 +965,7 @@ function billOfMaterialsFixture() {
     createdBy: { id: 1, email: 'operator@example.com' },
     createdAt: '2026-09-08T12:00:00.000Z',
     updatedAt: '2026-09-08T12:00:00.000Z',
+    attentionCount: 0,
   }
 }
 
@@ -870,6 +1052,29 @@ function materialSearchFixture(
     })
   }
   return { items, hasMore: false }
+}
+
+function patternSetFixture() {
+  return {
+    id: 'PS-SKRT23',
+    name: 'Skirt patterns',
+    description: 'Floor-length configuration',
+    status: 'active' as const,
+    quantityProposals: [
+      {
+        assumedWidthCm: 140,
+        quantityMeters: 3.25,
+        evidenceNote: 'Marker study',
+      },
+      {
+        assumedWidthCm: 150,
+        quantityMeters: 2.875,
+        evidenceNote: null,
+      },
+    ],
+    createdBy: { id: 1, email: 'operator@example.com' },
+    createdAt: '2026-09-08T15:00:00.000Z',
+  }
 }
 
 function unavailableProjection() {
