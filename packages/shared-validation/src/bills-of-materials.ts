@@ -6,8 +6,12 @@ import {
   type BillOfMaterialsSummary,
   type AssociateBillOfMaterialsTemplateProductRequest,
   type CreateBillOfMaterialsLineRequest,
+  type CreateBillOfMaterialsImplementationRequest,
+  type CreateBillOfMaterialsRequest,
   type CreateBillOfMaterialsTemplateRequest,
   type ListBillsOfMaterialsResponse,
+  type ProductVariantCandidate,
+  type SearchProductVariantCandidatesResponse,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
@@ -60,6 +64,17 @@ const billOfMaterialsProductReferenceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   availability: z.enum(['available', 'unavailable']),
+})
+
+const billOfMaterialsProductVariantReferenceSchema = z.object({
+  id: z.string().regex(/^PV-[A-Z2-9]{6}$/),
+  name: z.string().min(1),
+  availability: z.enum(['available', 'unavailable']),
+})
+
+const billOfMaterialsReferenceSchema = z.object({
+  id: z.string().regex(/^BOM-[A-Z2-9]{6}$/),
+  name: z.string().min(1),
 })
 
 const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
@@ -118,6 +133,8 @@ export const billOfMaterialsSummarySchema = z.object({
   name: billOfMaterialsNameSchema,
   description: z.string().nullable(),
   product: billOfMaterialsProductReferenceSchema.nullable(),
+  productVariant: billOfMaterialsProductVariantReferenceSchema.nullable(),
+  origin: billOfMaterialsReferenceSchema.nullable(),
   createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -198,6 +215,65 @@ export const createBillOfMaterialsTemplateRequestSchema = z.object({
     .default(null),
   lines: z.array(createBillOfMaterialsLineRequestSchema).default([]),
 }) satisfies z.ZodType<CreateBillOfMaterialsTemplateRequest>
+
+export const createBillOfMaterialsImplementationRequestSchema = z.object({
+  kind: z.literal('implementation'),
+  name: billOfMaterialsNameSchema,
+  description: optionalTrimmedText,
+  productVariantId: z
+    .string()
+    .regex(/^PV-[A-Z2-9]{6}$/, 'Select a valid Product Variant.'),
+  lines: z.array(createBillOfMaterialsLineRequestSchema).default([]),
+}) satisfies z.ZodType<CreateBillOfMaterialsImplementationRequest>
+
+export const createBillOfMaterialsRequestSchema = z.discriminatedUnion('kind', [
+  createBillOfMaterialsTemplateRequestSchema,
+  createBillOfMaterialsImplementationRequestSchema,
+]) satisfies z.ZodType<CreateBillOfMaterialsRequest>
+
+export const searchProductVariantCandidatesQuerySchema = z.object({
+  search: z
+    .string()
+    .transform((value) =>
+      value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase(),
+    )
+    .pipe(z.string().min(1)),
+})
+
+const productVariantCandidateBaseSchema = z.object({
+  id: z.string().regex(/^PV-[A-Z2-9]{6}$/),
+  name: z.string().min(1),
+  status: z.enum(['active', 'inactive']),
+  product: billOfMaterialsProductReferenceSchema,
+})
+
+export const productVariantCandidateSchema = z.discriminatedUnion('outcome', [
+  productVariantCandidateBaseSchema.extend({
+    selectable: z.literal(true),
+    outcome: z.literal('eligible'),
+    existingImplementation: z.null(),
+  }),
+  productVariantCandidateBaseSchema.extend({
+    selectable: z.literal(false),
+    outcome: z.literal('implementation-exists'),
+    existingImplementation: billOfMaterialsReferenceSchema,
+  }),
+  productVariantCandidateBaseSchema.extend({
+    selectable: z.literal(false),
+    outcome: z.enum(['product-unavailable', 'variant-inactive']),
+    existingImplementation: z.null(),
+  }),
+]) satisfies z.ZodType<ProductVariantCandidate>
+
+export const searchProductVariantCandidatesResponseSchema = z.object({
+  items: z.array(productVariantCandidateSchema),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<SearchProductVariantCandidatesResponse>
 
 export const associateBillOfMaterialsTemplateProductRequestSchema = z.object({
   productId: z.string().regex(/^P-[A-Z2-9]{6}$/),

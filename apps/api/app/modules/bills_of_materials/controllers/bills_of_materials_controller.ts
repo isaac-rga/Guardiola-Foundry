@@ -1,14 +1,18 @@
 import {
   BillOfMaterialsValidationError,
   BillOfMaterialsProductConflictError,
+  BillOfMaterialsTypificationConflictError,
+  BillOfMaterialsVariantConflictError,
   associateBillOfMaterialsTemplateProduct,
-  createBillOfMaterialsTemplate,
+  createBillOfMaterials,
   getBillOfMaterials,
   listBillsOfMaterials,
+  searchProductVariantCandidates,
 } from '#modules/bills_of_materials/services/bills_of_materials_service'
 import {
   associateBillOfMaterialsTemplateProductRequestSchema,
-  createBillOfMaterialsTemplateRequestSchema,
+  createBillOfMaterialsRequestSchema,
+  searchProductVariantCandidatesQuerySchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -23,15 +27,23 @@ export default class BillsOfMaterialsController {
     return response.ok(billOfMaterials)
   }
 
+  async searchProductVariantCandidates({ request, response }: HttpContext) {
+    const query = searchProductVariantCandidatesQuerySchema.safeParse(request.qs())
+    if (!query.success) {
+      return response.unprocessableEntity({ message: 'Enter a Product Variant search.' })
+    }
+    return response.ok(await searchProductVariantCandidates(query.data.search))
+  }
+
   async store({ authenticatedSession, request, response }: HttpContext) {
-    const payload = createBillOfMaterialsTemplateRequestSchema.safeParse(request.body())
+    const payload = createBillOfMaterialsRequestSchema.safeParse(request.body())
     if (!payload.success) {
       return response.unprocessableEntity({ errors: payload.error.flatten().fieldErrors })
     }
 
     try {
       return response.created(
-        await createBillOfMaterialsTemplate(authenticatedSession.user.id, payload.data)
+        await createBillOfMaterials(authenticatedSession.user.id, payload.data)
       )
     } catch (error) {
       if (error instanceof BillOfMaterialsValidationError) {
@@ -41,6 +53,19 @@ export default class BillsOfMaterialsController {
         return response.conflict({
           message: error.message,
           conflictingTemplate: error.conflictingTemplate,
+        })
+      }
+      if (error instanceof BillOfMaterialsVariantConflictError) {
+        return response.conflict({
+          message: error.message,
+          conflictingImplementation: error.conflictingImplementation,
+        })
+      }
+      if (error instanceof BillOfMaterialsTypificationConflictError) {
+        return response.conflict({
+          message: error.message,
+          errors: { name: [error.message] },
+          conflictingImplementation: error.conflictingImplementation,
         })
       }
       throw error

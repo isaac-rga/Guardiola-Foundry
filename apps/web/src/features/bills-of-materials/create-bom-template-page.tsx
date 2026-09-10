@@ -12,13 +12,14 @@ import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import type {
   BillOfMaterialsCostProjectionExclusionReason,
+  CreateBillOfMaterialsRequest,
   CreateBillOfMaterialsLineRequest,
-  CreateBillOfMaterialsTemplateRequest,
   MaterialSearchItem,
   PatternSetSearchItem,
+  ProductVariantCandidate,
   ProductSummary,
 } from '@guardiola-foundry/shared-types'
-import { createBillOfMaterialsTemplateRequestSchema } from '@guardiola-foundry/shared-validation'
+import { createBillOfMaterialsRequestSchema } from '@guardiola-foundry/shared-validation'
 
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
@@ -42,7 +43,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
-import { useCreateBillOfMaterialsTemplate } from './api/bills-of-materials'
+import { useCreateBillOfMaterials } from './api/bills-of-materials'
 import { BillOfMaterialsRequestError } from './api/endpoints'
 import { calculateDraftBomCostProjection } from './bom-cost-projection'
 import {
@@ -63,44 +64,53 @@ const emptyLine: CreateBillOfMaterialsLineRequest = {
   verified: false,
 }
 
-const emptyTemplate: CreateBillOfMaterialsTemplateRequest = {
-  kind: 'template',
-  name: '',
-  description: null,
-  productId: null,
-  lines: [],
-}
-
-type CreateBillOfMaterialsTemplateFormValues = z.input<
-  typeof createBillOfMaterialsTemplateRequestSchema
+type CreateBillOfMaterialsFormValues = z.input<
+  typeof createBillOfMaterialsRequestSchema
 >
 type CreateBillOfMaterialsLineFormValues = NonNullable<
-  CreateBillOfMaterialsTemplateFormValues['lines']
+  CreateBillOfMaterialsFormValues['lines']
 >[number]
 
-export function CreateBomTemplatePage({
+type BomCreationContext =
+  | { kind: 'template' }
+  | { kind: 'implementation'; productVariant: ProductVariantCandidate }
+
+export function CreateBomPage({
+  creation,
   onCancel,
   onSaved,
 }: {
+  creation: BomCreationContext
   onCancel: () => void
   onSaved: () => void
 }) {
   const { session } = useAppShell()
-  const { createTemplate, isSaving, saveError } =
-    useCreateBillOfMaterialsTemplate(session.token)
+  const { createBillOfMaterials, isSaving, saveError } =
+    useCreateBillOfMaterials(session.token)
   const form = useForm<
-    CreateBillOfMaterialsTemplateFormValues,
+    CreateBillOfMaterialsFormValues,
     unknown,
-    CreateBillOfMaterialsTemplateRequest
+    CreateBillOfMaterialsRequest
   >({
-    resolver: zodResolver(
-      createBillOfMaterialsTemplateRequestSchema,
-      undefined,
-      {
-        mode: 'sync',
-      },
-    ),
-    defaultValues: emptyTemplate,
+    resolver: zodResolver(createBillOfMaterialsRequestSchema, undefined, {
+      mode: 'sync',
+    }),
+    defaultValues:
+      creation.kind === 'template'
+        ? {
+            kind: 'template',
+            name: '',
+            description: null,
+            productId: null,
+            lines: [],
+          }
+        : {
+            kind: 'implementation',
+            name: '',
+            description: null,
+            productVariantId: creation.productVariant.id,
+            lines: [],
+          },
   })
   const { append, fields, move, remove } = useFieldArray({
     control: form.control,
@@ -160,16 +170,22 @@ export function CreateBomTemplatePage({
 
   const submit = form.handleSubmit(async (values) => {
     try {
-      await createTemplate(values)
+      await createBillOfMaterials(values)
       onSaved()
     } catch (error) {
       if (error instanceof BillOfMaterialsRequestError) {
         Object.entries(error.fieldErrors).forEach(([field, messages]) => {
+          if (!messages[0]) return
+          if (field === 'name') {
+            form.setError('name', { message: messages[0] })
+            return
+          }
           const match = /^lines\.(\d+)\.patternSetId$/.exec(field)
-          if (!match || !messages[0]) return
-          form.setError(`lines.${Number(match[1])}.patternSetId`, {
-            message: messages[0],
-          })
+          if (match) {
+            form.setError(`lines.${Number(match[1])}.patternSetId`, {
+              message: messages[0],
+            })
+          }
         })
       }
       // The mutation error is visible while the unsaved draft remains in place.
@@ -197,14 +213,14 @@ export function CreateBomTemplatePage({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Back to catalog
         </Button>
-        <Button type="submit" form="create-bom-template" disabled={isSaving}>
+        <Button type="submit" form="create-bom" disabled={isSaving}>
           <SaveIcon /> {isSaving ? 'Saving...' : 'Save BOM'}
         </Button>
       </div>
 
       <Form {...form}>
         <form
-          id="create-bom-template"
+          id="create-bom"
           noValidate
           onSubmit={submit}
           className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start"
@@ -218,13 +234,15 @@ export function CreateBomTemplatePage({
                   <FormItem>
                     <div className="flex items-center gap-1.5">
                       <FormLabel className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                        BOM Name
+                        {creation.kind === 'template'
+                          ? 'BOM Name'
+                          : 'BOM Typification'}
                       </FormLabel>
                       <TooltipProvider delayDuration={250}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
-                              aria-label="How to choose a BOM name"
+                              aria-label="How to choose a BOM typification"
                               className="rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                               type="button"
                             >
@@ -258,23 +276,44 @@ export function CreateBomTemplatePage({
                 )}
               />
               <p className="mt-2 text-sm text-muted-foreground">
-                {selectedProduct
-                  ? `BOM Template · ${selectedProduct.name} · ${selectedProduct.id}`
-                  : 'BOM Template · No Product association'}
+                {creation.kind === 'implementation'
+                  ? `BOM Implementation · ${creation.productVariant.product.name} · ${creation.productVariant.product.id}`
+                  : selectedProduct
+                    ? `BOM Template · ${selectedProduct.name} · ${selectedProduct.id}`
+                    : 'BOM Template · No Product association'}
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
-              <TemplateProductScope
-                selectedProduct={selectedProduct}
-                token={session.token}
-                onSelect={(product) => {
-                  setSelectedProduct(product)
-                  form.setValue('productId', product?.id ?? null, {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  })
-                }}
-              />
+              {creation.kind === 'template' ? (
+                <TemplateProductScope
+                  selectedProduct={selectedProduct}
+                  token={session.token}
+                  onSelect={(product) => {
+                    setSelectedProduct(product)
+                    form.setValue('productId', product?.id ?? null, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }}
+                />
+              ) : (
+                <div className="rounded-xl border bg-muted/20 p-4">
+                  <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    Product Variant
+                  </p>
+                  <p className="mt-2 font-medium">
+                    {creation.productVariant.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {creation.productVariant.id}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {creation.productVariant.product.name} ·{' '}
+                    {creation.productVariant.product.id} · Fixed for this
+                    Implementation
+                  </p>
+                </div>
+              )}
               <FormField
                 control={form.control}
                 name="description"
@@ -293,10 +332,8 @@ export function CreateBomTemplatePage({
                   </FormItem>
                 )}
               />
-              {saveError &&
-              (!(saveError instanceof BillOfMaterialsRequestError) ||
-                Object.keys(saveError.fieldErrors).length === 0) ? (
-                <p role="alert">{saveError.message}</p>
+              {shouldShowSaveError(saveError) ? (
+                <p role="alert">{saveError!.message}</p>
               ) : null}
             </CardContent>
           </Card>
@@ -791,6 +828,13 @@ export function CreateBomTemplatePage({
       </Form>
     </div>
   )
+}
+
+function shouldShowSaveError(error: Error | null) {
+  if (!error) return false
+  if (!(error instanceof BillOfMaterialsRequestError)) return true
+  const fields = Object.keys(error.fieldErrors)
+  return fields.length === 0 || fields.includes('productVariantId')
 }
 
 function formatCurrencyFromCents(amountCents: number) {

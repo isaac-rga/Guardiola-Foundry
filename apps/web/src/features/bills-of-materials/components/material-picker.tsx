@@ -1,5 +1,5 @@
 import { CheckIcon, ChevronsUpDownIcon, SearchIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { MaterialSearchItem } from '@guardiola-foundry/shared-types'
 
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useMaterialSearch } from '@/features/materials/api/queries'
+import { useDebouncedCatalogSearch } from '@/hooks/use-catalog-search'
 import { cn } from '@/lib/utils'
 
 export function MaterialPicker({
@@ -27,11 +28,12 @@ export function MaterialPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const normalizedQuery = normalizeSearch(query)
-  const debouncedQuery = useDebouncedValue(normalizedQuery, 250)
+  const {
+    debouncedValue: debouncedQuery,
+    isDebouncing,
+    normalizedValue: normalizedQuery,
+  } = useDebouncedCatalogSearch(query)
   const search = useMaterialSearch(token, debouncedQuery)
-  const isDebouncing =
-    normalizedQuery.length > 0 && normalizedQuery !== debouncedQuery
 
   const choose = (material: MaterialSearchItem | null) => {
     onSelect(material)
@@ -140,7 +142,9 @@ export function MaterialPicker({
                         {material.id}
                       </span>
                       {material.attention.length > 0 ? (
-                        <Badge variant="secondary">Source needs attention</Badge>
+                        <Badge variant="secondary">
+                          Source needs attention
+                        </Badge>
                       ) : null}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -181,30 +185,6 @@ export function MaterialPicker({
       </DialogContent>
     </Dialog>
   )
-}
-
-function useDebouncedValue(value: string, delay: number) {
-  const [debouncedValue, setDebouncedValue] = useState(value)
-
-  useEffect(() => {
-    if (value.length === 0) {
-      setDebouncedValue('')
-      return
-    }
-    const timeout = window.setTimeout(() => setDebouncedValue(value), delay)
-    return () => window.clearTimeout(timeout)
-  }, [delay, value])
-
-  return debouncedValue
-}
-
-function normalizeSearch(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase()
 }
 
 function formatMaterialValue(value: string) {

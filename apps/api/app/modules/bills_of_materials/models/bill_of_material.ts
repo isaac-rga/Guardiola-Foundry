@@ -1,5 +1,6 @@
 import User from '#models/user'
 import Product from '#models/product'
+import ProductVariant from '#models/product_variant'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
@@ -30,6 +31,9 @@ export default class BillOfMaterial extends BaseModel {
   @column({ columnName: 'product_id' })
   declare productId: number | null
 
+  @column({ columnName: 'product_variant_id' })
+  declare productVariantId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -41,6 +45,9 @@ export default class BillOfMaterial extends BaseModel {
 
   @belongsTo(() => Product, { foreignKey: 'productId' })
   declare product: BelongsTo<typeof Product>
+
+  @belongsTo(() => ProductVariant, { foreignKey: 'productVariantId' })
+  declare productVariant: BelongsTo<typeof ProductVariant>
 
   @hasMany(() => BillOfMaterialLine, { foreignKey: 'billOfMaterialsId' })
   declare lines: HasMany<typeof BillOfMaterialLine>

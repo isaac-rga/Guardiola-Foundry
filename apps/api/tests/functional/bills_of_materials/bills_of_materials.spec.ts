@@ -90,6 +90,311 @@ test.group('Bills of Materials', (group) => {
     })
   })
 
+  test('creates a manual Implementation for a Product Variant with no lines or origin', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const variantId = await createProductVariant(
+      client,
+      session.token,
+      productId,
+      'Jackie Showroom'
+    )
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: '  Jackie - Blush - Chapel Train  ',
+        description: '  Manual construction  ',
+        productVariantId: variantId,
+        lines: [],
+      })
+
+    response.assertStatus(201)
+    response.assertBodyContains({
+      kind: 'implementation',
+      name: 'Jackie - Blush - Chapel Train',
+      description: 'Manual construction',
+      product: { id: productId, name: 'Jackie', availability: 'available' },
+      productVariant: {
+        id: variantId,
+        name: 'Jackie Showroom',
+        availability: 'available',
+      },
+      origin: null,
+      lines: [],
+    })
+
+    const persisted = await BillOfMaterial.findByOrFail('publicId', response.body().id)
+    assert.isNull(persisted.productId)
+    assert.isNumber(persisted.productVariantId)
+  })
+
+  test('lists a saved manual Implementation with its Product Variant context', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const variantId = await createProductVariant(
+      client,
+      session.token,
+      productId,
+      'Jackie Showroom'
+    )
+    const implementation = await createImplementation(
+      client,
+      session.token,
+      variantId,
+      'Jackie - Blush - Chapel Train'
+    )
+
+    const response = await client
+      .get('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    response.assertBodyContains({
+      billsOfMaterials: [
+        {
+          id: implementation.id,
+          kind: 'implementation',
+          name: 'Jackie - Blush - Chapel Train',
+          product: { id: productId, name: 'Jackie', availability: 'available' },
+          productVariant: {
+            id: variantId,
+            name: 'Jackie Showroom',
+            availability: 'available',
+          },
+          origin: null,
+        },
+      ],
+    })
+  })
+
+  test('searches Product Variant candidates with canonical eligibility and occupancy context', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const eligibleProductId = await createProduct(client, session.token, 'Eligible Jackie')
+    const eligibleVariantId = await createProductVariant(
+      client,
+      session.token,
+      eligibleProductId,
+      'Showroom'
+    )
+    const inactiveProductId = await createProduct(client, session.token, 'Inactive Jackie')
+    const inactiveProductVariantId = await createProductVariant(
+      client,
+      session.token,
+      inactiveProductId,
+      'Showroom'
+    )
+    await updateProduct(client, session.token, inactiveProductId, 'Inactive Jackie', 'inactive')
+    const inactiveVariantProductId = await createProduct(
+      client,
+      session.token,
+      'Variant inactive Jackie'
+    )
+    const inactiveVariantId = await createProductVariant(
+      client,
+      session.token,
+      inactiveVariantProductId,
+      'Showroom'
+    )
+    await updateProductVariant(
+      client,
+      session.token,
+      inactiveVariantProductId,
+      inactiveVariantId,
+      'Showroom',
+      'inactive'
+    )
+    const occupiedProductId = await createProduct(client, session.token, 'Occupied Jackie')
+    const occupiedVariantId = await createProductVariant(
+      client,
+      session.token,
+      occupiedProductId,
+      'Showroom'
+    )
+    const implementation = await createImplementation(
+      client,
+      session.token,
+      occupiedVariantId,
+      'Occupied construction'
+    )
+    await updateProduct(client, session.token, occupiedProductId, 'Occupied Jackie', 'inactive')
+
+    const response = await client
+      .get('/bills-of-materials/product-variant-candidates?search=jackie%20showroom')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    response.assertBodyContains({ hasMore: false })
+    const byId = new Map(response.body().items.map((item: any) => [item.id, item]))
+    assertCandidate(assert, byId.get(eligibleVariantId), true, 'eligible', null)
+    assertCandidate(assert, byId.get(inactiveProductVariantId), false, 'product-unavailable', null)
+    assertCandidate(assert, byId.get(inactiveVariantId), false, 'variant-inactive', null)
+    assertCandidate(
+      assert,
+      byId.get(occupiedVariantId),
+      false,
+      'implementation-exists',
+      implementation.id
+    )
+  })
+
+  test('scopes case-insensitive BOM Typification uniqueness to one Product', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const jackieId = await createProduct(client, session.token, 'Jackie')
+    const jackieShowroomId = await createProductVariant(client, session.token, jackieId, 'Showroom')
+    const jackieEditorialId = await createProductVariant(
+      client,
+      session.token,
+      jackieId,
+      'Editorial'
+    )
+    const palomaId = await createProduct(client, session.token, 'Paloma')
+    const palomaShowroomId = await createProductVariant(client, session.token, palomaId, 'Showroom')
+    await createImplementation(client, session.token, jackieShowroomId, 'Blush construction')
+
+    const duplicate = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'BLUSH CONSTRUCTION',
+        description: null,
+        productVariantId: jackieEditorialId,
+        lines: [],
+      })
+    duplicate.assertStatus(409)
+    duplicate.assertBodyContains({
+      errors: {
+        name: ['Another BOM Implementation in this Product already uses this typification.'],
+      },
+    })
+
+    const otherProduct = await createImplementation(
+      client,
+      session.token,
+      palomaShowroomId,
+      'BLUSH CONSTRUCTION'
+    )
+    assert.equal(otherProduct.product.id, palomaId)
+    const count = await BillOfMaterial.query().where('kind', 'implementation').count('* as total')
+    assert.equal(Number(count[0].$extras.total), 2)
+  })
+
+  test('atomically gives a Product Variant to only one competing Implementation', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Contended Jackie')
+    const variantId = await createProductVariant(client, session.token, productId, 'Showroom')
+
+    const responses = await Promise.all(
+      ['First construction', 'Second construction'].map((name) =>
+        client.post('/bills-of-materials').header('Authorization', `Bearer ${session.token}`).json({
+          kind: 'implementation',
+          name,
+          description: null,
+          productVariantId: variantId,
+          lines: [],
+        })
+      )
+    )
+
+    assert.deepEqual(responses.map((response) => response.status()).sort(), [201, 409])
+    const conflict = responses.find((response) => response.status() === 409)!
+    assert.match(conflict.body().conflictingImplementation.id, /^BOM-[A-Z2-9]{6}$/)
+    const count = await BillOfMaterial.query().whereNotNull('productVariantId').count('* as total')
+    assert.equal(Number(count[0].$extras.total), 1)
+  })
+
+  test('revalidates Implementation availability atomically and accepts an Incomplete line', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const inactiveVariantId = await createProductVariant(
+      client,
+      session.token,
+      productId,
+      'Inactive'
+    )
+    await updateProductVariant(
+      client,
+      session.token,
+      productId,
+      inactiveVariantId,
+      'Inactive',
+      'inactive'
+    )
+
+    const unavailable = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'Must remain atomic',
+        description: null,
+        productVariantId: inactiveVariantId,
+        lines: [
+          {
+            constructionPiece: 'Skirt',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+            verified: false,
+          },
+        ],
+      })
+    unavailable.assertStatus(422)
+    unavailable.assertBodyContains({
+      errors: {
+        productVariantId: ['The selected Product Variant is no longer available.'],
+      },
+    })
+    let count = await BillOfMaterial.query().count('* as total').firstOrFail()
+    assert.equal(Number(count.$extras.total), 0)
+
+    const activeVariantId = await createProductVariant(client, session.token, productId, 'Active')
+    const created = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'Progressive construction',
+        description: null,
+        productVariantId: activeVariantId,
+        lines: [
+          {
+            constructionPiece: 'Skirt',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+            verified: false,
+          },
+        ],
+      })
+    created.assertStatus(201)
+    created.assertBodyContains({
+      lines: [{ constructionPiece: 'Skirt', completeness: 'incomplete' }],
+    })
+    count = await BillOfMaterial.query().count('* as total').firstOrFail()
+    assert.equal(Number(count.$extras.total), 1)
+  })
+
   test('associates an unassociated Template once and rejects reassignment', async ({ client }) => {
     const session = await authenticateAs(client, 'operator')
     const firstProductId = await createProduct(client, session.token, 'Jackie')
@@ -886,6 +1191,7 @@ test.group('Bills of Materials', (group) => {
   test('requires bearer authentication for catalog and creation', async ({ client }) => {
     const responses = await Promise.all([
       client.get('/bills-of-materials'),
+      client.get('/bills-of-materials/product-variant-candidates?search=jackie'),
       client.get('/bills-of-materials/BOM-ABC234'),
       client
         .post('/bills-of-materials')
@@ -935,6 +1241,78 @@ async function createTemplate(
     .json({ kind: 'template', name, description: null, ...options })
   response.assertStatus(201)
   return response.body() as { id: string }
+}
+
+async function createProductVariant(client: any, token: string, productId: string, name: string) {
+  const response = await client
+    .post(`/products/${productId}/variants`)
+    .header('Authorization', `Bearer ${token}`)
+    .json({ name })
+  response.assertStatus(201)
+  return response.body().id as string
+}
+
+async function updateProduct(
+  client: any,
+  token: string,
+  productId: string,
+  name: string,
+  productStatus: 'active' | 'inactive'
+) {
+  const response = await client
+    .put(`/products/${productId}`)
+    .header('Authorization', `Bearer ${token}`)
+    .json({
+      name,
+      shortDescription: null,
+      lifecycleStatus: 'concept',
+      productStatus,
+      productCategory: null,
+      collectionId: null,
+    })
+  response.assertStatus(200)
+}
+
+async function updateProductVariant(
+  client: any,
+  token: string,
+  productId: string,
+  variantId: string,
+  name: string,
+  status: 'active' | 'inactive'
+) {
+  const response = await client
+    .put(`/products/${productId}/variants/${variantId}`)
+    .header('Authorization', `Bearer ${token}`)
+    .json({ name, status })
+  response.assertStatus(200)
+}
+
+async function createImplementation(
+  client: any,
+  token: string,
+  productVariantId: string,
+  name: string
+) {
+  const response = await client
+    .post('/bills-of-materials')
+    .header('Authorization', `Bearer ${token}`)
+    .json({ kind: 'implementation', name, description: null, productVariantId, lines: [] })
+  response.assertStatus(201)
+  return response.body() as { id: string; product: { id: string } }
+}
+
+function assertCandidate(
+  assert: any,
+  candidate: any,
+  selectable: boolean,
+  outcome: string,
+  existingImplementationId: string | null
+) {
+  assert.equal(candidate.selectable, selectable)
+  assert.equal(candidate.outcome, outcome)
+  if (existingImplementationId === null) assert.isNull(candidate.existingImplementation)
+  else assert.equal(candidate.existingImplementation.id, existingImplementationId)
 }
 
 async function createPatternSet(client: any, token: string, name: string) {

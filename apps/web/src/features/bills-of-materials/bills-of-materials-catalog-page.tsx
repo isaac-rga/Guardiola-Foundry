@@ -1,4 +1,6 @@
-import { FileStackIcon, PlusIcon } from 'lucide-react'
+import { CopyPlusIcon, FileStackIcon, PlusIcon } from 'lucide-react'
+import { useState } from 'react'
+import type { ProductVariantCandidate } from '@guardiola-foundry/shared-types'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -21,23 +23,32 @@ import {
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { useBillsOfMaterials } from './api/bills-of-materials'
 import { AssociateTemplateProductButton } from './components/associate-template-product-button'
+import { ProductVariantCandidateDialog } from './components/product-variant-candidate-dialog'
 
 export function BillsOfMaterialsCatalogPage({
   onCreateTemplate,
+  onCreateImplementation,
 }: {
   onCreateTemplate: () => void
+  onCreateImplementation: (candidate: ProductVariantCandidate) => void
 }) {
   const { session } = useAppShell()
   const { billsOfMaterials, isLoading, loadError } = useBillsOfMaterials(
     session.token,
   )
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false)
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Bills of Materials"
         description="Browse reusable Templates and Product Variant Implementations in one operational catalog."
-        action={<CreateBomMenu onCreateTemplate={onCreateTemplate} />}
+        action={
+          <CreateBomMenu
+            onCreateImplementation={() => setVariantDialogOpen(true)}
+            onCreateTemplate={onCreateTemplate}
+          />
+        }
       />
 
       <Card>
@@ -76,7 +87,7 @@ export function BillsOfMaterialsCatalogPage({
                     <TableCell className="max-w-[18rem] whitespace-normal align-top">
                       <p className="font-medium">{billOfMaterials.name}</p>
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                        BOM ID {billOfMaterials.id}
+                        {billOfMaterials.id}
                       </p>
                     </TableCell>
                     <TableCell className="align-top">
@@ -95,16 +106,20 @@ export function BillsOfMaterialsCatalogPage({
                     <TableCell className="whitespace-normal align-top">
                       {billOfMaterials.product ? (
                         <div className="space-y-1">
-                          <p className="font-medium">
-                            {billOfMaterials.product.name}
+                          <p>
+                            <span className="font-medium">
+                              {billOfMaterials.product.name}
+                            </span>{' '}
+                            <span className="text-xs text-muted-foreground">
+                              · {billOfMaterials.product.id}
+                            </span>
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            {billOfMaterials.product.id} ·{' '}
-                            {billOfMaterials.product.availability ===
-                            'available'
-                              ? 'Available'
-                              : 'Unavailable'}
-                          </p>
+                          {billOfMaterials.productVariant ? (
+                            <p className="text-xs">
+                              {billOfMaterials.productVariant.name} ·{' '}
+                              {billOfMaterials.productVariant.id}
+                            </p>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="space-y-1">
@@ -143,11 +158,23 @@ export function BillsOfMaterialsCatalogPage({
           ) : null}
         </CardContent>
       </Card>
+      <ProductVariantCandidateDialog
+        open={variantDialogOpen}
+        token={session.token}
+        onOpenChange={setVariantDialogOpen}
+        onSelect={onCreateImplementation}
+      />
     </div>
   )
 }
 
-function CreateBomMenu({ onCreateTemplate }: { onCreateTemplate: () => void }) {
+function CreateBomMenu({
+  onCreateImplementation,
+  onCreateTemplate,
+}: {
+  onCreateImplementation: () => void
+  onCreateTemplate: () => void
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -156,6 +183,15 @@ function CreateBomMenu({ onCreateTemplate }: { onCreateTemplate: () => void }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuItem onSelect={onCreateImplementation}>
+          <CopyPlusIcon />
+          <div>
+            <p className="font-medium">BOM Implementation</p>
+            <p className="text-xs text-muted-foreground">
+              Start manually for a Product Variant
+            </p>
+          </div>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onCreateTemplate}>
           <FileStackIcon />
           <div>

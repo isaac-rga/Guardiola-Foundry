@@ -1,4 +1,6 @@
 import Material from '#models/material'
+import Product from '#models/product'
+import ProductVariant from '#models/product_variant'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
@@ -8,7 +10,7 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   BillOfMaterialsDetail,
-  CreateBillOfMaterialsTemplateRequest,
+  CreateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
 import { DateTime } from 'luxon'
 import { randomBytes } from 'node:crypto'
@@ -17,23 +19,15 @@ const BILL_OF_MATERIALS_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const BILL_OF_MATERIALS_ID_LENGTH = 6
 const BILL_OF_MATERIALS_LINE_ID_PREFIX = 'BML-'
 
-export async function createBillOfMaterialsTemplate(
+export async function createBillOfMaterials(
   createdByUserId: number,
-  payload: CreateBillOfMaterialsTemplateRequest
+  payload: CreateBillOfMaterialsRequest
 ): Promise<BillOfMaterialsDetail> {
   return db.transaction(async (trx) => {
-    const productSlot =
-      payload.productId === null ? null : await lockTemplateProductSlot(payload.productId, trx)
-
-    if (productSlot?.status === 'unavailable') {
-      throw new BillOfMaterialsValidationError(
-        'productId',
-        'BOM Templates can only be associated with an active Product.'
-      )
-    }
-    if (productSlot?.status === 'occupied') {
-      throw new BillOfMaterialsProductConflictError(productSlot.conflictingTemplate)
-    }
+    const relationship =
+      payload.kind === 'template'
+        ? await resolveTemplateRelationship(payload.productId, trx)
+        : await resolveImplementationRelationship(payload.productVariantId, payload.name, trx)
 
     const materialPublicIds = payload.lines.flatMap((line) =>
       line.materialId === null ? [] : [line.materialId]
@@ -81,11 +75,12 @@ export async function createBillOfMaterialsTemplate(
     const billOfMaterials = await BillOfMaterial.create(
       {
         publicId: await generateBillOfMaterialsId(trx),
-        kind: 'template',
+        kind: payload.kind,
         name: payload.name,
         description: payload.description,
         createdByUserId,
-        productId: productSlot?.status === 'available' ? productSlot.product.id : null,
+        productId: relationship.productId,
+        productVariantId: relationship.productVariantId,
       },
       { client: trx }
     )
@@ -120,6 +115,89 @@ export async function createBillOfMaterialsTemplate(
   })
 }
 
+async function resolveTemplateRelationship(
+  productPublicId: string | null,
+  trx: TransactionClientContract
+) {
+  if (productPublicId === null) return { productId: null, productVariantId: null }
+
+  const productSlot = await lockTemplateProductSlot(productPublicId, trx)
+  if (productSlot.status === 'unavailable') {
+    throw new BillOfMaterialsValidationError(
+      'productId',
+      'BOM Templates can only be associated with an active Product.'
+    )
+  }
+  if (productSlot.status === 'occupied') {
+    throw new BillOfMaterialsProductConflictError(productSlot.conflictingTemplate)
+  }
+  return { productId: productSlot.product.id, productVariantId: null }
+}
+
+async function resolveImplementationRelationship(
+  productVariantPublicId: string,
+  name: string,
+  trx: TransactionClientContract
+) {
+  const candidateQuery = ProductVariant.query({ client: trx }).where(
+    'publicId',
+    productVariantPublicId
+  )
+  ProductVariant.includeDeleted(candidateQuery)
+  const candidate = await candidateQuery.first()
+  if (!candidate || candidate.deletedAt) {
+    throw new BillOfMaterialsValidationError(
+      'productVariantId',
+      'The selected Product Variant is no longer available.'
+    )
+  }
+
+  const productQuery = Product.query({ client: trx }).where('id', candidate.productId).forUpdate()
+  Product.includeDeleted(productQuery)
+  const product = await productQuery.firstOrFail()
+  const variantQuery = ProductVariant.query({ client: trx }).where('id', candidate.id).forUpdate()
+  ProductVariant.includeDeleted(variantQuery)
+  const variant = await variantQuery.firstOrFail()
+
+  if (product.deletedAt || product.productStatus !== 'active') {
+    throw new BillOfMaterialsValidationError(
+      'productVariantId',
+      'The selected Product is no longer available.'
+    )
+  }
+  if (variant.deletedAt || variant.status !== 'active') {
+    throw new BillOfMaterialsValidationError(
+      'productVariantId',
+      'The selected Product Variant is no longer available.'
+    )
+  }
+
+  const existingImplementation = await BillOfMaterial.query({ client: trx })
+    .where('productVariantId', variant.id)
+    .first()
+  if (existingImplementation) {
+    throw new BillOfMaterialsVariantConflictError({
+      id: existingImplementation.publicId,
+      name: existingImplementation.name,
+    })
+  }
+
+  const duplicateTypification = await BillOfMaterial.query({ client: trx })
+    .join('product_variants', 'product_variants.id', 'bills_of_materials.product_variant_id')
+    .where('product_variants.product_id', product.id)
+    .whereRaw('lower(bills_of_materials.name) = lower(?)', [name])
+    .select('bills_of_materials.public_id', 'bills_of_materials.name')
+    .first()
+  if (duplicateTypification) {
+    throw new BillOfMaterialsTypificationConflictError({
+      id: duplicateTypification.publicId,
+      name: duplicateTypification.name,
+    })
+  }
+
+  return { productId: null, productVariantId: variant.id }
+}
+
 export class BillOfMaterialsValidationError extends Error {
   constructor(
     readonly field: string,
@@ -134,6 +212,20 @@ export class BillOfMaterialsProductConflictError extends Error {
   constructor(readonly conflictingTemplate: { id: string; name: string }) {
     super(`Product is already associated with ${conflictingTemplate.name}.`)
     this.name = 'BillOfMaterialsProductConflictError'
+  }
+}
+
+export class BillOfMaterialsVariantConflictError extends Error {
+  constructor(readonly conflictingImplementation: { id: string; name: string }) {
+    super(`Product Variant already has ${conflictingImplementation.name}.`)
+    this.name = 'BillOfMaterialsVariantConflictError'
+  }
+}
+
+export class BillOfMaterialsTypificationConflictError extends Error {
+  constructor(readonly conflictingImplementation: { id: string; name: string }) {
+    super('Another BOM Implementation in this Product already uses this typification.')
+    this.name = 'BillOfMaterialsTypificationConflictError'
   }
 }
 

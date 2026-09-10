@@ -1,6 +1,7 @@
 import Material from '#models/material'
 import MaterialSource from '#models/material_source'
 import Product from '#models/product'
+import ProductVariant from '#models/product_variant'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import type BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
 import {
@@ -22,6 +23,10 @@ export async function listBillsOfMaterials(): Promise<ListBillsOfMaterialsRespon
   const billsOfMaterials = await BillOfMaterial.query()
     .preload('createdBy')
     .preload('product', (productQuery) => Product.includeDeleted(productQuery))
+    .preload('productVariant', (variantQuery) => {
+      ProductVariant.includeDeleted(variantQuery)
+      variantQuery.preload('product', (productQuery) => Product.includeDeleted(productQuery))
+    })
     .orderBy('updatedAt', 'desc')
 
   return { billsOfMaterials: billsOfMaterials.map(serializeBillOfMaterials) }
@@ -39,23 +44,41 @@ export async function loadBillOfMaterialsDetail(publicId: string, trx: Transacti
 }
 
 function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMaterialsSummary {
+  const product =
+    billOfMaterials.productId === null
+      ? billOfMaterials.productVariant?.product
+      : billOfMaterials.product
+
   return {
     id: billOfMaterials.publicId,
     kind: billOfMaterials.kind,
     name: billOfMaterials.name,
     description: billOfMaterials.description,
-    product:
-      billOfMaterials.productId === null
+    product: !product
+      ? null
+      : {
+          id: product.publicId,
+          name: product.name,
+          availability:
+            product.deletedAt === null && product.productStatus === 'active'
+              ? 'available'
+              : 'unavailable',
+        },
+    productVariant:
+      billOfMaterials.productVariantId === null
         ? null
         : {
-            id: billOfMaterials.product.publicId,
-            name: billOfMaterials.product.name,
+            id: billOfMaterials.productVariant.publicId,
+            name: billOfMaterials.productVariant.name,
             availability:
-              billOfMaterials.product.deletedAt === null &&
-              billOfMaterials.product.productStatus === 'active'
+              billOfMaterials.productVariant.deletedAt === null &&
+              billOfMaterials.productVariant.status === 'active' &&
+              product?.deletedAt === null &&
+              product.productStatus === 'active'
                 ? 'available'
                 : 'unavailable',
           },
+    origin: null,
     createdBy: {
       id: billOfMaterials.createdBy.id,
       email: billOfMaterials.createdBy.email,
@@ -154,6 +177,10 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
     .where('publicId', publicId)
     .preload('createdBy')
     .preload('product', (productQuery) => Product.includeDeleted(productQuery))
+    .preload('productVariant', (variantQuery) => {
+      ProductVariant.includeDeleted(variantQuery)
+      variantQuery.preload('product', (productQuery) => Product.includeDeleted(productQuery))
+    })
     .preload('lines', (lines) => {
       lines
         .preload('material', (materialQuery) => {

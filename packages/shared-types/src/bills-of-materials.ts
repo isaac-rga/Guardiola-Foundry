@@ -14,12 +14,25 @@ export interface BillOfMaterialsProductReference {
   availability: 'available' | 'unavailable'
 }
 
+export interface BillOfMaterialsProductVariantReference {
+  id: string
+  name: string
+  availability: 'available' | 'unavailable'
+}
+
+export interface BillOfMaterialsReference {
+  id: string
+  name: string
+}
+
 export interface BillOfMaterialsSummary {
   id: string
   kind: BillOfMaterialsKind
   name: string
   description: string | null
   product: BillOfMaterialsProductReference | null
+  productVariant: BillOfMaterialsProductVariantReference | null
+  origin: BillOfMaterialsReference | null
   createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string
@@ -119,6 +132,55 @@ export interface CreateBillOfMaterialsTemplateRequest {
   description: string | null
   productId: string | null
   lines: CreateBillOfMaterialsLineRequest[]
+}
+
+export interface CreateBillOfMaterialsImplementationRequest {
+  kind: 'implementation'
+  name: string
+  description: string | null
+  productVariantId: string
+  lines: CreateBillOfMaterialsLineRequest[]
+}
+
+export type CreateBillOfMaterialsRequest =
+  | CreateBillOfMaterialsTemplateRequest
+  | CreateBillOfMaterialsImplementationRequest
+
+export type ProductVariantCandidateOutcome =
+  | 'eligible'
+  | 'implementation-exists'
+  | 'product-unavailable'
+  | 'variant-inactive'
+
+interface ProductVariantCandidateBase {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+  product: BillOfMaterialsProductReference
+}
+
+export type ProductVariantCandidate = ProductVariantCandidateBase &
+  (
+    | {
+        selectable: true
+        outcome: 'eligible'
+        existingImplementation: null
+      }
+    | {
+        selectable: false
+        outcome: 'implementation-exists'
+        existingImplementation: BillOfMaterialsReference
+      }
+    | {
+        selectable: false
+        outcome: 'product-unavailable' | 'variant-inactive'
+        existingImplementation: null
+      }
+  )
+
+export interface SearchProductVariantCandidatesResponse {
+  items: ProductVariantCandidate[]
+  hasMore: boolean
 }
 
 export interface AssociateBillOfMaterialsTemplateProductRequest {

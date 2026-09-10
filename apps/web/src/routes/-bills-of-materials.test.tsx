@@ -37,6 +37,29 @@ describe('Bills of Materials route', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('returns an Implementation route without Variant context to the catalog', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [] })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials?screen=builder&kind=implementation',
+    )
+
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'BOM Name' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('abandons without creating, then validates, saves, and reloads a Template', async () => {
     const user = userEvent.setup()
     let billsOfMaterials: unknown[] = []
@@ -116,7 +139,7 @@ describe('Bills of Materials route', () => {
       'tr',
     ) as HTMLTableRowElement
     expect(within(row).getByText('Template')).toBeInTheDocument()
-    expect(within(row).getByText('BOM ID BOM-ABC234')).toBeInTheDocument()
+    expect(within(row).getByText('BOM-ABC234')).toBeInTheDocument()
     expect(within(row).getByText('No Product associated')).toBeInTheDocument()
     expect(
       within(row).getByText('Product relationship is optional'),
@@ -135,6 +158,149 @@ describe('Bills of Materials route', () => {
     renderBillsOfMaterialsRoute()
     expect(
       await screen.findByText('Jackie base construction'),
+    ).toBeInTheDocument()
+  })
+
+  it('selects an eligible Product Variant before preserving and saving a manual Implementation draft', async () => {
+    const user = userEvent.setup()
+    let saveAttempts = 0
+    let billsOfMaterials: unknown[] = []
+    const postedBodies: unknown[] = []
+    const eligibleCandidate = {
+      id: 'PV-JACKIE',
+      name: 'Jackie Showroom',
+      status: 'active' as const,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      selectable: true,
+      outcome: 'eligible' as const,
+      existingImplementation: null,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials })
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        return jsonResponse({
+          items: [
+            eligibleCandidate,
+            {
+              ...eligibleCandidate,
+              id: 'PV-OCCUP2',
+              name: 'Jackie Editorial',
+              selectable: false,
+              outcome: 'implementation-exists',
+              existingImplementation: {
+                id: 'BOM-USED24',
+                name: 'Existing construction',
+              },
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse(
+            {
+              message: 'Product Variant already has Existing construction.',
+              conflictingImplementation: {
+                id: 'BOM-USED24',
+                name: 'Existing construction',
+              },
+            },
+            { status: 409 },
+          )
+        }
+        const created = {
+          ...billOfMaterialsFixture(),
+          kind: 'implementation' as const,
+          name: 'Jackie - Blush',
+          product: eligibleCandidate.product,
+          productVariant: {
+            id: eligibleCandidate.id,
+            name: eligibleCandidate.name,
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [created]
+        return jsonResponse(
+          { ...created, lines: [], costProjection: unavailableProjection() },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Select a Product Variant' }),
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    const occupied = await screen.findByRole('button', {
+      name: /Jackie Editorial.*Existing construction.*BOM-USED24/i,
+    })
+    expect(occupied).toBeDisabled()
+    await user.click(
+      screen.getByRole('button', { name: /Jackie Showroom.*PV-JACKIE/i }),
+    )
+
+    expect(
+      await screen.findByRole('textbox', { name: 'BOM Typification' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Jackie Showroom')).toBeInTheDocument()
+    expect(screen.getByText('PV-JACKIE')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Fixed for this Implementation/),
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Typification' }),
+      'Jackie - Blush',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => {
+      expect(postedBodies[0]).toEqual({
+        kind: 'implementation',
+        name: 'Jackie - Blush',
+        description: null,
+        productVariantId: 'PV-JACKIE',
+        lines: [],
+      })
+    })
+    expect(
+      await screen.findByText(
+        'Product Variant already has Existing construction.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('textbox', { name: 'BOM Typification' }),
+    ).toHaveValue('Jackie - Blush')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    const row = (await screen.findByText('Jackie - Blush')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(row).getByText('Implementation')).toBeInTheDocument()
+    expect(
+      within(row).getByText(/Jackie Showroom.*PV-JACKIE/),
     ).toBeInTheDocument()
   })
 
@@ -226,8 +392,10 @@ describe('Bills of Materials route', () => {
     const row = (await screen.findByText('Jackie base')).closest(
       'tr',
     ) as HTMLTableRowElement
-    expect(within(row).getByText('Jackie')).toBeInTheDocument()
-    expect(within(row).getByText('P-JACKIE · Available')).toBeInTheDocument()
+    expect(within(row).getByText('Jackie').closest('p')).toHaveTextContent(
+      'Jackie · P-JACKIE',
+    )
+    expect(within(row).queryByText(/Available/)).not.toBeInTheDocument()
   })
 
   it('visibly distinguishes Templates from Implementations in the catalog', async () => {
@@ -273,8 +441,8 @@ describe('Bills of Materials route', () => {
       screen.getByRole('menuitem', { name: /BOM Template/ }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('menuitem', { name: /BOM Implementation/ }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    ).toBeInTheDocument()
   })
 
   it('assigns a previously unassociated Template once from the catalog', async () => {
@@ -343,8 +511,10 @@ describe('Bills of Materials route', () => {
     const row = screen
       .getByText('Jackie base construction')
       .closest('tr') as HTMLTableRowElement
-    expect(within(row).getByText('Jackie')).toBeInTheDocument()
-    expect(within(row).getByText('P-JACKIE · Available')).toBeInTheDocument()
+    expect(within(row).getByText('Jackie').closest('p')).toHaveTextContent(
+      'Jackie · P-JACKIE',
+    )
+    expect(within(row).queryByText(/Available/)).not.toBeInTheDocument()
     expect(
       within(row).queryByRole('button', {
         name: 'Actions for Jackie base construction',
@@ -917,11 +1087,11 @@ describe('Bills of Materials route', () => {
   })
 })
 
-function renderBillsOfMaterialsRoute() {
+function renderBillsOfMaterialsRoute(initialEntry = '/app/bills-of-materials') {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
-      initialEntries: ['/app/bills-of-materials'],
+      initialEntries: [initialEntry],
     }),
   })
   const queryClient = new QueryClient({
@@ -962,6 +1132,8 @@ function billOfMaterialsFixture() {
     name: 'Jackie base construction',
     description: 'Reusable starting point',
     product: null,
+    productVariant: null,
+    origin: null,
     createdBy: { id: 1, email: 'operator@example.com' },
     createdAt: '2026-09-08T12:00:00.000Z',
     updatedAt: '2026-09-08T12:00:00.000Z',

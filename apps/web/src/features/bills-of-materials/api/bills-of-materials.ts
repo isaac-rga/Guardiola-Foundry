@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
-  CreateBillOfMaterialsTemplateRequest,
+  CreateBillOfMaterialsRequest,
   ProductSummary,
 } from '@guardiola-foundry/shared-types'
 
 import { listProducts } from '@/features/products/api/endpoints'
 import {
   associateBillOfMaterialsTemplateProduct,
-  createBillOfMaterialsTemplate,
+  createBillOfMaterials,
   listBillsOfMaterials,
+  searchProductVariantCandidates,
 } from './endpoints'
 
 const billsOfMaterialsQueryKey = ['bills-of-materials'] as const
@@ -31,20 +32,30 @@ export function useBillsOfMaterials(token: string) {
   }
 }
 
-export function useCreateBillOfMaterialsTemplate(token: string) {
+export function useCreateBillOfMaterials(token: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: (payload: CreateBillOfMaterialsTemplateRequest) =>
-      createBillOfMaterialsTemplate(token, payload),
+    mutationFn: (payload: CreateBillOfMaterialsRequest) =>
+      createBillOfMaterials(token, payload),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
   })
 
   return {
-    createTemplate: mutation.mutateAsync,
+    createBillOfMaterials: mutation.mutateAsync,
     isSaving: mutation.isPending,
     saveError: mutation.error,
   }
+}
+
+export function useProductVariantCandidates(token: string, search: string) {
+  return useQuery({
+    queryKey: ['bills-of-materials', 'product-variant-candidates', search],
+    queryFn: ({ signal }) =>
+      searchProductVariantCandidates(token, search, signal),
+    enabled: search.length > 0,
+    staleTime: 30_000,
+  })
 }
 
 export function useTemplateProductCandidates(token: string, enabled: boolean) {

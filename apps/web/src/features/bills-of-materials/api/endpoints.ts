@@ -1,14 +1,16 @@
 import {
   associateBillOfMaterialsTemplateProductRequestSchema,
   billOfMaterialsDetailSchema,
-  createBillOfMaterialsTemplateRequestSchema,
+  createBillOfMaterialsRequestSchema,
   listBillsOfMaterialsResponseSchema,
+  searchProductVariantCandidatesResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
   BillOfMaterialsDetail,
-  CreateBillOfMaterialsTemplateRequest,
+  CreateBillOfMaterialsRequest,
   ListBillsOfMaterialsResponse,
+  SearchProductVariantCandidatesResponse,
 } from '@guardiola-foundry/shared-types'
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
@@ -66,9 +68,9 @@ export async function associateBillOfMaterialsTemplateProduct(
   return billOfMaterialsDetailSchema.parse(body)
 }
 
-export async function createBillOfMaterialsTemplate(
+export async function createBillOfMaterials(
   token: string,
-  payload: CreateBillOfMaterialsTemplateRequest,
+  payload: CreateBillOfMaterialsRequest,
 ): Promise<BillOfMaterialsDetail> {
   const response = await fetch(resolveApiUrl('/bills-of-materials'), {
     method: 'POST',
@@ -76,18 +78,39 @@ export async function createBillOfMaterialsTemplate(
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(
-      createBillOfMaterialsTemplateRequestSchema.parse(payload),
-    ),
+    body: JSON.stringify(createBillOfMaterialsRequestSchema.parse(payload)),
   })
   const body = await response.json()
   if (!response.ok) {
     throw new BillOfMaterialsRequestError(
-      getResponseErrorMessage(body, 'Unable to save the BOM Template.'),
+      getResponseErrorMessage(body, 'Unable to save the Bill of Materials.'),
       readFieldErrors(body),
     )
   }
   return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function searchProductVariantCandidates(
+  token: string,
+  search: string,
+  signal?: AbortSignal,
+): Promise<SearchProductVariantCandidatesResponse> {
+  const url = new URL(
+    resolveApiUrl('/bills-of-materials/product-variant-candidates'),
+  )
+  url.searchParams.set('search', search)
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to search Product Variants.'),
+    )
+  }
+  return searchProductVariantCandidatesResponseSchema.parse(body)
 }
 
 function readFieldErrors(body: unknown): Record<string, string[]> {
