@@ -1,35 +1,30 @@
-# Associate BOM Templates with Products
+# Separate Bills of Materials Responsibilities
 
-Issue 08 lets Admins and Operators optionally give a BOM Template one permanent Product scope, either during creation or through the explicit association operation for an existing unassociated Template. Product association is strongly recommended in the Builder but remains optional; this slice does not add Product editing, Template reassignment, or the later whole-BOM update workflow.
+The Bills of Materials application module keeps its existing controller-facing interface and behavior while separating creation, Product association, and read projection into focused implementations. This refactor prepares the module for the next BOM slices without adding new domain behavior, transport contracts, persistence abstractions, or dependencies.
 
-## Permanent Product Scope
+## Stable Public Interface
 
-The [shared Bills of Materials contract](packages/shared-types/src/bills-of-materials.ts) now carries an optional Product reference with stable identity and current availability. Template creation accepts an optional Product ID, and `POST /bills-of-materials/:billOfMaterialsId/product` assigns an existing unassociated Template exactly once. No request exists to change or remove an assigned Product.
+The [Bills of Materials module interface](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) continues to expose the same list, detail, Template creation, Product association, result type, and domain errors consumed by the controller. Callers do not need to know how those operations are organized internally.
 
-The [association migration](apps/api/database/migrations/1789265600000_add_bom_template_product_association.ts) adds a nullable Product foreign key, guarantees that only Templates can hold it, and gives each Product one occupied Template slot. Unassociated Templates reserve nothing. Product row locks and the database uniqueness constraint keep competing creation or association requests atomic.
+Template creation now owns its transaction, Material resolution, line persistence, verification evidence, and identity generation in one implementation. Product association owns its separate transaction and immutable assignment behavior. Read operations own Lucid hydration and response projection, including current Material, Source, Product availability, verification, attention, and cost context.
 
-The [Bills of Materials service](apps/api/app/modules/bills_of_materials/services/bills_of_materials_service.ts) accepts only Active, non-deleted Products regardless of Lifecycle Status. A conflict identifies the current Template without overwriting either record. Later Product inactivation or soft deletion preserves the relationship and returns the Product as unavailable rather than erasing its context.
+## One Product Slot Rule
 
-## Prototype-Faithful Builder Context
+The [Template Product slot module](apps/api/app/modules/bills_of_materials/services/template_product_slot.ts) centralizes the exact rule shared by create-time and later association: lock the Product row, reject unavailable Products, and identify an occupying Template before mutation. Both commands use this internal seam while retaining their existing error interfaces and transaction boundaries.
 
-The [Construction Board Builder](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) keeps the approved name, identity card, line navigator, focused editor, and Whole BOM rail intact. Its identity card now recommends Product scope, opens a focused eligible-Product chooser only on demand, and still offers an explicit unassociated path. The selected Product appears as identity context before Save. The operational catalog shows persisted Product identity plus unavailable context when applicable, and exposes the same focused chooser for assigning a previously unassociated Template.
-
-The catalog keeps the approved operational-table hierarchy for this slice: `Product context` is a dedicated column between `Type` and creation metadata, associated Products show identity and availability on two compact lines, and unassociated Templates remain explicit. BOM rows keep only name and monospaced ID in the first column, while the one available association action sits inside the prototype-style row menu. A minimum table width preserves that hierarchy through horizontal overflow on narrower screens without pulling the later summary, search, Origin, Cost, or Lines work into Issue 08.
-
-Candidate loading composes the existing Product catalog with current BOM occupancy without moving Product ownership into the Bills of Materials module. The server revalidates all eligibility and occupancy at Save, so stale client choices cannot bypass the permanent relationship rules.
+The implementation remains concrete and Lucid-backed. No repository interface or port was introduced because there is only one persistence adapter, and the existing database-backed functional tests already exercise the public module through HTTP.
 
 ## Focused Coverage
 
-API functional coverage proves unassociated and Product-scoped creation, one-time association, permanent reassignment rejection, Lifecycle Status independence, inactive and deleted Product rejection, retained unavailable context, conflict identification, and database-enforced concurrent winners for both creation and existing-Template association with no partial losing record. Builder-route coverage proves the visible recommendation, optional unassociated path, eligible Product choice, submitted Product scope, one-time catalog association, and immutable catalog context while retaining all prior Construction Board behavior.
+The existing Bills of Materials functional coverage proves that the refactor preserves Template creation and reload, line validation and verification, live cost projection, Product eligibility and permanent association, conflict reporting, and database-enforced concurrent winners without partial changes.
 
 ## Focused Verification
 
-- `CI=true node ace.js test functional --files=tests/functional/bills_of_materials/bills_of_materials.spec.ts --reporters=spec` — 17 focused API tests passed; all 21 migrations executed and rolled back in the isolated test database.
-- `vitest run src/routes/-bills-of-materials.test.tsx` — 11 focused Builder and catalog route tests passed.
-- API, web, shared-types, and shared-validation typechecks — passed.
-- Scoped ESLint/Oxlint for every changed API, web, and shared source and test file — passed.
-- `node ace.js migration:run` and `node ace.js migration:status` — passed; the Product-association migration is completed in the configured development database.
+- `CI=true node ace.js test functional --files tests/functional/bills_of_materials/bills_of_materials.spec.ts` — 17 focused API tests passed; all 21 migrations executed and rolled back in the isolated test database.
+- API TypeScript check — passed.
+- Scoped API ESLint and Prettier checks for the five refactored module files — passed.
+- `git diff --check` — passed.
 
 ## Scope Boundaries
 
-This slice does not add Template editing, Product CRUD inside the Builder, Product Variant selection, BOM Implementation creation, BOM soft deletion or restoration, lineage, or the later complete operational catalog. The current database slot applies to available persisted Templates; Issue 14 will make that uniqueness lifecycle-aware when BOM soft deletion is introduced. Complete test suites and `pnpm quality` were not run under the requested review boundary, and the implementation remains uncommitted.
+This change does not alter HTTP responses, validation messages, transaction ordering, locking, Product or Material eligibility, persistence schema, controller behavior, or Builder behavior. It does not add speculative repository interfaces or pre-implement Pattern Set, Implementation, update, derivation, lifecycle, or complete-catalog work.
