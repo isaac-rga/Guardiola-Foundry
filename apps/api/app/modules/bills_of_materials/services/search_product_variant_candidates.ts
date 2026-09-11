@@ -27,11 +27,11 @@ export async function searchProductVariantCandidates(
   const query = db
     .from('product_variants')
     .join('products', 'products.id', 'product_variants.product_id')
-    .leftJoin(
-      'bills_of_materials as implementation',
-      'implementation.product_variant_id',
-      'product_variants.id'
-    )
+    .leftJoin('bills_of_materials as implementation', function () {
+      this.on('implementation.product_variant_id', '=', 'product_variants.id').andOnNull(
+        'implementation.deleted_at'
+      )
+    })
     .whereNull('product_variants.deleted_at')
     .whereNull('products.deleted_at')
     .select([

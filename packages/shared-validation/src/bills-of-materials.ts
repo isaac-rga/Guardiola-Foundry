@@ -12,6 +12,8 @@ import {
   type ListBillsOfMaterialsResponse,
   type ProductVariantCandidate,
   type SearchProductVariantCandidatesResponse,
+  type UpdateBillOfMaterialsLineRequest,
+  type UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
 import { z } from 'zod'
 
@@ -150,40 +152,42 @@ export const billOfMaterialsDetailSchema = billOfMaterialsSummarySchema.extend({
   costProjection: billOfMaterialsCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsDetail>
 
+const billOfMaterialsLineRequestFields = {
+  constructionPiece: z
+    .union([z.string(), z.null()])
+    .transform((value) => value?.trim() ?? '')
+    .pipe(
+      z
+        .string()
+        .min(1, 'Construction Piece is required.')
+        .max(
+          BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH,
+          `Construction Piece must be ${BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH} characters or fewer.`,
+        ),
+    ),
+  materialId: z
+    .string()
+    .regex(/^M-\d{4,}$/, 'Select a valid Material.')
+    .nullable(),
+  materialQuantity: z
+    .number({ message: 'Final meters must be a number.' })
+    .positive('Final meters must be greater than zero.')
+    .refine(
+      (value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-8,
+      'Final meters must have at most three decimal places.',
+    )
+    .nullable(),
+  patternSetId: z
+    .string()
+    .regex(/^PS-[A-Z2-9]{6}$/, 'Select a valid Pattern Set.')
+    .nullable()
+    .default(null),
+  lineNote: optionalTrimmedText,
+  verified: z.boolean().default(false),
+}
+
 export const createBillOfMaterialsLineRequestSchema = z
-  .object({
-    constructionPiece: z
-      .union([z.string(), z.null()])
-      .transform((value) => value?.trim() ?? '')
-      .pipe(
-        z
-          .string()
-          .min(1, 'Construction Piece is required.')
-          .max(
-            BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH,
-            `Construction Piece must be ${BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH} characters or fewer.`,
-          ),
-      ),
-    materialId: z
-      .string()
-      .regex(/^M-\d{4,}$/, 'Select a valid Material.')
-      .nullable(),
-    materialQuantity: z
-      .number({ message: 'Final meters must be a number.' })
-      .positive('Final meters must be greater than zero.')
-      .refine(
-        (value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-8,
-        'Final meters must have at most three decimal places.',
-      )
-      .nullable(),
-    patternSetId: z
-      .string()
-      .regex(/^PS-[A-Z2-9]{6}$/, 'Select a valid Pattern Set.')
-      .nullable()
-      .default(null),
-    lineNote: optionalTrimmedText,
-    verified: z.boolean().default(false),
-  })
+  .object(billOfMaterialsLineRequestFields)
   .superRefine((line, context) => {
     if (line.materialId === null && line.materialQuantity !== null) {
       context.addIssue({
@@ -230,6 +234,43 @@ export const createBillOfMaterialsRequestSchema = z.discriminatedUnion('kind', [
   createBillOfMaterialsTemplateRequestSchema,
   createBillOfMaterialsImplementationRequestSchema,
 ]) satisfies z.ZodType<CreateBillOfMaterialsRequest>
+
+export const updateBillOfMaterialsLineRequestSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^BML-[A-Z2-9]{6}$/)
+      .nullable(),
+    ...billOfMaterialsLineRequestFields,
+  })
+  .superRefine((line, context) => {
+    if (line.materialId === null && line.materialQuantity !== null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['materialQuantity'],
+        message: 'Select a Material before entering Final meters.',
+      })
+    }
+    if (
+      line.verified &&
+      (line.materialId === null || line.materialQuantity === null)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['verified'],
+        message: 'Only a Complete BOM Line can be verified.',
+      })
+    }
+  }) satisfies z.ZodType<UpdateBillOfMaterialsLineRequest>
+
+export const updateBillOfMaterialsRequestSchema = z
+  .object({
+    updatedAt: z.string().datetime({ offset: true }),
+    name: billOfMaterialsNameSchema,
+    description: optionalTrimmedText,
+    lines: z.array(updateBillOfMaterialsLineRequestSchema),
+  })
+  .strict() satisfies z.ZodType<UpdateBillOfMaterialsRequest>
 
 export const searchProductVariantCandidatesQuerySchema = z.object({
   search: z

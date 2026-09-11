@@ -1,13 +1,15 @@
 import User from '#models/user'
 import Product from '#models/product'
 import ProductVariant from '#models/product_variant'
+import { SoftDelete } from '#mixins/soft_delete'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type { BillOfMaterialsKind } from '@guardiola-foundry/shared-types'
 import { DateTime } from 'luxon'
 
-export default class BillOfMaterial extends BaseModel {
+export default class BillOfMaterial extends compose(BaseModel, SoftDelete) {
   static table = 'bills_of_materials'
 
   @column({ isPrimary: true })

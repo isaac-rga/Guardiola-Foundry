@@ -14,10 +14,14 @@ import { TemplateProductPickerDialog } from './template-product-scope'
 export function AssociateTemplateProductButton({
   billOfMaterialsId,
   billOfMaterialsName,
+  canAssociateProduct,
+  onEdit,
   token,
 }: {
   billOfMaterialsId: string
   billOfMaterialsName: string
+  canAssociateProduct: boolean
+  onEdit: () => void
   token: string
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
@@ -40,9 +44,14 @@ export function AssociateTemplateProductButton({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem onSelect={() => setIsPickerOpen(true)}>
-            Associate Product
+          <DropdownMenuItem onSelect={onEdit}>
+            Edit Bill of Materials
           </DropdownMenuItem>
+          {canAssociateProduct ? (
+            <DropdownMenuItem onSelect={() => setIsPickerOpen(true)}>
+              Associate Product
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <TemplateProductPickerDialog

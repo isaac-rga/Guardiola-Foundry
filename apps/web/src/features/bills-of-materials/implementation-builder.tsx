@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { useProductVariantCandidates } from './api/bills-of-materials'
-import { CreateBomPage } from './create-bom-template-page'
+import { BomBuilderPage } from './create-bom-template-page'
 
 export function ImplementationBuilder({
   onExit,
@@ -37,8 +37,8 @@ export function ImplementationBuilder({
   }
 
   return (
-    <CreateBomPage
-      creation={{ kind: 'implementation', productVariant: candidate }}
+    <BomBuilderPage
+      context={{ kind: 'implementation', productVariant: candidate }}
       onCancel={onExit}
       onSaved={onExit}
     />

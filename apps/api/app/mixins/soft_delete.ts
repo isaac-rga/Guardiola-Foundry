@@ -20,7 +20,7 @@ export const SoftDelete = <T extends NormalizeConstructor<typeof BaseModel>>(Bas
         return
       }
 
-      query.whereNull('deleted_at')
+      query.whereNull(`${query.model.table}.deleted_at`)
     }
 
     @beforeFetch()
@@ -33,7 +33,7 @@ export const SoftDelete = <T extends NormalizeConstructor<typeof BaseModel>>(Bas
         return
       }
 
-      query.whereNull('deleted_at')
+      query.whereNull(`${query.model.table}.deleted_at`)
     }
 
     static queryWithDeleted<Model extends typeof SoftDeleteModel>(

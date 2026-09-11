@@ -2,14 +2,16 @@ import { createFileRoute, Navigate } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { BillsOfMaterialsCatalogPage } from '@/features/bills-of-materials/bills-of-materials-catalog-page'
-import { CreateBomPage } from '@/features/bills-of-materials/create-bom-template-page'
+import { BomBuilderPage } from '@/features/bills-of-materials/create-bom-template-page'
 import { ImplementationBuilder } from '@/features/bills-of-materials/implementation-builder'
+import { ExistingBomBuilder } from '@/features/bills-of-materials/existing-bom-builder'
 
 export const Route = createFileRoute('/app/bills-of-materials')({
   validateSearch: z.object({
     screen: z.enum(['builder', 'catalog']).optional().catch('catalog'),
     kind: z.enum(['template', 'implementation']).optional().catch('template'),
     productVariantId: z.string().optional(),
+    billOfMaterialsId: z.string().optional(),
   }),
   component: BillsOfMaterialsRoute,
 })
@@ -19,10 +21,25 @@ function BillsOfMaterialsRoute() {
     kind = 'template',
     productVariantId,
     screen = 'catalog',
+    billOfMaterialsId,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
 
   if (screen === 'builder') {
+    if (billOfMaterialsId) {
+      return (
+        <ExistingBomBuilder
+          billOfMaterialsId={billOfMaterialsId}
+          onExit={() =>
+            void navigate({
+              search: { screen: 'catalog' },
+              replace: true,
+              resetScroll: false,
+            })
+          }
+        />
+      )
+    }
     if (kind === 'implementation') {
       if (!productVariantId) {
         return (
@@ -47,8 +64,8 @@ function BillsOfMaterialsRoute() {
       )
     }
     return (
-      <CreateBomPage
-        creation={{ kind: 'template' }}
+      <BomBuilderPage
+        context={{ kind: 'template' }}
         onCancel={() =>
           void navigate({
             search: { screen: 'catalog' },
@@ -69,6 +86,15 @@ function BillsOfMaterialsRoute() {
 
   return (
     <BillsOfMaterialsCatalogPage
+      onEdit={(billOfMaterialsId) =>
+        void navigate({
+          search: {
+            screen: 'builder',
+            billOfMaterialsId,
+          },
+          resetScroll: true,
+        })
+      }
       onCreateImplementation={(candidate) =>
         void navigate({
           search: {

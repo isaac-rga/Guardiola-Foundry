@@ -146,6 +146,17 @@ export type CreateBillOfMaterialsRequest =
   | CreateBillOfMaterialsTemplateRequest
   | CreateBillOfMaterialsImplementationRequest
 
+export interface UpdateBillOfMaterialsLineRequest extends CreateBillOfMaterialsLineRequest {
+  id: string | null
+}
+
+export interface UpdateBillOfMaterialsRequest {
+  updatedAt: string
+  name: string
+  description: string | null
+  lines: UpdateBillOfMaterialsLineRequest[]
+}
+
 export type ProductVariantCandidateOutcome =
   | 'eligible'
   | 'implementation-exists'

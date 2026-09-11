@@ -32,6 +32,7 @@ export async function associateBillOfMaterialsTemplateProduct(
     }
 
     billOfMaterials.productId = productSlot.product.id
+    billOfMaterials.useTransaction(trx)
     await billOfMaterials.save()
     return loadBillOfMaterialsDetail(billOfMaterials.publicId, trx)
   })

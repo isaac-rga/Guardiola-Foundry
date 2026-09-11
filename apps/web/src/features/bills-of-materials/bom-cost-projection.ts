@@ -1,7 +1,6 @@
 import type {
   BillOfMaterialsCostProjection,
   BillOfMaterialsLineCostProjection,
-  MaterialSearchItem,
 } from '@guardiola-foundry/shared-types'
 import { calculateBomCostProjection } from '@guardiola-foundry/bom-cost-projection'
 
@@ -10,9 +9,14 @@ interface DraftBomCostLine {
   materialQuantity?: number | null
 }
 
+interface DraftMaterialProjection {
+  preferredSource: { landedUnitCostCents: number | null } | null
+  attention: string[]
+}
+
 export function calculateDraftBomCostProjection(
   lines: DraftBomCostLine[],
-  materialsById: Record<string, MaterialSearchItem>,
+  materialsById: Record<string, DraftMaterialProjection>,
 ): {
   lines: BillOfMaterialsLineCostProjection[]
   summary: BillOfMaterialsCostProjection
@@ -27,11 +31,11 @@ export function calculateDraftBomCostProjection(
         hasMaterial: Boolean(line.materialId),
         materialQuantity: line.materialQuantity ?? null,
         landedUnitCostCents:
-          material?.preferredSource.landedUnitCostCents ?? null,
+          material?.preferredSource?.landedUnitCostCents ?? null,
         sourceUsable:
           material !== undefined &&
           !material.attention.includes('source-needs-attention') &&
-          material.preferredSource.landedUnitCostCents !== null,
+          material.preferredSource?.landedUnitCostCents !== null,
       }
     }),
   )

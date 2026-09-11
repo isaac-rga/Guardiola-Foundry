@@ -23,7 +23,7 @@ export function MaterialPicker({
   token,
 }: {
   onSelect: (material: MaterialSearchItem | null) => void
-  selected: MaterialSearchItem | null
+  selected: Pick<MaterialSearchItem, 'id' | 'name'> | null
   token: string
 }) {
   const [open, setOpen] = useState(false)

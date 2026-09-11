@@ -8,11 +8,17 @@ import {
   getBillOfMaterials,
   listBillsOfMaterials,
   searchProductVariantCandidates,
-} from '#modules/bills_of_materials/services/bills_of_materials_service'
+  BillOfMaterialsDeletedConflictError,
+  BillOfMaterialsNotFoundError,
+  BillOfMaterialsStaleConflictError,
+  BillOfMaterialsUpdateValidationError,
+  updateBillOfMaterials,
+} from '#modules/bills_of_materials/services/index'
 import {
   associateBillOfMaterialsTemplateProductRequestSchema,
   createBillOfMaterialsRequestSchema,
   searchProductVariantCandidatesQuerySchema,
+  updateBillOfMaterialsRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
@@ -67,6 +73,40 @@ export default class BillsOfMaterialsController {
           errors: { name: [error.message] },
           conflictingImplementation: error.conflictingImplementation,
         })
+      }
+      throw error
+    }
+  }
+
+  async update({ authenticatedSession, params, request, response }: HttpContext) {
+    const payload = updateBillOfMaterialsRequestSchema.safeParse(request.body())
+    if (!payload.success) {
+      return response.unprocessableEntity({ errors: payload.error.flatten().fieldErrors })
+    }
+
+    try {
+      return response.ok(
+        await updateBillOfMaterials(
+          params.billOfMaterialsId,
+          authenticatedSession.user.id,
+          payload.data
+        )
+      )
+    } catch (error) {
+      if (error instanceof BillOfMaterialsNotFoundError) {
+        return response.notFound({ message: 'Bill of Materials not found.' })
+      }
+      if (error instanceof BillOfMaterialsUpdateValidationError) {
+        return response.unprocessableEntity({ errors: { [error.field]: [error.message] } })
+      }
+      if (error instanceof BillOfMaterialsStaleConflictError) {
+        return response.conflict({
+          message: error.message,
+          currentUpdatedAt: error.currentUpdatedAt,
+        })
+      }
+      if (error instanceof BillOfMaterialsDeletedConflictError) {
+        return response.conflict({ message: error.message, deleted: true })
       }
       throw error
     }

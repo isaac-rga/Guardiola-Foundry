@@ -14,3 +14,10 @@ export {
   getBillOfMaterials,
   listBillsOfMaterials,
 } from '#modules/bills_of_materials/services/read_bills_of_materials'
+export {
+  BillOfMaterialsDeletedConflictError,
+  BillOfMaterialsNotFoundError,
+  BillOfMaterialsStaleConflictError,
+  BillOfMaterialsUpdateValidationError,
+  updateBillOfMaterials,
+} from '#modules/bills_of_materials/services/update_bill_of_materials'

@@ -58,12 +58,14 @@ export class BillOfMaterialsLineSchema extends BaseModel {
 }
 
 export class BillsOfMaterialSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdByUserId', 'description', 'id', 'kind', 'name', 'productId', 'productVariantId', 'publicId', 'updatedAt'] as const
+  static $columns = ['createdAt', 'createdByUserId', 'deletedAt', 'description', 'id', 'kind', 'name', 'productId', 'productVariantId', 'publicId', 'updatedAt'] as const
   $columns = BillsOfMaterialSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
   declare createdByUserId: number
+  @column.dateTime()
+  declare deletedAt: DateTime | null
   @column()
   declare description: string | null
   @column({ isPrimary: true })

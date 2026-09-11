@@ -243,7 +243,7 @@ async function generateBillOfMaterialsId(trx: TransactionClientContract) {
   }
 }
 
-async function generateBillOfMaterialsLineId(
+export async function generateBillOfMaterialsLineId(
   trx: TransactionClientContract,
   reservedIds: Set<string>
 ) {

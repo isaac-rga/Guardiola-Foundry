@@ -4,6 +4,7 @@ import {
   createBillOfMaterialsRequestSchema,
   listBillsOfMaterialsResponseSchema,
   searchProductVariantCandidatesResponseSchema,
+  updateBillOfMaterialsRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
@@ -11,17 +12,27 @@ import type {
   CreateBillOfMaterialsRequest,
   ListBillsOfMaterialsResponse,
   SearchProductVariantCandidatesResponse,
+  UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
 
 import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
 
 export class BillOfMaterialsRequestError extends Error {
   readonly fieldErrors: Record<string, string[]>
+  readonly status: number
+  readonly deleted: boolean
 
-  constructor(message: string, fieldErrors: Record<string, string[]>) {
+  constructor(
+    message: string,
+    fieldErrors: Record<string, string[]>,
+    status: number,
+    deleted = false,
+  ) {
     super(message)
     this.name = 'BillOfMaterialsRequestError'
     this.fieldErrors = fieldErrors
+    this.status = status
+    this.deleted = deleted
   }
 }
 
@@ -85,6 +96,55 @@ export async function createBillOfMaterials(
     throw new BillOfMaterialsRequestError(
       getResponseErrorMessage(body, 'Unable to save the Bill of Materials.'),
       readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function getBillOfMaterials(
+  token: string,
+  billOfMaterialsId: string,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}`),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to load the Bill of Materials.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function updateBillOfMaterials(
+  token: string,
+  billOfMaterialsId: string,
+  payload: UpdateBillOfMaterialsRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}`),
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updateBillOfMaterialsRequestSchema.parse(payload)),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to save the Bill of Materials.'),
+      readFieldErrors(body),
+      response.status,
+      body?.deleted === true,
     )
   }
   return billOfMaterialsDetailSchema.parse(body)

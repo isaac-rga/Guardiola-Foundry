@@ -22,7 +22,7 @@ export function PatternSetPicker({
   token,
 }: {
   onSelect: (patternSet: PatternSetSearchItem | null) => void
-  selected: PatternSetSearchItem | null
+  selected: Pick<PatternSetSearchItem, 'id' | 'name'> | null
   token: string
 }) {
   const [open, setOpen] = useState(false)

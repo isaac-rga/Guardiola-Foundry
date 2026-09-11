@@ -3,14 +3,17 @@ import type {
   AssociateBillOfMaterialsTemplateProductRequest,
   CreateBillOfMaterialsRequest,
   ProductSummary,
+  UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
 
 import { listProducts } from '@/features/products/api/endpoints'
 import {
   associateBillOfMaterialsTemplateProduct,
   createBillOfMaterials,
+  getBillOfMaterials,
   listBillsOfMaterials,
   searchProductVariantCandidates,
+  updateBillOfMaterials,
 } from './endpoints'
 
 const billsOfMaterialsQueryKey = ['bills-of-materials'] as const
@@ -45,6 +48,41 @@ export function useCreateBillOfMaterials(token: string) {
     createBillOfMaterials: mutation.mutateAsync,
     isSaving: mutation.isPending,
     saveError: mutation.error,
+  }
+}
+
+export function useBillOfMaterials(token: string, billOfMaterialsId: string) {
+  return useQuery({
+    queryKey: [...billsOfMaterialsQueryKey, billOfMaterialsId],
+    queryFn: () => getBillOfMaterials(token, billOfMaterialsId),
+  })
+}
+
+export function useUpdateBillOfMaterials(
+  token: string,
+  billOfMaterialsId: string,
+) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (payload: UpdateBillOfMaterialsRequest) =>
+      updateBillOfMaterials(token, billOfMaterialsId, payload),
+    onSuccess: (billOfMaterials) => {
+      queryClient.setQueryData(
+        [...billsOfMaterialsQueryKey, billOfMaterialsId],
+        billOfMaterials,
+      )
+      return queryClient.invalidateQueries({
+        queryKey: billsOfMaterialsQueryKey,
+        exact: true,
+      })
+    },
+  })
+
+  return {
+    updateBillOfMaterials: mutation.mutateAsync,
+    isSaving: mutation.isPending,
+    saveError: mutation.error,
+    resetSaveError: mutation.reset,
   }
 }
 

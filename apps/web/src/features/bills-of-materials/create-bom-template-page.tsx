@@ -12,9 +12,10 @@ import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import type {
   BillOfMaterialsCostProjectionExclusionReason,
+  BillOfMaterialsDetail,
+  BillOfMaterialsLinePreferredSource,
   CreateBillOfMaterialsRequest,
   CreateBillOfMaterialsLineRequest,
-  MaterialSearchItem,
   PatternSetSearchItem,
   ProductVariantCandidate,
   ProductSummary,
@@ -36,6 +37,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -43,7 +52,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
-import { useCreateBillOfMaterials } from './api/bills-of-materials'
 import { BillOfMaterialsRequestError } from './api/endpoints'
 import { calculateDraftBomCostProjection } from './bom-cost-projection'
 import {
@@ -54,6 +62,7 @@ import { MaterialPicker } from './components/material-picker'
 import { PatternProposalDialog } from './components/pattern-proposal-dialog'
 import { PatternSetPicker } from './components/pattern-set-picker'
 import { TemplateProductScope } from './components/template-product-scope'
+import { useBomBuilderPersistence } from './use-bom-builder-persistence'
 
 const emptyLine: CreateBillOfMaterialsLineRequest = {
   constructionPiece: '',
@@ -71,22 +80,34 @@ type CreateBillOfMaterialsLineFormValues = NonNullable<
   CreateBillOfMaterialsFormValues['lines']
 >[number]
 
-type BomCreationContext =
+type BomBuilderContext =
   | { kind: 'template' }
-  | { kind: 'implementation'; productVariant: ProductVariantCandidate }
+  | {
+      kind: 'implementation'
+      productVariant: Pick<ProductVariantCandidate, 'id' | 'name' | 'product'>
+    }
 
-export function CreateBomPage({
-  creation,
+interface BuilderMaterial {
+  id: string
+  name: string
+  preferredSource: BillOfMaterialsLinePreferredSource | null
+  attention: Array<'source-needs-attention'>
+}
+
+export function BomBuilderPage({
+  context,
+  existing,
   onCancel,
+  onReload,
   onSaved,
 }: {
-  creation: BomCreationContext
+  context: BomBuilderContext
+  existing?: BillOfMaterialsDetail
   onCancel: () => void
+  onReload?: () => void
   onSaved: () => void
 }) {
   const { session } = useAppShell()
-  const { createBillOfMaterials, isSaving, saveError } =
-    useCreateBillOfMaterials(session.token)
   const form = useForm<
     CreateBillOfMaterialsFormValues,
     unknown,
@@ -95,8 +116,24 @@ export function CreateBomPage({
     resolver: zodResolver(createBillOfMaterialsRequestSchema, undefined, {
       mode: 'sync',
     }),
-    defaultValues:
-      creation.kind === 'template'
+    defaultValues: existing
+      ? {
+          kind: existing.kind,
+          name: existing.name,
+          description: existing.description,
+          ...(existing.kind === 'template'
+            ? { productId: existing.product?.id ?? null }
+            : { productVariantId: existing.productVariant!.id }),
+          lines: existing.lines.map((line) => ({
+            constructionPiece: line.constructionPiece,
+            materialId: line.material?.id ?? null,
+            materialQuantity: line.materialQuantity,
+            patternSetId: line.patternSet?.id ?? null,
+            lineNote: line.lineNote,
+            verified: line.verification.status === 'verified',
+          })),
+        }
+      : context.kind === 'template'
         ? {
             kind: 'template',
             name: '',
@@ -108,7 +145,7 @@ export function CreateBomPage({
             kind: 'implementation',
             name: '',
             description: null,
-            productVariantId: creation.productVariant.id,
+            productVariantId: context.productVariant.id,
             lines: [],
           },
   })
@@ -117,18 +154,58 @@ export function CreateBomPage({
     name: 'lines',
   })
   const lines = useWatch({ control: form.control, name: 'lines' }) ?? []
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const [activeIndex, setActiveIndex] = useState<number | null>(
+    existing?.lines.length ? 0 : null,
+  )
   const [materialsById, setMaterialsById] = useState<
-    Record<string, MaterialSearchItem>
-  >({})
+    Record<string, BuilderMaterial>
+  >(() =>
+    Object.fromEntries(
+      existing?.lines.flatMap((line) =>
+        line.material
+          ? [
+              [
+                line.material.id,
+                {
+                  id: line.material.id,
+                  name: line.material.name,
+                  preferredSource: line.material.preferredSource,
+                  attention: line.attention.filter(
+                    (attention) => attention === 'source-needs-attention',
+                  ),
+                },
+              ],
+            ]
+          : [],
+      ) ?? [],
+    ),
+  )
   const [patternSetsById, setPatternSetsById] = useState<
-    Record<string, PatternSetSearchItem>
-  >({})
+    Record<
+      string,
+      Pick<PatternSetSearchItem, 'id' | 'name' | 'quantityProposalCount'> & {
+        status?: 'active' | 'retired'
+      }
+    >
+  >(() =>
+    Object.fromEntries(
+      existing?.lines.flatMap((line) =>
+        line.patternSet ? [[line.patternSet.id, line.patternSet]] : [],
+      ) ?? [],
+    ),
+  )
   const [selectedProduct, setSelectedProduct] = useState<ProductSummary | null>(
     null,
   )
   const dragHandleIndex = useRef<number | null>(null)
   const draggedIndex = useRef<number | null>(null)
+  const { blocker, isSaving, saveError, submit } = useBomBuilderPersistence({
+    existing,
+    fields,
+    form,
+    onSaved,
+    token: session.token,
+  })
 
   const addLine = () => {
     append(emptyLine)
@@ -168,29 +245,6 @@ export function CreateBomPage({
     )
   }
 
-  const submit = form.handleSubmit(async (values) => {
-    try {
-      await createBillOfMaterials(values)
-      onSaved()
-    } catch (error) {
-      if (error instanceof BillOfMaterialsRequestError) {
-        Object.entries(error.fieldErrors).forEach(([field, messages]) => {
-          if (!messages[0]) return
-          if (field === 'name') {
-            form.setError('name', { message: messages[0] })
-            return
-          }
-          const match = /^lines\.(\d+)\.patternSetId$/.exec(field)
-          if (match) {
-            form.setError(`lines.${Number(match[1])}.patternSetId`, {
-              message: messages[0],
-            })
-          }
-        })
-      }
-      // The mutation error is visible while the unsaved draft remains in place.
-    }
-  })
   const activeLine = activeIndex === null ? null : lines[activeIndex]
   const activeMaterial = activeLine?.materialId
     ? (materialsById[activeLine.materialId] ?? null)
@@ -209,6 +263,28 @@ export function CreateBomPage({
 
   return (
     <div className="space-y-6">
+      <Dialog open={blocker.status === 'blocked'}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              Your Bill of Materials draft has changes that have not been saved.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={blocker.reset}>
+              Continue editing
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={blocker.proceed}
+            >
+              Discard draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Back to catalog
@@ -234,7 +310,7 @@ export function CreateBomPage({
                   <FormItem>
                     <div className="flex items-center gap-1.5">
                       <FormLabel className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                        {creation.kind === 'template'
+                        {context.kind === 'template'
                           ? 'BOM Name'
                           : 'BOM Typification'}
                       </FormLabel>
@@ -276,15 +352,17 @@ export function CreateBomPage({
                 )}
               />
               <p className="mt-2 text-sm text-muted-foreground">
-                {creation.kind === 'implementation'
-                  ? `BOM Implementation · ${creation.productVariant.product.name} · ${creation.productVariant.product.id}`
-                  : selectedProduct
-                    ? `BOM Template · ${selectedProduct.name} · ${selectedProduct.id}`
-                    : 'BOM Template · No Product association'}
+                {context.kind === 'implementation'
+                  ? `BOM Implementation · ${context.productVariant.product.name} · ${context.productVariant.product.id}`
+                  : existing?.product
+                    ? `BOM Template · ${existing.product.name} · ${existing.product.id}`
+                    : selectedProduct
+                      ? `BOM Template · ${selectedProduct.name} · ${selectedProduct.id}`
+                      : 'BOM Template · No Product association'}
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
-              {creation.kind === 'template' ? (
+              {context.kind === 'template' && !existing ? (
                 <TemplateProductScope
                   selectedProduct={selectedProduct}
                   token={session.token}
@@ -296,22 +374,36 @@ export function CreateBomPage({
                     })
                   }}
                 />
-              ) : (
+              ) : context.kind === 'implementation' ? (
                 <div className="rounded-xl border bg-muted/20 p-4">
                   <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                     Product Variant
                   </p>
                   <p className="mt-2 font-medium">
-                    {creation.productVariant.name}
+                    {context.productVariant.name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {creation.productVariant.id}
+                    {context.productVariant.id}
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {creation.productVariant.product.name} ·{' '}
-                    {creation.productVariant.product.id} · Fixed for this
+                    {context.productVariant.product.name} ·{' '}
+                    {context.productVariant.product.id} · Fixed for this
                     Implementation
                   </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border bg-muted/20 p-4">
+                  <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                    Assigned Product
+                  </p>
+                  <p className="mt-2 font-medium">
+                    {existing?.product?.name ?? 'No Product association'}
+                  </p>
+                  {existing?.product ? (
+                    <p className="text-xs text-muted-foreground">
+                      {existing.product.id} · Fixed for this Template
+                    </p>
+                  ) : null}
                 </div>
               )}
               <FormField
@@ -333,7 +425,17 @@ export function CreateBomPage({
                 )}
               />
               {shouldShowSaveError(saveError) ? (
-                <p role="alert">{saveError!.message}</p>
+                <div className="space-y-2" role="alert">
+                  <p>{saveError!.message}</p>
+                  {saveError instanceof BillOfMaterialsRequestError &&
+                  saveError.status === 409 &&
+                  !saveError.deleted &&
+                  onReload ? (
+                    <Button type="button" variant="outline" onClick={onReload}>
+                      Reload current saved version
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </CardContent>
           </Card>
@@ -576,7 +678,7 @@ export function CreateBomPage({
                                       materialId={activeLine.materialId}
                                       materialWidthCentimeters={
                                         activeMaterial?.preferredSource
-                                          .widthCentimeters ?? null
+                                          ?.widthCentimeters ?? null
                                       }
                                       patternSetId={activePatternSet.id}
                                       proposalCount={
@@ -731,7 +833,7 @@ export function CreateBomPage({
                               tone="warning"
                             />
                           ) : null}
-                          {activeMaterial ? (
+                          {activeMaterial?.preferredSource ? (
                             <p className="text-xs text-muted-foreground">
                               {activeMaterial.preferredSource.widthCentimeters
                                 ? `${activeMaterial.preferredSource.widthCentimeters} cm width`

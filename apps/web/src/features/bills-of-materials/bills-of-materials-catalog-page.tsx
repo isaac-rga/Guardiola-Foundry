@@ -28,9 +28,11 @@ import { ProductVariantCandidateDialog } from './components/product-variant-cand
 export function BillsOfMaterialsCatalogPage({
   onCreateTemplate,
   onCreateImplementation,
+  onEdit,
 }: {
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
+  onEdit: (billOfMaterialsId: string) => void
 }) {
   const { session } = useAppShell()
   const { billsOfMaterials, isLoading, loadError } = useBillsOfMaterials(
@@ -142,14 +144,16 @@ export function BillsOfMaterialsCatalogPage({
                       {new Date(billOfMaterials.updatedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      {billOfMaterials.kind === 'template' &&
-                      billOfMaterials.product === null ? (
-                        <AssociateTemplateProductButton
-                          billOfMaterialsId={billOfMaterials.id}
-                          billOfMaterialsName={billOfMaterials.name}
-                          token={session.token}
-                        />
-                      ) : null}
+                      <AssociateTemplateProductButton
+                        billOfMaterialsId={billOfMaterials.id}
+                        billOfMaterialsName={billOfMaterials.name}
+                        canAssociateProduct={
+                          billOfMaterials.kind === 'template' &&
+                          billOfMaterials.product === null
+                        }
+                        token={session.token}
+                        onEdit={() => onEdit(billOfMaterials.id)}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
