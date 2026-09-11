@@ -197,3 +197,8 @@ export interface SearchProductVariantCandidatesResponse {
 export interface AssociateBillOfMaterialsTemplateProductRequest {
   productId: string
 }
+
+export interface ApplyBillOfMaterialsTemplateRequest {
+  name: string
+  productVariantId: string
+}

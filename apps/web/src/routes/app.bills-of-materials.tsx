@@ -5,6 +5,7 @@ import { BillsOfMaterialsCatalogPage } from '@/features/bills-of-materials/bills
 import { BomBuilderPage } from '@/features/bills-of-materials/create-bom-template-page'
 import { ImplementationBuilder } from '@/features/bills-of-materials/implementation-builder'
 import { ExistingBomBuilder } from '@/features/bills-of-materials/existing-bom-builder'
+import { ApplyTemplateBuilder } from '@/features/bills-of-materials/apply-template-builder'
 
 export const Route = createFileRoute('/app/bills-of-materials')({
   validateSearch: z.object({
@@ -12,6 +13,7 @@ export const Route = createFileRoute('/app/bills-of-materials')({
     kind: z.enum(['template', 'implementation']).optional().catch('template'),
     productVariantId: z.string().optional(),
     billOfMaterialsId: z.string().optional(),
+    templateId: z.string().optional(),
   }),
   component: BillsOfMaterialsRoute,
 })
@@ -22,6 +24,7 @@ function BillsOfMaterialsRoute() {
     productVariantId,
     screen = 'catalog',
     billOfMaterialsId,
+    templateId,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
 
@@ -47,6 +50,21 @@ function BillsOfMaterialsRoute() {
             replace
             search={{ screen: 'catalog' }}
             to="/app/bills-of-materials"
+          />
+        )
+      }
+      if (templateId) {
+        return (
+          <ApplyTemplateBuilder
+            productVariantId={productVariantId}
+            templateId={templateId}
+            onExit={() =>
+              void navigate({
+                search: { screen: 'catalog' },
+                replace: true,
+                resetScroll: false,
+              })
+            }
           />
         )
       }
@@ -101,6 +119,17 @@ function BillsOfMaterialsRoute() {
             screen: 'builder',
             kind: 'implementation',
             productVariantId: candidate.id,
+          },
+          resetScroll: true,
+        })
+      }
+      onApplyTemplate={(templateId, candidate) =>
+        void navigate({
+          search: {
+            screen: 'builder',
+            kind: 'implementation',
+            productVariantId: candidate.id,
+            templateId,
           },
           resetScroll: true,
         })

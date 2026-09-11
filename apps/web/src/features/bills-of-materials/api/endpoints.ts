@@ -1,5 +1,6 @@
 import {
   associateBillOfMaterialsTemplateProductRequestSchema,
+  applyBillOfMaterialsTemplateRequestSchema,
   billOfMaterialsDetailSchema,
   createBillOfMaterialsRequestSchema,
   listBillsOfMaterialsResponseSchema,
@@ -8,6 +9,7 @@ import {
 } from '@guardiola-foundry/shared-validation'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
+  ApplyBillOfMaterialsTemplateRequest,
   BillOfMaterialsDetail,
   CreateBillOfMaterialsRequest,
   ListBillsOfMaterialsResponse,
@@ -102,6 +104,33 @@ export async function createBillOfMaterials(
   return billOfMaterialsDetailSchema.parse(body)
 }
 
+export async function applyBillOfMaterialsTemplate(
+  token: string,
+  templateId: string,
+  payload: ApplyBillOfMaterialsTemplateRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${templateId}/implementations`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(applyBillOfMaterialsTemplateRequestSchema.parse(payload)),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to create the Implementation.'),
+      readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
 export async function getBillOfMaterials(
   token: string,
   billOfMaterialsId: string,
@@ -153,12 +182,14 @@ export async function updateBillOfMaterials(
 export async function searchProductVariantCandidates(
   token: string,
   search: string,
+  templateId?: string,
   signal?: AbortSignal,
 ): Promise<SearchProductVariantCandidatesResponse> {
   const url = new URL(
     resolveApiUrl('/bills-of-materials/product-variant-candidates'),
   )
   url.searchParams.set('search', search)
+  if (templateId) url.searchParams.set('templateId', templateId)
   const response = await fetch(url, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },

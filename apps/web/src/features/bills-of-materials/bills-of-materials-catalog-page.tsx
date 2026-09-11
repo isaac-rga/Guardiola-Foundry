@@ -28,10 +28,12 @@ import { ProductVariantCandidateDialog } from './components/product-variant-cand
 export function BillsOfMaterialsCatalogPage({
   onCreateTemplate,
   onCreateImplementation,
+  onApplyTemplate,
   onEdit,
 }: {
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
+  onApplyTemplate: (templateId: string, candidate: ProductVariantCandidate) => void
   onEdit: (billOfMaterialsId: string) => void
 }) {
   const { session } = useAppShell()
@@ -39,6 +41,7 @@ export function BillsOfMaterialsCatalogPage({
     session.token,
   )
   const [variantDialogOpen, setVariantDialogOpen] = useState(false)
+  const [applicationTemplateId, setApplicationTemplateId] = useState<string | null>(null)
 
   return (
     <div className="space-y-6">
@@ -151,8 +154,16 @@ export function BillsOfMaterialsCatalogPage({
                           billOfMaterials.kind === 'template' &&
                           billOfMaterials.product === null
                         }
+                        canCreateImplementation={
+                          billOfMaterials.kind === 'template' &&
+                          billOfMaterials.product !== null &&
+                          billOfMaterials.product.availability === 'available'
+                        }
                         token={session.token}
                         onEdit={() => onEdit(billOfMaterials.id)}
+                        onCreateImplementation={() =>
+                          setApplicationTemplateId(billOfMaterials.id)
+                        }
                       />
                     </TableCell>
                   </TableRow>
@@ -167,6 +178,17 @@ export function BillsOfMaterialsCatalogPage({
         token={session.token}
         onOpenChange={setVariantDialogOpen}
         onSelect={onCreateImplementation}
+      />
+      <ProductVariantCandidateDialog
+        open={applicationTemplateId !== null}
+        templateId={applicationTemplateId ?? undefined}
+        token={session.token}
+        onOpenChange={(open) => {
+          if (!open) setApplicationTemplateId(null)
+        }}
+        onSelect={(candidate) => {
+          if (applicationTemplateId) onApplyTemplate(applicationTemplateId, candidate)
+        }}
       />
     </div>
   )

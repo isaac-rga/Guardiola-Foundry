@@ -5,6 +5,7 @@ import {
   type BillOfMaterialsLine,
   type BillOfMaterialsSummary,
   type AssociateBillOfMaterialsTemplateProductRequest,
+  type ApplyBillOfMaterialsTemplateRequest,
   type CreateBillOfMaterialsLineRequest,
   type CreateBillOfMaterialsImplementationRequest,
   type CreateBillOfMaterialsRequest,
@@ -284,6 +285,7 @@ export const searchProductVariantCandidatesQuerySchema = z.object({
         .toLocaleLowerCase(),
     )
     .pipe(z.string().min(1)),
+  templateId: z.string().regex(/^BOM-[A-Z2-9]{6}$/).optional(),
 })
 
 const productVariantCandidateBaseSchema = z.object({
@@ -319,3 +321,10 @@ export const searchProductVariantCandidatesResponseSchema = z.object({
 export const associateBillOfMaterialsTemplateProductRequestSchema = z.object({
   productId: z.string().regex(/^P-[A-Z2-9]{6}$/),
 }) satisfies z.ZodType<AssociateBillOfMaterialsTemplateProductRequest>
+
+export const applyBillOfMaterialsTemplateRequestSchema = z.object({
+  name: billOfMaterialsNameSchema,
+  productVariantId: z
+    .string()
+    .regex(/^PV-[A-Z2-9]{6}$/, 'Select a valid Product Variant.'),
+}) satisfies z.ZodType<ApplyBillOfMaterialsTemplateRequest>

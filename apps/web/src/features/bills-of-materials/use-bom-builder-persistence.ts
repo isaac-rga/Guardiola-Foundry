@@ -9,6 +9,7 @@ import type {
 import { createBillOfMaterialsRequestSchema } from '@guardiola-foundry/shared-validation'
 
 import {
+  useApplyBillOfMaterialsTemplate,
   useCreateBillOfMaterials,
   useUpdateBillOfMaterials,
 } from './api/bills-of-materials'
@@ -17,12 +18,14 @@ import { BillOfMaterialsRequestError } from './api/endpoints'
 type BuilderFormValues = z.input<typeof createBillOfMaterialsRequestSchema>
 
 export function useBomBuilderPersistence({
+  applicationTemplateId,
   existing,
   fields,
   form,
   onSaved,
   token,
 }: {
+  applicationTemplateId?: string
   existing?: BillOfMaterialsDetail
   fields: Array<{ id: string }>
   form: UseFormReturn<BuilderFormValues, unknown, CreateBillOfMaterialsRequest>
@@ -30,6 +33,10 @@ export function useBomBuilderPersistence({
   token: string
 }) {
   const createMutation = useCreateBillOfMaterials(token)
+  const applyMutation = useApplyBillOfMaterialsTemplate(
+    token,
+    applicationTemplateId ?? '',
+  )
   const updateMutation = useUpdateBillOfMaterials(token, existing?.id ?? '')
   const allowNavigation = useRef(false)
   const persistedLineIds = useRef(new Map<string, string>())
@@ -49,7 +56,12 @@ export function useBomBuilderPersistence({
 
   const submit = form.handleSubmit(async (values) => {
     try {
-      if (existing) {
+      if (applicationTemplateId && values.kind === 'implementation') {
+        await applyMutation.applyTemplate({
+          name: values.name,
+          productVariantId: values.productVariantId,
+        })
+      } else if (existing) {
         await updateMutation.updateBillOfMaterials({
           updatedAt: existing.updatedAt,
           name: values.name,
@@ -75,8 +87,15 @@ export function useBomBuilderPersistence({
 
   return {
     blocker,
-    isSaving: createMutation.isSaving || updateMutation.isSaving,
-    saveError: existing ? updateMutation.saveError : createMutation.saveError,
+    isSaving:
+      createMutation.isSaving ||
+      updateMutation.isSaving ||
+      applyMutation.isSaving,
+    saveError: applicationTemplateId
+      ? applyMutation.saveError
+      : existing
+        ? updateMutation.saveError
+        : createMutation.saveError,
     submit,
   }
 }

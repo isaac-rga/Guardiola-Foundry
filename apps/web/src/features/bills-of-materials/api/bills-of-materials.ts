@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
+  ApplyBillOfMaterialsTemplateRequest,
   CreateBillOfMaterialsRequest,
   ProductSummary,
   UpdateBillOfMaterialsRequest,
@@ -9,6 +10,7 @@ import type {
 import { listProducts } from '@/features/products/api/endpoints'
 import {
   associateBillOfMaterialsTemplateProduct,
+  applyBillOfMaterialsTemplate,
   createBillOfMaterials,
   getBillOfMaterials,
   listBillsOfMaterials,
@@ -86,14 +88,39 @@ export function useUpdateBillOfMaterials(
   }
 }
 
-export function useProductVariantCandidates(token: string, search: string) {
+export function useProductVariantCandidates(
+  token: string,
+  search: string,
+  templateId?: string,
+) {
   return useQuery({
-    queryKey: ['bills-of-materials', 'product-variant-candidates', search],
+    queryKey: [
+      'bills-of-materials',
+      'product-variant-candidates',
+      templateId ?? 'manual',
+      search,
+    ],
     queryFn: ({ signal }) =>
-      searchProductVariantCandidates(token, search, signal),
+      searchProductVariantCandidates(token, search, templateId, signal),
     enabled: search.length > 0,
     staleTime: 30_000,
   })
+}
+
+export function useApplyBillOfMaterialsTemplate(token: string, templateId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (payload: ApplyBillOfMaterialsTemplateRequest) =>
+      applyBillOfMaterialsTemplate(token, templateId, payload),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+  })
+
+  return {
+    applyTemplate: mutation.mutateAsync,
+    isSaving: mutation.isPending,
+    saveError: mutation.error,
+  }
 }
 
 export function useTemplateProductCandidates(token: string, enabled: boolean) {

@@ -307,6 +307,135 @@ describe('Bills of Materials route', () => {
     ).toBeInTheDocument()
   })
 
+  it('creates an Implementation from an associated Template catalog action', async () => {
+    const user = userEvent.setup()
+    const template = {
+      ...billOfMaterialsFixture(),
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+    }
+    const candidate = {
+      id: 'PV-JACKIE',
+      name: 'Jackie Showroom',
+      status: 'active' as const,
+      product: template.product,
+      selectable: true,
+      outcome: 'eligible' as const,
+      existingImplementation: null,
+    }
+    const postedBodies: unknown[] = []
+    let saveAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [template] })
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        expect(url.searchParams.get('templateId')).toBe(template.id)
+        return jsonResponse({ items: [candidate], hasMore: false })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse({
+          ...billOfMaterialsDetailFixture(),
+          ...template,
+        })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}/implementations` &&
+        init?.method === 'POST'
+      ) {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse(
+            {
+              message:
+                'BOM typification already exists for this Product Variant.',
+              errors: {
+                name: [
+                  'BOM typification already exists for this Product Variant.',
+                ],
+              },
+            },
+            { status: 409 },
+          )
+        }
+        return jsonResponse(
+          {
+            ...billOfMaterialsDetailFixture(),
+            id: 'BOM-DER234',
+            kind: 'implementation',
+            name: 'Jackie - Blush',
+            product: template.product,
+            productVariant: {
+              id: candidate.id,
+              name: candidate.name,
+              availability: 'available',
+            },
+            origin: { id: template.id, name: template.name },
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${template.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Create Implementation' }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'showroom',
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Jackie Showroom.*PV-JACKIE/i,
+      }),
+    )
+
+    const typification = await screen.findByRole('textbox', {
+      name: 'BOM Typification',
+    })
+    await user.type(typification, 'Jackie - Blush')
+    expect(screen.getByText('Construction Board')).toBeInTheDocument()
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    expect(
+      screen.getByText(`Copied from ${template.name} when you save`),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText(
+        'BOM typification already exists for this Product Variant.',
+      ),
+    ).toBeInTheDocument()
+    expect(typification).toHaveValue('Jackie - Blush')
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() =>
+      expect(postedBodies).toEqual([
+        { name: 'Jackie - Blush', productVariantId: candidate.id },
+        { name: 'Jackie - Blush', productVariantId: candidate.id },
+      ]),
+    )
+  })
+
   it('opens a saved Template, protects its draft, and offers deliberate stale recovery', async () => {
     const user = userEvent.setup()
     const saved = billOfMaterialsDetailFixture()

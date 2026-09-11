@@ -85,6 +85,7 @@ type BomBuilderContext =
   | {
       kind: 'implementation'
       productVariant: Pick<ProductVariantCandidate, 'id' | 'name' | 'product'>
+      sourceTemplate?: BillOfMaterialsDetail
     }
 
 interface BuilderMaterial {
@@ -108,6 +109,12 @@ export function BomBuilderPage({
   onSaved: () => void
 }) {
   const { session } = useAppShell()
+  const sourceTemplate =
+    context.kind === 'implementation' ? context.sourceTemplate : undefined
+  const implementationVariant =
+    context.kind === 'implementation' ? context.productVariant : undefined
+  const initialBillOfMaterials = existing ?? sourceTemplate
+  const capabilities = resolveBuilderCapabilities(sourceTemplate)
   const form = useForm<
     CreateBillOfMaterialsFormValues,
     unknown,
@@ -133,21 +140,36 @@ export function BomBuilderPage({
             verified: line.verification.status === 'verified',
           })),
         }
-      : context.kind === 'template'
+      : sourceTemplate
         ? {
-            kind: 'template',
-            name: '',
-            description: null,
-            productId: null,
-            lines: [],
-          }
-        : {
             kind: 'implementation',
             name: '',
-            description: null,
-            productVariantId: context.productVariant.id,
-            lines: [],
-          },
+            description: sourceTemplate.description,
+            productVariantId: implementationVariant!.id,
+            lines: sourceTemplate.lines.map((line) => ({
+              constructionPiece: line.constructionPiece,
+              materialId: line.material?.id ?? null,
+              materialQuantity: line.materialQuantity,
+              patternSetId: line.patternSet?.id ?? null,
+              lineNote: line.lineNote,
+              verified: false,
+            })),
+          }
+        : context.kind === 'template'
+          ? {
+              kind: 'template',
+              name: '',
+              description: null,
+              productId: null,
+              lines: [],
+            }
+          : {
+              kind: 'implementation',
+              name: '',
+              description: null,
+              productVariantId: implementationVariant!.id,
+              lines: [],
+            },
   })
   const { append, fields, move, remove } = useFieldArray({
     control: form.control,
@@ -155,13 +177,13 @@ export function BomBuilderPage({
   })
   const lines = useWatch({ control: form.control, name: 'lines' }) ?? []
   const [activeIndex, setActiveIndex] = useState<number | null>(
-    existing?.lines.length ? 0 : null,
+    initialBillOfMaterials?.lines.length ? 0 : null,
   )
   const [materialsById, setMaterialsById] = useState<
     Record<string, BuilderMaterial>
   >(() =>
     Object.fromEntries(
-      existing?.lines.flatMap((line) =>
+      initialBillOfMaterials?.lines.flatMap((line) =>
         line.material
           ? [
               [
@@ -189,7 +211,7 @@ export function BomBuilderPage({
     >
   >(() =>
     Object.fromEntries(
-      existing?.lines.flatMap((line) =>
+      initialBillOfMaterials?.lines.flatMap((line) =>
         line.patternSet ? [[line.patternSet.id, line.patternSet]] : [],
       ) ?? [],
     ),
@@ -200,6 +222,7 @@ export function BomBuilderPage({
   const dragHandleIndex = useRef<number | null>(null)
   const draggedIndex = useRef<number | null>(null)
   const { blocker, isSaving, saveError, submit } = useBomBuilderPersistence({
+    applicationTemplateId: sourceTemplate?.id,
     existing,
     fields,
     form,
@@ -415,7 +438,7 @@ export function BomBuilderPage({
                     <FormControl>
                       <Textarea
                         {...field}
-                        disabled={isSaving}
+                        disabled={isSaving || !capabilities.canEditDescription}
                         value={field.value ?? ''}
                         placeholder="Optional construction context"
                       />
@@ -451,9 +474,15 @@ export function BomBuilderPage({
                   verified
                 </p>
               </div>
-              <Button type="button" onClick={addLine} disabled={isSaving}>
-                <PlusIcon /> Add BOM line
-              </Button>
+              {capabilities.copyNotice ? (
+                <p className="text-xs text-muted-foreground">
+                  {capabilities.copyNotice}
+                </p>
+              ) : (
+                <Button type="button" onClick={addLine} disabled={isSaving}>
+                  <PlusIcon /> Add BOM line
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {fields.length === 0 ? (
@@ -481,7 +510,7 @@ export function BomBuilderPage({
                             activeIndex === index &&
                               'border-primary/40 bg-primary/5',
                           )}
-                          draggable
+                          draggable={capabilities.canEditComposition}
                           key={field.id}
                           onDragEnd={() => {
                             dragHandleIndex.current = null
@@ -511,6 +540,7 @@ export function BomBuilderPage({
                           <button
                             aria-label={`Reorder ${lineName}`}
                             className="cursor-grab rounded-md p-1 text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                            disabled={!capabilities.canEditComposition}
                             onKeyDown={(event) => {
                               if (
                                 event.key !== 'ArrowUp' &&
@@ -586,6 +616,9 @@ export function BomBuilderPage({
                                       <Input
                                         {...field}
                                         aria-label="Construction Piece"
+                                        disabled={
+                                          !capabilities.canEditComposition
+                                        }
                                         className="-ml-2 h-auto w-[calc(100%+1rem)] rounded-none border-0 border-b border-border/70 bg-transparent px-2 py-1 font-editorial text-3xl! leading-tight text-foreground shadow-none transition-[border-color,background-color,box-shadow,border-radius] placeholder:text-muted-foreground/45 hover:rounded-md hover:border hover:border-input hover:bg-background/70 focus-visible:rounded-md focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/20 md:text-3xl!"
                                         placeholder="Untitled construction piece"
                                         value={field.value ?? ''}
@@ -604,66 +637,76 @@ export function BomBuilderPage({
                               )}
                             />
                           </div>
-                          <div className="flex gap-1">
-                            <Button
-                              aria-label="Duplicate line"
-                              onClick={duplicateLine}
-                              size="icon-sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              <CopyIcon />
-                            </Button>
-                            <Button
-                              aria-label="Remove line"
-                              onClick={removeLine}
-                              size="icon-sm"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <Trash2Icon />
-                            </Button>
-                          </div>
+                          {capabilities.canEditComposition ? (
+                            <div className="flex gap-1">
+                              <Button
+                                aria-label="Duplicate line"
+                                onClick={duplicateLine}
+                                size="icon-sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                <CopyIcon />
+                              </Button>
+                              <Button
+                                aria-label="Remove line"
+                                onClick={removeLine}
+                                size="icon-sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Trash2Icon />
+                              </Button>
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="grid gap-5 md:grid-cols-2">
                           <FormItem>
                             <FormLabel>Material</FormLabel>
-                            <MaterialPicker
-                              selected={activeMaterial}
-                              token={session.token}
-                              onSelect={(material) => {
-                                const materialChanged =
-                                  material?.id !== activeLine.materialId
-                                form.setValue(
-                                  `lines.${activeIndex}.materialId`,
-                                  material?.id ?? null,
-                                  {
-                                    shouldDirty: true,
-                                    shouldValidate: true,
-                                  },
-                                )
-                                if (materialChanged) {
+                            {!capabilities.canEditComposition ? (
+                              <div className="rounded-xl border bg-muted/20 px-3 py-2 text-sm">
+                                {activeMaterial
+                                  ? `${activeMaterial.name} · ${activeMaterial.id}`
+                                  : 'Material unresolved'}
+                              </div>
+                            ) : (
+                              <MaterialPicker
+                                selected={activeMaterial}
+                                token={session.token}
+                                onSelect={(material) => {
+                                  const materialChanged =
+                                    material?.id !== activeLine.materialId
                                   form.setValue(
-                                    `lines.${activeIndex}.materialQuantity`,
-                                    null,
+                                    `lines.${activeIndex}.materialId`,
+                                    material?.id ?? null,
                                     {
                                       shouldDirty: true,
                                       shouldValidate: true,
                                     },
                                   )
-                                  updateLineVerification(activeIndex, {
-                                    materialId: material?.id ?? null,
-                                  })
-                                }
-                                if (material) {
-                                  setMaterialsById((current) => ({
-                                    ...current,
-                                    [material.id]: material,
-                                  }))
-                                }
-                              }}
-                            />
+                                  if (materialChanged) {
+                                    form.setValue(
+                                      `lines.${activeIndex}.materialQuantity`,
+                                      null,
+                                      {
+                                        shouldDirty: true,
+                                        shouldValidate: true,
+                                      },
+                                    )
+                                    updateLineVerification(activeIndex, {
+                                      materialId: material?.id ?? null,
+                                    })
+                                  }
+                                  if (material) {
+                                    setMaterialsById((current) => ({
+                                      ...current,
+                                      [material.id]: material,
+                                    }))
+                                  }
+                                }}
+                              />
+                            )}
                           </FormItem>
                           <FormField
                             control={form.control}
@@ -672,7 +715,8 @@ export function BomBuilderPage({
                               <FormItem>
                                 <div className="flex items-center justify-between gap-2">
                                   <FormLabel>Pattern Set (optional)</FormLabel>
-                                  {activePatternSet &&
+                                  {capabilities.canEditComposition &&
+                                  activePatternSet &&
                                   activePatternSet.quantityProposalCount > 0 ? (
                                     <PatternProposalDialog
                                       materialId={activeLine.materialId}
@@ -701,19 +745,27 @@ export function BomBuilderPage({
                                     />
                                   ) : null}
                                 </div>
-                                <PatternSetPicker
-                                  selected={activePatternSet}
-                                  token={session.token}
-                                  onSelect={(patternSet) => {
-                                    field.onChange(patternSet?.id ?? null)
-                                    if (patternSet) {
-                                      setPatternSetsById((current) => ({
-                                        ...current,
-                                        [patternSet.id]: patternSet,
-                                      }))
-                                    }
-                                  }}
-                                />
+                                {!capabilities.canEditComposition ? (
+                                  <div className="rounded-xl border bg-muted/20 px-3 py-2 text-sm">
+                                    {activePatternSet
+                                      ? `${activePatternSet.name} · ${activePatternSet.id}`
+                                      : 'No Pattern Set'}
+                                  </div>
+                                ) : (
+                                  <PatternSetPicker
+                                    selected={activePatternSet}
+                                    token={session.token}
+                                    onSelect={(patternSet) => {
+                                      field.onChange(patternSet?.id ?? null)
+                                      if (patternSet) {
+                                        setPatternSetsById((current) => ({
+                                          ...current,
+                                          [patternSet.id]: patternSet,
+                                        }))
+                                      }
+                                    }}
+                                  />
+                                )}
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -729,7 +781,10 @@ export function BomBuilderPage({
                                     <Input
                                       aria-label="Final meters"
                                       className="pr-8"
-                                      disabled={!activeLine.materialId}
+                                      disabled={
+                                        !capabilities.canEditComposition ||
+                                        !activeLine.materialId
+                                      }
                                       min="0.001"
                                       step="0.001"
                                       type="number"
@@ -775,6 +830,7 @@ export function BomBuilderPage({
                                     aria-label="Manually verified"
                                     checked={field.value === true}
                                     disabled={
+                                      !capabilities.canEditComposition ||
                                       !isCompleteBillOfMaterialsLine(activeLine)
                                     }
                                     onCheckedChange={(checked) =>
@@ -802,6 +858,7 @@ export function BomBuilderPage({
                                   <Textarea
                                     {...field}
                                     aria-label="Line Note"
+                                    disabled={!capabilities.canEditComposition}
                                     value={field.value ?? ''}
                                     placeholder="Optional construction guidance"
                                   />
@@ -923,6 +980,11 @@ export function BomBuilderPage({
                 <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
                   Incomplete or unverified lines do not block saving.
                 </p>
+                {sourceTemplate ? (
+                  <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
+                    Origin: {sourceTemplate.name} · {sourceTemplate.id}
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
           </aside>
@@ -930,6 +992,17 @@ export function BomBuilderPage({
       </Form>
     </div>
   )
+}
+
+function resolveBuilderCapabilities(sourceTemplate?: BillOfMaterialsDetail) {
+  const canEditCopiedValues = sourceTemplate === undefined
+  return {
+    canEditDescription: canEditCopiedValues,
+    canEditComposition: canEditCopiedValues,
+    copyNotice: sourceTemplate
+      ? `Copied from ${sourceTemplate.name} when you save`
+      : null,
+  }
 }
 
 function shouldShowSaveError(error: Error | null) {

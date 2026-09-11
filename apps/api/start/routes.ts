@@ -70,6 +70,10 @@ router
     ])
     router.get('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'show'])
     router.post('/bills-of-materials', [BillsOfMaterialsController, 'store'])
+    router.post('/bills-of-materials/:billOfMaterialsId/implementations', [
+      BillsOfMaterialsController,
+      'applyTemplate',
+    ])
     router.put('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'update'])
     router.post('/bills-of-materials/:billOfMaterialsId/product', [
       BillsOfMaterialsController,

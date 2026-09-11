@@ -27,6 +27,7 @@ export async function listBillsOfMaterials(): Promise<ListBillsOfMaterialsRespon
       ProductVariant.includeDeleted(variantQuery)
       variantQuery.preload('product', (productQuery) => Product.includeDeleted(productQuery))
     })
+    .preload('origin', (originQuery) => BillOfMaterial.includeDeleted(originQuery))
     .orderBy('updatedAt', 'desc')
 
   return { billsOfMaterials: billsOfMaterials.map(serializeBillOfMaterials) }
@@ -78,7 +79,13 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
                 ? 'available'
                 : 'unavailable',
           },
-    origin: null,
+    origin:
+      billOfMaterials.originBillOfMaterialsId === null
+        ? null
+        : {
+            id: billOfMaterials.origin.publicId,
+            name: billOfMaterials.origin.name,
+          },
     createdBy: {
       id: billOfMaterials.createdBy.id,
       email: billOfMaterials.createdBy.email,
@@ -181,6 +188,7 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
       ProductVariant.includeDeleted(variantQuery)
       variantQuery.preload('product', (productQuery) => Product.includeDeleted(productQuery))
     })
+    .preload('origin', (originQuery) => BillOfMaterial.includeDeleted(originQuery))
     .preload('lines', (lines) => {
       lines
         .preload('material', (materialQuery) => {

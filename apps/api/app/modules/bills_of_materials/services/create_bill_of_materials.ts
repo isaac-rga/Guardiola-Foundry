@@ -1,8 +1,12 @@
 import Material from '#models/material'
-import Product from '#models/product'
-import ProductVariant from '#models/product_variant'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import {
+  ImplementationDestinationTypificationConflictError,
+  ImplementationDestinationValidationError,
+  ImplementationDestinationVariantConflictError,
+  resolveImplementationDestination,
+} from '#modules/bills_of_materials/services/implementation_destination'
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import { lockTemplateProductSlot } from '#modules/bills_of_materials/services/template_product_slot'
@@ -139,63 +143,22 @@ async function resolveImplementationRelationship(
   name: string,
   trx: TransactionClientContract
 ) {
-  const candidateQuery = ProductVariant.query({ client: trx }).where(
-    'publicId',
-    productVariantPublicId
-  )
-  ProductVariant.includeDeleted(candidateQuery)
-  const candidate = await candidateQuery.first()
-  if (!candidate || candidate.deletedAt) {
-    throw new BillOfMaterialsValidationError(
-      'productVariantId',
-      'The selected Product Variant is no longer available.'
-    )
+  let destination
+  try {
+    destination = await resolveImplementationDestination(productVariantPublicId, name, trx)
+  } catch (error) {
+    if (error instanceof ImplementationDestinationValidationError) {
+      throw new BillOfMaterialsValidationError('productVariantId', error.message)
+    }
+    if (error instanceof ImplementationDestinationVariantConflictError) {
+      throw new BillOfMaterialsVariantConflictError(error.conflictingImplementation)
+    }
+    if (error instanceof ImplementationDestinationTypificationConflictError) {
+      throw new BillOfMaterialsTypificationConflictError(error.conflictingImplementation)
+    }
+    throw error
   }
-
-  const productQuery = Product.query({ client: trx }).where('id', candidate.productId).forUpdate()
-  Product.includeDeleted(productQuery)
-  const product = await productQuery.firstOrFail()
-  const variantQuery = ProductVariant.query({ client: trx }).where('id', candidate.id).forUpdate()
-  ProductVariant.includeDeleted(variantQuery)
-  const variant = await variantQuery.firstOrFail()
-
-  if (product.deletedAt || product.productStatus !== 'active') {
-    throw new BillOfMaterialsValidationError(
-      'productVariantId',
-      'The selected Product is no longer available.'
-    )
-  }
-  if (variant.deletedAt || variant.status !== 'active') {
-    throw new BillOfMaterialsValidationError(
-      'productVariantId',
-      'The selected Product Variant is no longer available.'
-    )
-  }
-
-  const existingImplementation = await BillOfMaterial.query({ client: trx })
-    .where('productVariantId', variant.id)
-    .first()
-  if (existingImplementation) {
-    throw new BillOfMaterialsVariantConflictError({
-      id: existingImplementation.publicId,
-      name: existingImplementation.name,
-    })
-  }
-
-  const duplicateTypification = await BillOfMaterial.query({ client: trx })
-    .join('product_variants', 'product_variants.id', 'bills_of_materials.product_variant_id')
-    .where('product_variants.product_id', product.id)
-    .whereRaw('lower(bills_of_materials.name) = lower(?)', [name])
-    .select('bills_of_materials.public_id', 'bills_of_materials.name')
-    .first()
-  if (duplicateTypification) {
-    throw new BillOfMaterialsTypificationConflictError({
-      id: duplicateTypification.publicId,
-      name: duplicateTypification.name,
-    })
-  }
-
-  return { productId: null, productVariantId: variant.id }
+  return { productId: null, productVariantId: destination.variant.id }
 }
 
 export class BillOfMaterialsValidationError extends Error {
@@ -229,7 +192,7 @@ export class BillOfMaterialsTypificationConflictError extends Error {
   }
 }
 
-async function generateBillOfMaterialsId(trx: TransactionClientContract) {
+export async function generateBillOfMaterialsId(trx: TransactionClientContract) {
   while (true) {
     const bytes = randomBytes(BILL_OF_MATERIALS_ID_LENGTH)
     const token = Array.from(

@@ -36,6 +36,9 @@ export default class BillOfMaterial extends compose(BaseModel, SoftDelete) {
   @column({ columnName: 'product_variant_id' })
   declare productVariantId: number | null
 
+  @column({ columnName: 'origin_bill_of_materials_id' })
+  declare originBillOfMaterialsId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -50,6 +53,9 @@ export default class BillOfMaterial extends compose(BaseModel, SoftDelete) {
 
   @belongsTo(() => ProductVariant, { foreignKey: 'productVariantId' })
   declare productVariant: BelongsTo<typeof ProductVariant>
+
+  @belongsTo(() => BillOfMaterial, { foreignKey: 'originBillOfMaterialsId' })
+  declare origin: BelongsTo<typeof BillOfMaterial>
 
   @hasMany(() => BillOfMaterialLine, { foreignKey: 'billOfMaterialsId' })
   declare lines: HasMany<typeof BillOfMaterialLine>

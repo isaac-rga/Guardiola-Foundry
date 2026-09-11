@@ -18,11 +18,13 @@ export function ProductVariantCandidateDialog({
   onOpenChange,
   onSelect,
   open,
+  templateId,
   token,
 }: {
   onOpenChange: (open: boolean) => void
   onSelect: (candidate: ProductVariantCandidate) => void
   open: boolean
+  templateId?: string
   token: string
 }) {
   const [query, setQuery] = useState('')
@@ -31,7 +33,7 @@ export function ProductVariantCandidateDialog({
     isDebouncing,
     normalizedValue: normalizedQuery,
   } = useDebouncedCatalogSearch(query)
-  const search = useProductVariantCandidates(token, debouncedQuery)
+  const search = useProductVariantCandidates(token, debouncedQuery, templateId)
 
   return (
     <Dialog
@@ -45,7 +47,9 @@ export function ProductVariantCandidateDialog({
         <DialogHeader className="px-6 pt-6 pr-14">
           <DialogTitle>Select a Product Variant</DialogTitle>
           <DialogDescription>
-            A BOM Implementation belongs permanently to one Product Variant.
+            {templateId
+              ? "Choose an eligible Variant of this Template's Product."
+              : 'A BOM Implementation belongs permanently to one Product Variant.'}
           </DialogDescription>
         </DialogHeader>
         <div className="relative px-6">

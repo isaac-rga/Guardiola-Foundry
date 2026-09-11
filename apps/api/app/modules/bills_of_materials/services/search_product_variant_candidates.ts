@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import type {
   ProductVariantCandidate,
   SearchProductVariantCandidatesResponse,
@@ -20,8 +21,20 @@ const NORMALIZED_SEARCH_DOCUMENT = `
 `
 
 export async function searchProductVariantCandidates(
-  search: string
+  search: string,
+  templatePublicId?: string
 ): Promise<SearchProductVariantCandidatesResponse> {
+  let productId: number | undefined
+  if (templatePublicId) {
+    const template = await BillOfMaterial.query()
+      .where('publicId', templatePublicId)
+      .where('kind', 'template')
+      .first()
+    if (!template || template.productId === null) {
+      throw new ProductVariantCandidateTemplateUnavailableError()
+    }
+    productId = template.productId
+  }
   const normalizedVariantId = 'lower(product_variants.public_id)'
   const normalizedVariantName = `translate(lower(product_variants.name), 'áéíóúüñ', 'aeiouun')`
   const query = db
@@ -66,6 +79,8 @@ export async function searchProductVariantCandidates(
     .orderBy('product_variants.public_id', 'asc')
     .limit(SEARCH_LIMIT + 1)
 
+  if (productId !== undefined) query.where('products.id', productId)
+
   search.split(' ').forEach((term) => {
     query.whereRaw(`position(? in ${NORMALIZED_SEARCH_DOCUMENT}) > 0`, [term])
   })
@@ -76,6 +91,8 @@ export async function searchProductVariantCandidates(
     hasMore: rows.length > SEARCH_LIMIT,
   }
 }
+
+export class ProductVariantCandidateTemplateUnavailableError extends Error {}
 
 function serializeCandidate(row: {
   variant_public_id: string

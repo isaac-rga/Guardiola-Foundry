@@ -15,12 +15,16 @@ export function AssociateTemplateProductButton({
   billOfMaterialsId,
   billOfMaterialsName,
   canAssociateProduct,
+  canCreateImplementation,
   onEdit,
+  onCreateImplementation,
   token,
 }: {
   billOfMaterialsId: string
   billOfMaterialsName: string
   canAssociateProduct: boolean
+  canCreateImplementation: boolean
+  onCreateImplementation: () => void
   onEdit: () => void
   token: string
 }) {
@@ -50,6 +54,11 @@ export function AssociateTemplateProductButton({
           {canAssociateProduct ? (
             <DropdownMenuItem onSelect={() => setIsPickerOpen(true)}>
               Associate Product
+            </DropdownMenuItem>
+          ) : null}
+          {canCreateImplementation ? (
+            <DropdownMenuItem onSelect={onCreateImplementation}>
+              Create Implementation
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

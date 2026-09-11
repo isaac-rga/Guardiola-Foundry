@@ -58,7 +58,7 @@ export class BillOfMaterialsLineSchema extends BaseModel {
 }
 
 export class BillsOfMaterialSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdByUserId', 'deletedAt', 'description', 'id', 'kind', 'name', 'productId', 'productVariantId', 'publicId', 'updatedAt'] as const
+  static $columns = ['createdAt', 'createdByUserId', 'deletedAt', 'description', 'id', 'kind', 'name', 'originBillOfMaterialsId', 'productId', 'productVariantId', 'publicId', 'updatedAt'] as const
   $columns = BillsOfMaterialSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -74,6 +74,8 @@ export class BillsOfMaterialSchema extends BaseModel {
   declare kind: string
   @column()
   declare name: string
+  @column()
+  declare originBillOfMaterialsId: number | null
   @column()
   declare productId: number | null
   @column()

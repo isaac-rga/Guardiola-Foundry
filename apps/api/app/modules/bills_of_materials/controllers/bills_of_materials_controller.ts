@@ -13,8 +13,17 @@ import {
   BillOfMaterialsStaleConflictError,
   BillOfMaterialsUpdateValidationError,
   updateBillOfMaterials,
+  ApplyBillOfMaterialsTemplateValidationError,
+  BillOfMaterialsTemplateNotFoundError,
+  applyBillOfMaterialsTemplate,
+  ProductVariantCandidateTemplateUnavailableError,
 } from '#modules/bills_of_materials/services/index'
 import {
+  ImplementationDestinationTypificationConflictError,
+  ImplementationDestinationVariantConflictError,
+} from '#modules/bills_of_materials/services/implementation_destination'
+import {
+  applyBillOfMaterialsTemplateRequestSchema,
   associateBillOfMaterialsTemplateProductRequestSchema,
   createBillOfMaterialsRequestSchema,
   searchProductVariantCandidatesQuerySchema,
@@ -38,7 +47,18 @@ export default class BillsOfMaterialsController {
     if (!query.success) {
       return response.unprocessableEntity({ message: 'Enter a Product Variant search.' })
     }
-    return response.ok(await searchProductVariantCandidates(query.data.search))
+    try {
+      return response.ok(
+        await searchProductVariantCandidates(query.data.search, query.data.templateId)
+      )
+    } catch (error) {
+      if (error instanceof ProductVariantCandidateTemplateUnavailableError) {
+        return response.unprocessableEntity({
+          message: 'Associate this BOM Template with a Product before selecting a Variant.',
+        })
+      }
+      throw error
+    }
   }
 
   async store({ authenticatedSession, request, response }: HttpContext) {
@@ -68,6 +88,44 @@ export default class BillsOfMaterialsController {
         })
       }
       if (error instanceof BillOfMaterialsTypificationConflictError) {
+        return response.conflict({
+          message: error.message,
+          errors: { name: [error.message] },
+          conflictingImplementation: error.conflictingImplementation,
+        })
+      }
+      throw error
+    }
+  }
+
+  async applyTemplate({ authenticatedSession, params, request, response }: HttpContext) {
+    const payload = applyBillOfMaterialsTemplateRequestSchema.safeParse(request.body())
+    if (!payload.success) {
+      return response.unprocessableEntity({ errors: payload.error.flatten().fieldErrors })
+    }
+
+    try {
+      return response.created(
+        await applyBillOfMaterialsTemplate(
+          params.billOfMaterialsId,
+          authenticatedSession.user.id,
+          payload.data
+        )
+      )
+    } catch (error) {
+      if (error instanceof BillOfMaterialsTemplateNotFoundError) {
+        return response.notFound({ message: 'BOM Template not found.' })
+      }
+      if (error instanceof ApplyBillOfMaterialsTemplateValidationError) {
+        return response.unprocessableEntity({ errors: { [error.field]: [error.message] } })
+      }
+      if (error instanceof ImplementationDestinationVariantConflictError) {
+        return response.conflict({
+          message: error.message,
+          conflictingImplementation: error.conflictingImplementation,
+        })
+      }
+      if (error instanceof ImplementationDestinationTypificationConflictError) {
         return response.conflict({
           message: error.message,
           errors: { name: [error.message] },
