@@ -3,6 +3,7 @@ import {
   applyBillOfMaterialsTemplateRequestSchema,
   billOfMaterialsDetailSchema,
   createBillOfMaterialsRequestSchema,
+  deriveBillOfMaterialsTemplateRequestSchema,
   listBillsOfMaterialsResponseSchema,
   searchProductVariantCandidatesResponseSchema,
   updateBillOfMaterialsRequestSchema,
@@ -12,6 +13,7 @@ import type {
   ApplyBillOfMaterialsTemplateRequest,
   BillOfMaterialsDetail,
   CreateBillOfMaterialsRequest,
+  DeriveBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
   SearchProductVariantCandidatesResponse,
   UpdateBillOfMaterialsRequest,
@@ -124,6 +126,35 @@ export async function applyBillOfMaterialsTemplate(
   if (!response.ok) {
     throw new BillOfMaterialsRequestError(
       getResponseErrorMessage(body, 'Unable to create the Implementation.'),
+      readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function deriveBillOfMaterialsTemplate(
+  token: string,
+  originId: string,
+  payload: DeriveBillOfMaterialsTemplateRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${originId}/templates`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        deriveBillOfMaterialsTemplateRequestSchema.parse(payload),
+      ),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to derive the BOM Template.'),
       readFieldErrors(body),
       response.status,
     )

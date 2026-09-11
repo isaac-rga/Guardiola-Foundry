@@ -81,7 +81,7 @@ type CreateBillOfMaterialsLineFormValues = NonNullable<
 >[number]
 
 type BomBuilderContext =
-  | { kind: 'template' }
+  | { kind: 'template'; sourceBillOfMaterials?: BillOfMaterialsDetail }
   | {
       kind: 'implementation'
       productVariant: Pick<ProductVariantCandidate, 'id' | 'name' | 'product'>
@@ -111,10 +111,13 @@ export function BomBuilderPage({
   const { session } = useAppShell()
   const sourceTemplate =
     context.kind === 'implementation' ? context.sourceTemplate : undefined
+  const derivationSource =
+    context.kind === 'template' ? context.sourceBillOfMaterials : undefined
+  const copySource = sourceTemplate ?? derivationSource
   const implementationVariant =
     context.kind === 'implementation' ? context.productVariant : undefined
-  const initialBillOfMaterials = existing ?? sourceTemplate
-  const capabilities = resolveBuilderCapabilities(sourceTemplate)
+  const initialBillOfMaterials = existing ?? copySource
+  const capabilities = resolveBuilderCapabilities(copySource)
   const form = useForm<
     CreateBillOfMaterialsFormValues,
     unknown,
@@ -140,13 +143,16 @@ export function BomBuilderPage({
             verified: line.verification.status === 'verified',
           })),
         }
-      : sourceTemplate
+      : copySource
         ? {
-            kind: 'implementation',
-            name: '',
-            description: sourceTemplate.description,
-            productVariantId: implementationVariant!.id,
-            lines: sourceTemplate.lines.map((line) => ({
+            kind: context.kind,
+            name:
+              context.kind === 'template' ? `${copySource.name} — copy` : '',
+            description: copySource.description,
+            ...(context.kind === 'template'
+              ? { productId: copySource.product?.id ?? null }
+              : { productVariantId: implementationVariant!.id }),
+            lines: copySource.lines.map((line) => ({
               constructionPiece: line.constructionPiece,
               materialId: line.material?.id ?? null,
               materialQuantity: line.materialQuantity,
@@ -216,13 +222,14 @@ export function BomBuilderPage({
       ) ?? [],
     ),
   )
-  const [selectedProduct, setSelectedProduct] = useState<ProductSummary | null>(
-    null,
-  )
+  const [selectedProduct, setSelectedProduct] = useState<
+    Pick<ProductSummary, 'id' | 'name'> | null
+  >(derivationSource?.product ?? null)
   const dragHandleIndex = useRef<number | null>(null)
   const draggedIndex = useRef<number | null>(null)
   const { blocker, isSaving, saveError, submit } = useBomBuilderPersistence({
     applicationTemplateId: sourceTemplate?.id,
+    derivationOriginId: derivationSource?.id,
     existing,
     fields,
     form,
@@ -980,9 +987,10 @@ export function BomBuilderPage({
                 <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
                   Incomplete or unverified lines do not block saving.
                 </p>
-                {sourceTemplate ? (
+                {copySource ? (
                   <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
-                    Origin: {sourceTemplate.name} · {sourceTemplate.id}
+                    Origin: {copySource.kind === 'template' ? 'Template' : 'Implementation'} ·{' '}
+                    {copySource.name} · {copySource.id}
                   </p>
                 ) : null}
               </CardContent>
@@ -994,13 +1002,13 @@ export function BomBuilderPage({
   )
 }
 
-function resolveBuilderCapabilities(sourceTemplate?: BillOfMaterialsDetail) {
-  const canEditCopiedValues = sourceTemplate === undefined
+function resolveBuilderCapabilities(copySource?: BillOfMaterialsDetail) {
+  const canEditCopiedValues = copySource === undefined
   return {
     canEditDescription: canEditCopiedValues,
     canEditComposition: canEditCopiedValues,
-    copyNotice: sourceTemplate
-      ? `Copied from ${sourceTemplate.name} when you save`
+    copyNotice: copySource
+      ? `Copied from ${copySource.name} when you save`
       : null,
   }
 }
@@ -1009,7 +1017,11 @@ function shouldShowSaveError(error: Error | null) {
   if (!error) return false
   if (!(error instanceof BillOfMaterialsRequestError)) return true
   const fields = Object.keys(error.fieldErrors)
-  return fields.length === 0 || fields.includes('productVariantId')
+  return (
+    fields.length === 0 ||
+    fields.includes('productId') ||
+    fields.includes('productVariantId')
+  )
 }
 
 function formatCurrencyFromCents(amountCents: number) {

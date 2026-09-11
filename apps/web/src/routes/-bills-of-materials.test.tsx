@@ -379,7 +379,12 @@ describe('Bills of Materials route', () => {
               name: candidate.name,
               availability: 'available',
             },
-            origin: { id: template.id, name: template.name },
+            origin: {
+              id: template.id,
+              name: template.name,
+              kind: 'template',
+              availability: 'available',
+            },
             lines: [],
             costProjection: unavailableProjection(),
           },
@@ -530,6 +535,103 @@ describe('Bills of Materials route', () => {
     expect(
       await screen.findByRole('textbox', { name: 'BOM Name' }),
     ).toHaveValue('Current saved construction')
+  })
+
+  it('derives a Template from either BOM kind while retaining the local draft on save failure', async () => {
+    const user = userEvent.setup()
+    const origin = {
+      ...billOfMaterialsDetailFixture(),
+      id: 'BOM-ORIG24',
+      kind: 'implementation' as const,
+      name: 'Jackie atelier sample',
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      productVariant: {
+        id: 'PV-JACKIE',
+        name: 'Jackie Showroom',
+        availability: 'available' as const,
+      },
+    }
+    let billsOfMaterials: unknown[] = [origin]
+    const postedBodies: unknown[] = []
+    let saveAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${origin.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse(origin)
+      }
+      if (
+        url.pathname === `/bills-of-materials/${origin.id}/templates` &&
+        init?.method === 'POST'
+      ) {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse({ message: 'Unable to derive this Template.' }, { status: 500 })
+        }
+        const derived = {
+          ...origin,
+          id: 'BOM-COPY24',
+          kind: 'template' as const,
+          name: 'Jackie working copy',
+          product: null,
+          productVariant: null,
+          origin: {
+            id: origin.id,
+            name: origin.name,
+            kind: origin.kind,
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [derived, origin]
+        return jsonResponse(derived, { status: 201 })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(origin.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${origin.name}` }),
+    )
+    await user.click(screen.getByRole('menuitem', { name: 'Derive Template' }))
+
+    const name = await screen.findByRole('textbox', { name: 'BOM Name' })
+    expect(name).toHaveValue(`${origin.name} — copy`)
+    expect(screen.getByLabelText('Description')).toBeDisabled()
+    expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
+    expect(
+      screen.getByText(`Origin: Implementation · ${origin.name} · ${origin.id}`),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue without Product' }))
+    await user.clear(name)
+    await user.type(name, 'Jackie working copy')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(await screen.findByText('Unable to derive this Template.')).toBeInTheDocument()
+    expect(name).toHaveValue('Jackie working copy')
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() =>
+      expect(postedBodies).toEqual([
+        { name: 'Jackie working copy', productId: null },
+        { name: 'Jackie working copy', productId: null },
+      ]),
+    )
+    expect(await screen.findByText('Jackie working copy')).toBeInTheDocument()
+    expect(screen.getByText(/Origin: Jackie atelier sample/)).toBeInTheDocument()
   })
 
   it('preserves the local draft when the open Bill of Materials was deleted', async () => {

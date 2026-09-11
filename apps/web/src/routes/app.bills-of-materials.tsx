@@ -6,6 +6,7 @@ import { BomBuilderPage } from '@/features/bills-of-materials/create-bom-templat
 import { ImplementationBuilder } from '@/features/bills-of-materials/implementation-builder'
 import { ExistingBomBuilder } from '@/features/bills-of-materials/existing-bom-builder'
 import { ApplyTemplateBuilder } from '@/features/bills-of-materials/apply-template-builder'
+import { DeriveTemplateBuilder } from '@/features/bills-of-materials/derive-template-builder'
 
 export const Route = createFileRoute('/app/bills-of-materials')({
   validateSearch: z.object({
@@ -14,6 +15,7 @@ export const Route = createFileRoute('/app/bills-of-materials')({
     productVariantId: z.string().optional(),
     billOfMaterialsId: z.string().optional(),
     templateId: z.string().optional(),
+    derivationOriginId: z.string().optional(),
   }),
   component: BillsOfMaterialsRoute,
 })
@@ -25,10 +27,25 @@ function BillsOfMaterialsRoute() {
     screen = 'catalog',
     billOfMaterialsId,
     templateId,
+    derivationOriginId,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
 
   if (screen === 'builder') {
+    if (kind === 'template' && derivationOriginId) {
+      return (
+        <DeriveTemplateBuilder
+          originId={derivationOriginId}
+          onExit={() =>
+            void navigate({
+              search: { screen: 'catalog' },
+              replace: true,
+              resetScroll: false,
+            })
+          }
+        />
+      )
+    }
     if (billOfMaterialsId) {
       return (
         <ExistingBomBuilder
@@ -130,6 +147,16 @@ function BillsOfMaterialsRoute() {
             kind: 'implementation',
             productVariantId: candidate.id,
             templateId,
+          },
+          resetScroll: true,
+        })
+      }
+      onDeriveTemplate={(derivationOriginId) =>
+        void navigate({
+          search: {
+            screen: 'builder',
+            kind: 'template',
+            derivationOriginId,
           },
           resetScroll: true,
         })

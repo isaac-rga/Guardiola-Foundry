@@ -17,6 +17,8 @@ import {
   BillOfMaterialsTemplateNotFoundError,
   applyBillOfMaterialsTemplate,
   ProductVariantCandidateTemplateUnavailableError,
+  BillOfMaterialsDerivationOriginNotFoundError,
+  deriveBillOfMaterialsTemplate,
 } from '#modules/bills_of_materials/services/index'
 import {
   ImplementationDestinationTypificationConflictError,
@@ -26,6 +28,7 @@ import {
   applyBillOfMaterialsTemplateRequestSchema,
   associateBillOfMaterialsTemplateProductRequestSchema,
   createBillOfMaterialsRequestSchema,
+  deriveBillOfMaterialsTemplateRequestSchema,
   searchProductVariantCandidatesQuerySchema,
   updateBillOfMaterialsRequestSchema,
 } from '@guardiola-foundry/shared-validation'
@@ -130,6 +133,37 @@ export default class BillsOfMaterialsController {
           message: error.message,
           errors: { name: [error.message] },
           conflictingImplementation: error.conflictingImplementation,
+        })
+      }
+      throw error
+    }
+  }
+
+  async deriveTemplate({ authenticatedSession, params, request, response }: HttpContext) {
+    const payload = deriveBillOfMaterialsTemplateRequestSchema.safeParse(request.body())
+    if (!payload.success) {
+      return response.unprocessableEntity({ errors: payload.error.flatten().fieldErrors })
+    }
+
+    try {
+      return response.created(
+        await deriveBillOfMaterialsTemplate(
+          params.billOfMaterialsId,
+          authenticatedSession.user.id,
+          payload.data
+        )
+      )
+    } catch (error) {
+      if (error instanceof BillOfMaterialsDerivationOriginNotFoundError) {
+        return response.notFound({ message: 'Bill of Materials origin not found.' })
+      }
+      if (error instanceof BillOfMaterialsValidationError) {
+        return response.unprocessableEntity({ errors: { [error.field]: [error.message] } })
+      }
+      if (error instanceof BillOfMaterialsProductConflictError) {
+        return response.conflict({
+          message: error.message,
+          conflictingTemplate: error.conflictingTemplate,
         })
       }
       throw error

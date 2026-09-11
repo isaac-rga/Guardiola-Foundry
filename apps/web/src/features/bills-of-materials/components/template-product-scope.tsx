@@ -16,8 +16,8 @@ export function TemplateProductScope({
   selectedProduct,
   token,
 }: {
-  onSelect: (product: ProductSummary | null) => void
-  selectedProduct: ProductSummary | null
+  onSelect: (product: Pick<ProductSummary, 'id' | 'name'> | null) => void
+  selectedProduct: Pick<ProductSummary, 'id' | 'name'> | null
   token: string
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)

@@ -85,6 +85,8 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
         : {
             id: billOfMaterials.origin.publicId,
             name: billOfMaterials.origin.name,
+            kind: billOfMaterials.origin.kind,
+            availability: billOfMaterials.origin.deletedAt === null ? 'available' : 'unavailable',
           },
     createdBy: {
       id: billOfMaterials.createdBy.id,

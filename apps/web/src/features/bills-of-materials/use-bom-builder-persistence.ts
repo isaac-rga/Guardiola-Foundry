@@ -11,6 +11,7 @@ import { createBillOfMaterialsRequestSchema } from '@guardiola-foundry/shared-va
 import {
   useApplyBillOfMaterialsTemplate,
   useCreateBillOfMaterials,
+  useDeriveBillOfMaterialsTemplate,
   useUpdateBillOfMaterials,
 } from './api/bills-of-materials'
 import { BillOfMaterialsRequestError } from './api/endpoints'
@@ -19,6 +20,7 @@ type BuilderFormValues = z.input<typeof createBillOfMaterialsRequestSchema>
 
 export function useBomBuilderPersistence({
   applicationTemplateId,
+  derivationOriginId,
   existing,
   fields,
   form,
@@ -26,6 +28,7 @@ export function useBomBuilderPersistence({
   token,
 }: {
   applicationTemplateId?: string
+  derivationOriginId?: string
   existing?: BillOfMaterialsDetail
   fields: Array<{ id: string }>
   form: UseFormReturn<BuilderFormValues, unknown, CreateBillOfMaterialsRequest>
@@ -33,6 +36,10 @@ export function useBomBuilderPersistence({
   token: string
 }) {
   const createMutation = useCreateBillOfMaterials(token)
+  const derivationMutation = useDeriveBillOfMaterialsTemplate(
+    token,
+    derivationOriginId ?? '',
+  )
   const applyMutation = useApplyBillOfMaterialsTemplate(
     token,
     applicationTemplateId ?? '',
@@ -56,7 +63,12 @@ export function useBomBuilderPersistence({
 
   const submit = form.handleSubmit(async (values) => {
     try {
-      if (applicationTemplateId && values.kind === 'implementation') {
+      if (derivationOriginId && values.kind === 'template') {
+        await derivationMutation.deriveTemplate({
+          name: values.name,
+          productId: values.productId,
+        })
+      } else if (applicationTemplateId && values.kind === 'implementation') {
         await applyMutation.applyTemplate({
           name: values.name,
           productVariantId: values.productVariantId,
@@ -89,9 +101,12 @@ export function useBomBuilderPersistence({
     blocker,
     isSaving:
       createMutation.isSaving ||
+      derivationMutation.isSaving ||
       updateMutation.isSaving ||
       applyMutation.isSaving,
-    saveError: applicationTemplateId
+    saveError: derivationOriginId
+      ? derivationMutation.saveError
+      : applicationTemplateId
       ? applyMutation.saveError
       : existing
         ? updateMutation.saveError

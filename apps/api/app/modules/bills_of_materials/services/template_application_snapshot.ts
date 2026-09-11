@@ -1,4 +1,4 @@
-export interface TemplateApplicationSourceLine {
+export interface BillOfMaterialsCopySourceLine {
   constructionPiece: string
   materialId: number | null
   materialQuantity: number | null
@@ -7,9 +7,9 @@ export interface TemplateApplicationSourceLine {
   displayOrder: number
 }
 
-export function deriveTemplateApplicationSnapshot(source: {
+export function deriveBillOfMaterialsCopySnapshot(source: {
   description: string | null
-  lines: readonly TemplateApplicationSourceLine[]
+  lines: readonly BillOfMaterialsCopySourceLine[]
 }) {
   return {
     description: source.description,
@@ -25,3 +25,5 @@ export function deriveTemplateApplicationSnapshot(source: {
     })),
   }
 }
+
+export const deriveTemplateApplicationSnapshot = deriveBillOfMaterialsCopySnapshot

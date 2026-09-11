@@ -1,45 +1,82 @@
-# Create an Independent BOM Implementation from a Template
+# Derive a New BOM Template from an Existing Bill of Materials
 
-An Admin or Operator can now turn an associated BOM Template into an independent BOM Implementation for an eligible Variant of that Product. The workflow reuses the Construction Board, while the API owns the authoritative copy at Save; this slice does not add live propagation, editable pre-Save composition, or broader candidate-search hardening.
+Before this change, a User could apply a BOM Template to a Product Variant. The User could not copy an existing Bill of Materials into a new BOM Template.
 
-## Choose an Eligible Destination
+This change adds that copy operation. The project calls it **BOM Derivation**. An Admin or Operator can derive a new BOM Template from a non-deleted BOM Template or BOM Implementation. The new BOM Template records its immediate **BOM Origin**, but it does not stay connected to the origin's construction data.
 
-An available, Product-associated Template now exposes **Create Implementation** from its catalog row. The action opens the existing Product Variant dialog in Template context, so the server derives the allowed Product from the Template rather than trusting a Product ID from the browser.
+This change does not add inheritance or synchronization. After Save, the origin and the new BOM Template are independent.
 
-Candidate results include only Variants of that Product and retain the existing eligibility rules:
+## What the User Does
 
-- The Product and Product Variant must still be available.
-- The Product Variant cannot already have a BOM Implementation.
-- The destination BOM Typification must be unique within the Product, ignoring case.
-- An unassociated, deleted, or otherwise unavailable Template cannot be applied.
+The User starts in the Bill of Materials catalog.
 
-The relevant entry points are the [catalog](apps/web/src/features/bills-of-materials/bills-of-materials-catalog-page.tsx), the [Product Variant dialog](apps/web/src/features/bills-of-materials/components/product-variant-candidate-dialog.tsx), and the server-owned [candidate search](apps/api/app/modules/bills_of_materials/services/search_product_variant_candidates.ts).
+1. Open the actions for a non-deleted BOM Template or BOM Implementation.
+2. Select **Derive Template**.
+3. Review the copied construction in the Construction Board.
+4. Edit the proposed BOM Template name.
+5. Keep, remove, or change the proposed Product association.
+6. Select **Save BOM**.
 
-## Preview the Copy in the Construction Board
+The Builder proposes `<BOM Origin name> — copy` as the new name. The User can change this name. BOM Template names do not have to be unique.
 
-After the User selects a Variant, the application opens the same Construction Board used for BOM creation and editing. It shows the Template description and ordered composition, identifies the immediate origin, fixes the selected Variant, and asks for a separate BOM Typification.
+The Builder shows the copied BOM Lines before Save. The copied BOM Lines are read-only during this step. If Save fails, the Builder keeps the name, Product choice, and copied BOM Lines. The User can correct the problem and try again.
 
-The copied composition is intentionally read-only before the first Save. This makes it clear that the board is previewing what will be copied, while avoiding a second client-authored version of the Template. If Save fails, the board remains open with the selected Variant, entered Typification, and copied preview intact.
+The [BOM catalog](apps/web/src/features/bills-of-materials/bills-of-materials-catalog-page.tsx) starts the operation. [DeriveTemplateBuilder](apps/web/src/features/bills-of-materials/derive-template-builder.tsx) loads the current Bill of Materials and opens the Construction Board.
 
-[ApplyTemplateBuilder](apps/web/src/features/bills-of-materials/apply-template-builder.tsx) loads the Template and selected candidate, then supplies Template-application context to the shared [BomBuilderPage](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx). Centralized Builder capabilities disable composition changes only for this pre-Save copy flow. The [persistence seam](apps/web/src/features/bills-of-materials/use-bom-builder-persistence.ts) sends only the Template ID, Product Variant ID, and BOM Typification.
+## What the System Copies
 
-## Create One Authoritative Snapshot
+Save creates one new BOM Template and new BOM Lines in one database transaction.
 
-`POST /bills-of-materials/:templateId/implementations` creates the destination in one database transaction. The [application service](apps/api/app/modules/bills_of_materials/services/apply_bill_of_materials_template.ts) locks and revalidates the source Template, destination Product and Variant, and ordered source lines before writing anything.
+The system copies these values from the BOM Origin:
 
-The operation then:
+- Description.
+- Construction Piece.
+- Material.
+- Material Quantity.
+- Pattern Set.
+- Line Note.
+- BOM Line order.
 
-- Creates a new BOM Implementation identity.
-- Records the source Template as its immutable immediate BOM Origin.
-- Copies the current Template description and ordered BOM Lines.
-- Gives every copied line a new identity and independent ownership.
-- Copies Construction Piece, Material, Material Quantity, Pattern Set, Line Note, and relative order.
-- Resets every copied line to Unverified.
-- Leaves the source Template unchanged.
+The system gives the new BOM Template a new identity. It also gives each copied BOM Line a new identity. All copied BOM Lines start with BOM Line Verification set to Unverified.
 
-The shared [destination resolver](apps/api/app/modules/bills_of_materials/services/implementation_destination.ts) keeps manual and Template-derived creation aligned on availability, occupancy, and Typification conflicts. The pure [snapshot rules](apps/api/app/modules/bills_of_materials/services/template_application_snapshot.ts) define the copy whitelist and verification reset without persistence concerns.
+The system does not change the BOM Origin. A failure during Save removes all new records from the transaction. It does not leave an incomplete BOM Template or an incomplete set of BOM Lines.
 
-Unavailable retained Materials and Retired Pattern Sets may be copied because they are part of the source construction record. Source, Vendor Shade, cost evidence, Pattern Set proposal history, and line-level lineage are not copied. The destination detail is reloaded through the normal read model, so sourcing, attention, Pattern Set context, and cost projections reflect current catalog information.
+The [BOM Derivation service](apps/api/app/modules/bills_of_materials/services/derive_bill_of_materials_template.ts) controls the transaction. The shared [copy rules](apps/api/app/modules/bills_of_materials/services/template_application_snapshot.ts) define the values that the system copies. These rules also reset BOM Line Verification.
+
+## How the Product Association Works
+
+A BOM Template can have a permanent association with one Product. A Product can have no more than one non-deleted BOM Template.
+
+When the BOM Origin has Product context, the Builder proposes that Product for the new BOM Template. For a BOM Implementation, the system gets the Product through its Product Variant.
+
+The User has three choices:
+
+- Keep the proposed Product.
+- Remove the Product and create an unassociated BOM Template.
+- Select a different eligible Product.
+
+If the proposed Product is Inactive, soft-deleted, or already has a BOM Template, Save still succeeds. The new BOM Template is unassociated.
+
+If the User selects a different Product, that Product must be Active and non-deleted. It must not have another non-deleted BOM Template. If it does not meet these rules, Save fails and the Builder keeps the draft.
+
+The [Template Product scope](apps/web/src/features/bills-of-materials/components/template-product-scope.tsx) lets the User change this choice. The API checks the Product again during Save.
+
+## What BOM Origin Means
+
+A derived BOM Template records one BOM Origin. The BOM Origin is the immediate Bill of Materials that the User copied.
+
+For example:
+
+- The User derives BOM Template B from BOM Template A. The BOM Origin of B is A.
+- The User then derives BOM Template C from B. The BOM Origin of C is B, not A.
+
+The system does not store a root, a depth value, a descendant list, BOM Line correspondence, or a historical snapshot. The derivation chain has no artificial depth limit.
+
+The BOM Origin cannot change after creation. A Bill of Materials cannot be its own BOM Origin. The [origin protection migration](apps/api/database/migrations/1789697600000_protect_bill_of_materials_origin.ts) enforces these rules.
+
+The application displays the current name, kind, and availability of the BOM Origin. If a User renames, soft-deletes, or restores the BOM Origin, this displayed information changes. The description and BOM Lines of the derived BOM Template do not change.
+
+A soft-deleted Bill of Materials cannot be used for a new BOM Derivation. Existing derived BOM Templates keep their BOM Origin reference when the origin is soft-deleted.
 
 ## Architecture Views
 
@@ -47,36 +84,35 @@ Unavailable retained Materials and Retired Pattern Sets may be copied because th
 
 ```mermaid
 classDiagram
+    direction LR
+
     class BillOfMaterial {
-        +publicId
+        +identity
         +kind
         +name
         +description
     }
-
     class BomTemplate
-    class BomImplementation {
-        +typification
-    }
+    class BomImplementation
     class BomLine {
-        +publicId
-        +displayOrder
-        +verifiedAt
+        +identity
+        +order
+        +verification
     }
     class Product
     class ProductVariant
 
     BillOfMaterial <|-- BomTemplate
     BillOfMaterial <|-- BomImplementation
-    BillOfMaterial "1" *-- "0..*" BomLine : independently owns
+    BillOfMaterial "1" *-- "0..*" BomLine : owns
+    Product "0..1" <-- "0..1" BomTemplate : permanent association
     Product "1" *-- "0..*" ProductVariant : owns
-    Product "1" <-- "0..1" BomTemplate : permanent association
-    ProductVariant "1" <-- "0..1" BomImplementation : permanent destination
-    BomTemplate "0..1" <-- "0..*" BomImplementation : immediate origin
+    ProductVariant "1" <-- "0..1" BomImplementation : has
+    BillOfMaterial "0..1" <-- "0..*" BomTemplate : immediate BOM Origin
 
-    note for BomTemplate "Must be associated before application"
-    note for BomImplementation "Derived copies have one immutable origin\nManual Implementations have no origin"
-    note for BomLine "Copied lines receive new identities\nand reset verification"
+    note for BomTemplate "A derived BOM Template is an independent copy"
+    note for BomLine "A copied BOM Line has a new identity and is Unverified"
+    note for BillOfMaterial "A BOM Origin cannot change after creation"
 ```
 
 ### C4 Level 3 — Web Application
@@ -88,20 +124,20 @@ flowchart LR
 
     subgraph web["Web Application · React"]
         direction LR
-        catalog["BOM Catalog<br/>Offers Create Implementation"]
-        dialog["Product Variant Dialog<br/>Shows scoped eligibility"]
-        apply["Apply Template Builder<br/>Loads source and destination"]
-        board["Construction Board<br/>Previews copy and captures Typification"]
+        catalog["BOM Catalog<br/>Starts BOM Derivation"]
+        loader["Derive Template Builder<br/>Loads the BOM Origin"]
+        board["Construction Board<br/>Shows the copied BOM Lines"]
+        product["Template Product Scope<br/>Changes the Product choice"]
 
-        catalog -->|"Template context"| dialog
-        dialog -->|"Selected Variant"| apply
-        apply -->|"Application context"| board
+        catalog -->|"BOM Origin identity"| loader
+        loader -->|"Current Bill of Materials"| board
+        board -->|"Product choice"| product
+        product -->|"Updated choice"| board
     end
 
-    user -->|"Starts application"| catalog
-    dialog -->|"Search with Template ID"| api
-    apply -->|"Load Template and candidate"| api
-    board -->|"Save Variant and Typification"| api
+    user -->|"Selects Derive Template"| catalog
+    loader -->|"Gets the BOM Origin"| api
+    board -->|"Saves the new BOM Template"| api
 ```
 
 ### C4 Level 3 — API Application
@@ -109,32 +145,30 @@ flowchart LR
 ```mermaid
 flowchart LR
     web["Web Application"]
-    db[("PostgreSQL")]
+    database[("PostgreSQL")]
 
     subgraph api["API Application · AdonisJS"]
         direction LR
-        controller["BOM Controller<br/>Validates HTTP input and maps errors"]
-        candidates["Candidate Search<br/>Derives Product scope and eligibility"]
-        application["Template Application Service<br/>Locks and persists one transaction"]
-        destination["Destination Resolver<br/>Checks availability and conflicts"]
-        snapshot["Snapshot Rules<br/>Copies construction facts and resets verification"]
-        reads["BOM Read Service<br/>Returns origin and current projections"]
+        controller["BOM Controller<br/>Checks the request"]
+        derivation["BOM Derivation Service<br/>Controls the transaction"]
+        product["Template Product Slot<br/>Checks the Product association"]
+        copy["Copy Rules<br/>Copy values and reset verification"]
+        read["BOM Read Service<br/>Returns current BOM Origin data"]
 
-        controller --> candidates
-        controller --> application
-        application --> destination
-        application --> snapshot
-        application --> reads
+        controller --> derivation
+        derivation --> product
+        derivation --> copy
+        derivation --> read
     end
 
-    web -->|"Search and apply"| controller
-    candidates -->|"Scoped query"| db
-    destination -->|"Lock Product and Variant"| db
-    application -->|"Lock source and write snapshot"| db
-    reads -->|"Reload current detail"| db
+    web -->|"BOM Derivation request"| controller
+    derivation -->|"Locks the BOM Origin and BOM Lines"| database
+    product -->|"Locks the Product"| database
+    derivation -->|"Creates the BOM Template and BOM Lines"| database
+    read -->|"Loads the completed Bill of Materials"| database
 ```
 
-### C4 Dynamic — Apply a Template
+### C4 Dynamic — Save a BOM Derivation
 
 ```mermaid
 sequenceDiagram
@@ -142,77 +176,85 @@ sequenceDiagram
 
     box Frontend
         participant Catalog as BOM Catalog
-        participant Dialog as Product Variant Dialog
         participant Board as Construction Board
+        participant Product as Template Product Scope
     end
 
     box Backend
         participant API as BOM Controller
-        participant Apply as Template Application Service
-        participant Rules as Destination and Snapshot Rules
-        participant DB as PostgreSQL
+        participant Derivation as BOM Derivation Service
+        participant Rules as Product and Copy Rules
+        participant Database as PostgreSQL
     end
 
-    User->>Catalog: Select Create Implementation
-    Catalog->>Dialog: Open with Template identity
-    Dialog->>API: Search candidates with Template ID
-    API->>DB: Derive Template Product and query Variants
-    DB-->>Dialog: Scoped candidates and eligibility
-    User->>Dialog: Select an eligible Variant
-    Dialog->>Board: Open Template copy preview
-    User->>Board: Enter BOM Typification and Save
-    Board->>API: Send Template ID, Variant ID, and Typification
-    API->>Apply: Apply current Template
-    Apply->>DB: Begin transaction and lock source and destination
-    Apply->>Rules: Validate destination and derive ordered snapshot
+    User->>Catalog: Select Derive Template
+    Catalog->>API: Request the current BOM Origin
+    API->>Database: Load the Bill of Materials
+    Database-->>Board: Return the BOM Origin and BOM Lines
+    Board-->>User: Show the proposed copy
+    User->>Product: Keep, remove, or change the Product
+    Product-->>Board: Set the Product choice
+    User->>Board: Edit the name and select Save BOM
+    Board->>API: Send the name and Product choice
+    API->>Derivation: Start BOM Derivation
+    Derivation->>Database: Start transaction and lock the BOM Origin and BOM Lines
+    Derivation->>Rules: Check Product and prepare copied values
 
-    alt Destination remains valid
-        Apply->>DB: Create Implementation, origin, and new lines
-        Apply->>DB: Reload current BOM detail
-        DB-->>Board: Created Implementation with live context
-        Board-->>User: Return to updated catalog
-    else Eligibility, conflict, or copy fails
-        Apply->>DB: Roll back all destination writes
-        API-->>Board: Return field or conflict error
-        Board-->>User: Keep the application draft visible
+    alt The request is valid
+        Derivation->>Database: Create the BOM Template and new BOM Lines
+        Derivation->>Database: Load the completed Bill of Materials
+        Database-->>Board: Return the new BOM Template
+        Board-->>User: Return to the updated catalog
+    else The request fails
+        Derivation->>Database: Roll back all new records
+        API-->>Board: Return an error
+        Board-->>User: Keep the draft visible
     end
 ```
 
-## Focused Coverage
+## What the Tests Prove
 
-The API functional tests prove:
+The focused tests prove these behaviors:
 
-- A complete ordered snapshot with new BOM and line identities, immutable origin, and reset verification.
-- Product-scoped candidate selection and rejection of an unassociated Template.
-- Occupied Variant and case-insensitive Product Typification conflicts without partial creation.
-- Source and destination independence after later edits.
-- Complete rollback when a copied line fails.
-- A real concurrent application race in which one request succeeds, one conflicts, and no orphan or partial destination lines remain.
-- Retention of unavailable Material and Retired Pattern Set references with current read-model projections.
+- A BOM Template or BOM Implementation can be a BOM Origin.
+- The new BOM Template and its BOM Lines have new identities.
+- The system copies the specified construction values in the correct order.
+- Copied BOM Lines start Unverified.
+- The User can keep or remove the proposed Product.
+- An unavailable proposed Product results in an unassociated BOM Template.
+- A different selected Product must meet the existing association rules.
+- A derivation chain stores only the immediate BOM Origin.
+- The database rejects a self-reference and a later change to BOM Origin.
+- The displayed BOM Origin information uses the current name and availability.
+- Changes to an origin do not change a derived BOM Template.
+- A failed Save keeps the Builder draft.
 
-The focused snapshot unit test proves the construction-field copy whitelist, source order, and verification reset without database infrastructure.
+## Checks That Passed
 
-The Builder route tests prove the associated-Template catalog action, Template-scoped candidate request, shared Construction Board preview, fixed Variant and origin context, separate Typification, successful Save payload, and draft preservation after a failed Save.
+- Shared types build.
+- Shared validation build.
+- API TypeScript check.
+- Web TypeScript check.
+- Two copy-rule unit tests.
+- Four isolated issue 13 API functional tests.
+- Twenty Bill of Materials route tests.
+- Focused API ESLint.
+- Focused Web and shared-contract Oxlint.
+- Origin protection migration. The migration is complete in development batch 22.
+- `git diff --check`.
 
-## Focused Verification
+The combined Bill of Materials functional test file had a separate problem. Thirty-two tests passed. Six later Material tests returned `422` because earlier tests changed shared Material data. All issue 13 tests passed in that run. They also passed in isolated database runs.
 
-- Seven issue-specific API functional scenarios — passed.
-- Template application snapshot unit test — 1 passed.
-- Bill of Materials route suite — 19 passed.
-- API TypeScript check — passed.
-- Web TypeScript check — passed.
-- Focused API ESLint — passed.
-- Focused web and shared-contract Oxlint — passed.
-- `git diff --check` — passed.
+The first API test command could not open a local network port in the sandbox. The same focused tests passed when the command had local-port permission.
 
-The forced rollback scenario intentionally logs its simulated database failure. PostgreSQL also emits an existing client deprecation warning during functional tests. Initial sandboxed API runs could not open a local listener; the same focused cases passed after rerunning with local-port permission.
+The complete test suites did not run. `pnpm quality` did not run. The repository reserves that final check for the User and CI.
 
-## Scope Boundaries
+## What This Change Does Not Do
 
-The source composition is a read-only preview before the first Save. After creation, the destination is an ordinary independent BOM Implementation and can be edited through the existing whole-BOM workflow.
+This change does not add inheritance, synchronization, merge, or refresh-from-origin behavior.
 
-This slice records only immediate BOM Origin. It does not add Template-from-BOM derivation, ancestry traversal, cycle prevention, or lineage presentation; issue 13 owns those behaviors.
+It does not store a root BOM Origin, derivation depth, descendants, BOM Line correspondence, or historical snapshots.
 
-This slice adds the Template scope needed for Product Variant selection, but not the complete ranking, accessibility, cache invalidation, state coverage, or performance hardening; issue 17 owns that production-hardening pass.
+It does not add deleted-record browsing, deletion confirmation, restoration controls, descendant counts, or restoration conflict handling. [Issue 14](.scratch/bill-of-materials-builder/issues/14-delete-and-restore-bills-of-materials.md) owns that work.
 
-The complete test suites and `pnpm quality` did not run. The repository reserves that final gate for the User and CI.
+The existing `.gitignore` change and `docs/architecture/framework-abstraction-decision.md` are not part of this feature. This work did not change them.

@@ -17,6 +17,7 @@ export function AssociateTemplateProductButton({
   canAssociateProduct,
   canCreateImplementation,
   onEdit,
+  onDeriveTemplate,
   onCreateImplementation,
   token,
 }: {
@@ -25,6 +26,7 @@ export function AssociateTemplateProductButton({
   canAssociateProduct: boolean
   canCreateImplementation: boolean
   onCreateImplementation: () => void
+  onDeriveTemplate: () => void
   onEdit: () => void
   token: string
 }) {
@@ -50,6 +52,9 @@ export function AssociateTemplateProductButton({
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={onEdit}>
             Edit Bill of Materials
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onDeriveTemplate}>
+            Derive Template
           </DropdownMenuItem>
           {canAssociateProduct ? (
             <DropdownMenuItem onSelect={() => setIsPickerOpen(true)}>

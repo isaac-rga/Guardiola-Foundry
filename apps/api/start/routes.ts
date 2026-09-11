@@ -74,6 +74,10 @@ router
       BillsOfMaterialsController,
       'applyTemplate',
     ])
+    router.post('/bills-of-materials/:billOfMaterialsId/templates', [
+      BillsOfMaterialsController,
+      'deriveTemplate',
+    ])
     router.put('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'update'])
     router.post('/bills-of-materials/:billOfMaterialsId/product', [
       BillsOfMaterialsController,

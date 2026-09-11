@@ -10,6 +10,7 @@ import {
   type CreateBillOfMaterialsImplementationRequest,
   type CreateBillOfMaterialsRequest,
   type CreateBillOfMaterialsTemplateRequest,
+  type DeriveBillOfMaterialsTemplateRequest,
   type ListBillsOfMaterialsResponse,
   type ProductVariantCandidate,
   type SearchProductVariantCandidatesResponse,
@@ -63,21 +64,31 @@ const billOfMaterialsUserReferenceSchema = z.object({
   email: z.string().email(),
 })
 
+const billOfMaterialsReferenceAvailabilitySchema = z.enum([
+  'available',
+  'unavailable',
+])
+
 const billOfMaterialsProductReferenceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  availability: z.enum(['available', 'unavailable']),
+  availability: billOfMaterialsReferenceAvailabilitySchema,
 })
 
 const billOfMaterialsProductVariantReferenceSchema = z.object({
   id: z.string().regex(/^PV-[A-Z2-9]{6}$/),
   name: z.string().min(1),
-  availability: z.enum(['available', 'unavailable']),
+  availability: billOfMaterialsReferenceAvailabilitySchema,
 })
 
 const billOfMaterialsReferenceSchema = z.object({
   id: z.string().regex(/^BOM-[A-Z2-9]{6}$/),
   name: z.string().min(1),
+})
+
+const billOfMaterialsOriginReferenceSchema = billOfMaterialsReferenceSchema.extend({
+  kind: z.enum(['template', 'implementation']),
+  availability: billOfMaterialsReferenceAvailabilitySchema,
 })
 
 const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
@@ -137,7 +148,7 @@ export const billOfMaterialsSummarySchema = z.object({
   description: z.string().nullable(),
   product: billOfMaterialsProductReferenceSchema.nullable(),
   productVariant: billOfMaterialsProductVariantReferenceSchema.nullable(),
-  origin: billOfMaterialsReferenceSchema.nullable(),
+  origin: billOfMaterialsOriginReferenceSchema.nullable(),
   createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -328,3 +339,8 @@ export const applyBillOfMaterialsTemplateRequestSchema = z.object({
     .string()
     .regex(/^PV-[A-Z2-9]{6}$/, 'Select a valid Product Variant.'),
 }) satisfies z.ZodType<ApplyBillOfMaterialsTemplateRequest>
+
+export const deriveBillOfMaterialsTemplateRequestSchema = z.object({
+  name: billOfMaterialsNameSchema,
+  productId: z.string().regex(/^P-[A-Z2-9]{6}$/).nullable().optional(),
+}) satisfies z.ZodType<DeriveBillOfMaterialsTemplateRequest>

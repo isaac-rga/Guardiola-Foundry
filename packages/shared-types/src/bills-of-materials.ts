@@ -2,6 +2,7 @@ export const BILL_OF_MATERIALS_NAME_MAX_LENGTH = 255
 export const BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH = 255
 
 export type BillOfMaterialsKind = 'template' | 'implementation'
+export type BillOfMaterialsReferenceAvailability = 'available' | 'unavailable'
 
 export interface BillOfMaterialsUserReference {
   id: number
@@ -11,18 +12,23 @@ export interface BillOfMaterialsUserReference {
 export interface BillOfMaterialsProductReference {
   id: string
   name: string
-  availability: 'available' | 'unavailable'
+  availability: BillOfMaterialsReferenceAvailability
 }
 
 export interface BillOfMaterialsProductVariantReference {
   id: string
   name: string
-  availability: 'available' | 'unavailable'
+  availability: BillOfMaterialsReferenceAvailability
 }
 
 export interface BillOfMaterialsReference {
   id: string
   name: string
+}
+
+export interface BillOfMaterialsOriginReference extends BillOfMaterialsReference {
+  kind: BillOfMaterialsKind
+  availability: BillOfMaterialsReferenceAvailability
 }
 
 export interface BillOfMaterialsSummary {
@@ -32,7 +38,7 @@ export interface BillOfMaterialsSummary {
   description: string | null
   product: BillOfMaterialsProductReference | null
   productVariant: BillOfMaterialsProductVariantReference | null
-  origin: BillOfMaterialsReference | null
+  origin: BillOfMaterialsOriginReference | null
   createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string
@@ -201,4 +207,9 @@ export interface AssociateBillOfMaterialsTemplateProductRequest {
 export interface ApplyBillOfMaterialsTemplateRequest {
   name: string
   productVariantId: string
+}
+
+export interface DeriveBillOfMaterialsTemplateRequest {
+  name: string
+  productId?: string | null
 }

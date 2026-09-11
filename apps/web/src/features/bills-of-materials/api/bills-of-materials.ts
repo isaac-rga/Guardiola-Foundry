@@ -3,6 +3,7 @@ import type {
   AssociateBillOfMaterialsTemplateProductRequest,
   ApplyBillOfMaterialsTemplateRequest,
   CreateBillOfMaterialsRequest,
+  DeriveBillOfMaterialsTemplateRequest,
   ProductSummary,
   UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
@@ -12,6 +13,7 @@ import {
   associateBillOfMaterialsTemplateProduct,
   applyBillOfMaterialsTemplate,
   createBillOfMaterials,
+  deriveBillOfMaterialsTemplate,
   getBillOfMaterials,
   listBillsOfMaterials,
   searchProductVariantCandidates,
@@ -118,6 +120,22 @@ export function useApplyBillOfMaterialsTemplate(token: string, templateId: strin
 
   return {
     applyTemplate: mutation.mutateAsync,
+    isSaving: mutation.isPending,
+    saveError: mutation.error,
+  }
+}
+
+export function useDeriveBillOfMaterialsTemplate(token: string, originId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (payload: DeriveBillOfMaterialsTemplateRequest) =>
+      deriveBillOfMaterialsTemplate(token, originId, payload),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+  })
+
+  return {
+    deriveTemplate: mutation.mutateAsync,
     isSaving: mutation.isPending,
     saveError: mutation.error,
   }

@@ -29,3 +29,7 @@ export {
   BillOfMaterialsTemplateNotFoundError,
   applyBillOfMaterialsTemplate,
 } from '#modules/bills_of_materials/services/apply_bill_of_materials_template'
+export {
+  BillOfMaterialsDerivationOriginNotFoundError,
+  deriveBillOfMaterialsTemplate,
+} from '#modules/bills_of_materials/services/derive_bill_of_materials_template'

@@ -29,11 +29,13 @@ export function BillsOfMaterialsCatalogPage({
   onCreateTemplate,
   onCreateImplementation,
   onApplyTemplate,
+  onDeriveTemplate,
   onEdit,
 }: {
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
   onApplyTemplate: (templateId: string, candidate: ProductVariantCandidate) => void
+  onDeriveTemplate: (originId: string) => void
   onEdit: (billOfMaterialsId: string) => void
 }) {
   const { session } = useAppShell()
@@ -94,6 +96,15 @@ export function BillsOfMaterialsCatalogPage({
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                         {billOfMaterials.id}
                       </p>
+                      {billOfMaterials.origin ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Origin: {billOfMaterials.origin.name} ·{' '}
+                          {billOfMaterials.origin.kind === 'template'
+                            ? 'Template'
+                            : 'Implementation'}{' '}
+                          · {billOfMaterials.origin.availability}
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="align-top">
                       <Badge
@@ -161,6 +172,7 @@ export function BillsOfMaterialsCatalogPage({
                         }
                         token={session.token}
                         onEdit={() => onEdit(billOfMaterials.id)}
+                        onDeriveTemplate={() => onDeriveTemplate(billOfMaterials.id)}
                         onCreateImplementation={() =>
                           setApplicationTemplateId(billOfMaterials.id)
                         }

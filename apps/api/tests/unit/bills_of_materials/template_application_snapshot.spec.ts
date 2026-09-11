@@ -1,4 +1,7 @@
-import { deriveTemplateApplicationSnapshot } from '#modules/bills_of_materials/services/template_application_snapshot'
+import {
+  deriveBillOfMaterialsCopySnapshot,
+  deriveTemplateApplicationSnapshot,
+} from '#modules/bills_of_materials/services/template_application_snapshot'
 import { test } from '@japa/runner'
 
 test.group('Template application snapshot', () => {
@@ -45,6 +48,38 @@ test.group('Template application snapshot', () => {
           patternSetId: null,
           lineNote: null,
           displayOrder: 1,
+          verifiedByUserId: null,
+          verifiedAt: null,
+        },
+      ],
+    })
+  })
+
+  test('uses the same independent snapshot for BOM-to-Template derivation', ({ assert }) => {
+    const snapshot = deriveBillOfMaterialsCopySnapshot({
+      description: 'Current implementation',
+      lines: [
+        {
+          constructionPiece: 'Corset',
+          materialId: 7,
+          materialQuantity: 1.25,
+          patternSetId: 9,
+          lineNote: 'Keep the current seam allowance',
+          displayOrder: 3,
+        },
+      ],
+    })
+
+    assert.deepEqual(snapshot, {
+      description: 'Current implementation',
+      lines: [
+        {
+          constructionPiece: 'Corset',
+          materialId: 7,
+          materialQuantity: 1.25,
+          patternSetId: 9,
+          lineNote: 'Keep the current seam allowance',
+          displayOrder: 3,
           verifiedByUserId: null,
           verifiedAt: null,
         },
