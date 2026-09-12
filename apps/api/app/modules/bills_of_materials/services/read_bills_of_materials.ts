@@ -19,8 +19,10 @@ import type {
   ListBillsOfMaterialsResponse,
 } from '@guardiola-foundry/shared-types'
 
-export async function listBillsOfMaterials(): Promise<ListBillsOfMaterialsResponse> {
-  const billsOfMaterials = await BillOfMaterial.query()
+export async function listBillsOfMaterials(options?: {
+  includeDeleted?: boolean
+}): Promise<ListBillsOfMaterialsResponse> {
+  const query = BillOfMaterial.query()
     .preload('createdBy')
     .preload('product', (productQuery) => Product.includeDeleted(productQuery))
     .preload('productVariant', (variantQuery) => {
@@ -30,21 +32,44 @@ export async function listBillsOfMaterials(): Promise<ListBillsOfMaterialsRespon
     .preload('origin', (originQuery) => BillOfMaterial.includeDeleted(originQuery))
     .orderBy('updatedAt', 'desc')
 
-  return { billsOfMaterials: billsOfMaterials.map(serializeBillOfMaterials) }
+  if (options?.includeDeleted) BillOfMaterial.includeDeleted(query)
+  const billsOfMaterials = await query
+  const descendantCounts = await loadDescendantCounts()
+
+  return {
+    billsOfMaterials: billsOfMaterials.map((billOfMaterials) =>
+      serializeBillOfMaterials(billOfMaterials, descendantCounts.get(billOfMaterials.id) ?? 0)
+    ),
+  }
 }
 
-export async function getBillOfMaterials(publicId: string): Promise<BillOfMaterialsDetail | null> {
-  const billOfMaterials = await loadBillOfMaterials(publicId)
-  return billOfMaterials ? serializeBillOfMaterialsDetail(billOfMaterials) : null
+export async function getBillOfMaterials(
+  publicId: string,
+  options?: { includeDeleted?: boolean }
+): Promise<BillOfMaterialsDetail | null> {
+  const billOfMaterials = await loadBillOfMaterials(publicId, undefined, options?.includeDeleted)
+  if (!billOfMaterials) return null
+  const descendantCounts = await loadDescendantCounts()
+  return serializeBillOfMaterialsDetail(
+    billOfMaterials,
+    descendantCounts.get(billOfMaterials.id) ?? 0
+  )
 }
 
 export async function loadBillOfMaterialsDetail(publicId: string, trx: TransactionClientContract) {
   const billOfMaterials = await loadBillOfMaterials(publicId, trx)
   if (!billOfMaterials) throw new Error(`Bill of Materials ${publicId} could not be reloaded.`)
-  return serializeBillOfMaterialsDetail(billOfMaterials)
+  const descendantCounts = await loadDescendantCounts(trx)
+  return serializeBillOfMaterialsDetail(
+    billOfMaterials,
+    descendantCounts.get(billOfMaterials.id) ?? 0
+  )
 }
 
-function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMaterialsSummary {
+function serializeBillOfMaterials(
+  billOfMaterials: BillOfMaterial,
+  descendantCount: number
+): BillOfMaterialsSummary {
   const product =
     billOfMaterials.productId === null
       ? billOfMaterials.productVariant?.product
@@ -88,6 +113,9 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
             kind: billOfMaterials.origin.kind,
             availability: billOfMaterials.origin.deletedAt === null ? 'available' : 'unavailable',
           },
+    deletedAt: billOfMaterials.deletedAt?.toISO() ?? null,
+    descendantCount,
+    readOnlyReason: resolveReadOnlyReason(billOfMaterials, product),
     createdBy: {
       id: billOfMaterials.createdBy.id,
       email: billOfMaterials.createdBy.email,
@@ -97,14 +125,27 @@ function serializeBillOfMaterials(billOfMaterials: BillOfMaterial): BillOfMateri
   }
 }
 
-function serializeBillOfMaterialsDetail(billOfMaterials: BillOfMaterial): BillOfMaterialsDetail {
+function resolveReadOnlyReason(
+  billOfMaterials: BillOfMaterial,
+  product: Product | undefined
+): BillOfMaterialsSummary['readOnlyReason'] {
+  if (billOfMaterials.deletedAt) return 'bom-deleted'
+  if (product?.deletedAt) return 'product-deleted'
+  if (billOfMaterials.productVariant?.deletedAt) return 'product-variant-deleted'
+  return null
+}
+
+function serializeBillOfMaterialsDetail(
+  billOfMaterials: BillOfMaterial,
+  descendantCount: number
+): BillOfMaterialsDetail {
   const projection = calculateBomCostProjection(billOfMaterials.lines)
   const lines = billOfMaterials.lines.map((line, index) =>
     serializeBillOfMaterialsLine(line, projection.lines[index])
   )
 
   return {
-    ...serializeBillOfMaterials(billOfMaterials),
+    ...serializeBillOfMaterials(billOfMaterials, descendantCount),
     lines,
     attentionCount: lines.filter((line) => line.attention.length > 0).length,
     costProjection: projection.summary,
@@ -181,8 +222,12 @@ function serializeLinePreferredSource(
   }
 }
 
-async function loadBillOfMaterials(publicId: string, trx?: TransactionClientContract) {
-  return BillOfMaterial.query(trx ? { client: trx } : undefined)
+async function loadBillOfMaterials(
+  publicId: string,
+  trx?: TransactionClientContract,
+  includeDeleted = false
+) {
+  const query = BillOfMaterial.query(trx ? { client: trx } : undefined)
     .where('publicId', publicId)
     .preload('createdBy')
     .preload('product', (productQuery) => Product.includeDeleted(productQuery))
@@ -210,5 +255,29 @@ async function loadBillOfMaterials(publicId: string, trx?: TransactionClientCont
         })
         .orderBy('displayOrder', 'asc')
     })
-    .first()
+  if (includeDeleted) BillOfMaterial.includeDeleted(query)
+  return query.first()
+}
+
+async function loadDescendantCounts(trx?: TransactionClientContract) {
+  const lineageQuery = BillOfMaterial.query(trx ? { client: trx } : undefined).select(
+    'id',
+    'originBillOfMaterialsId'
+  )
+  BillOfMaterial.includeDeleted(lineageQuery)
+  const lineage = await lineageQuery
+  const originById = new Map(lineage.map((item) => [item.id, item.originBillOfMaterialsId]))
+  const counts = new Map<number, number>()
+
+  for (const item of lineage) {
+    const visited = new Set([item.id])
+    let ancestorId = item.originBillOfMaterialsId
+    while (ancestorId !== null && !visited.has(ancestorId)) {
+      counts.set(ancestorId, (counts.get(ancestorId) ?? 0) + 1)
+      visited.add(ancestorId)
+      ancestorId = originById.get(ancestorId) ?? null
+    }
+  }
+
+  return counts
 }

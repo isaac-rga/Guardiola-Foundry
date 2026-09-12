@@ -1,84 +1,56 @@
-# Derive a New BOM Template from an Existing Bill of Materials
+# Delete and Restore Bills of Materials Without Losing History
 
-Before this change, a User could apply a BOM Template to a Product Variant. The User could not copy an existing Bill of Materials into a new BOM Template.
+Issue 14 adds a safe way to remove a Bill of Materials from ordinary work and restore it later. Delete frees the available Product or Product Variant slot. It does not erase the Bill of Materials, its BOM Lines, or its BOM Origin history. This change does not hard-delete or move any record.
 
-This change adds that copy operation. The project calls it **BOM Derivation**. An Admin or Operator can derive a new BOM Template from a non-deleted BOM Template or BOM Implementation. The new BOM Template records its immediate **BOM Origin**, but it does not stay connected to the origin's construction data.
+## Start Here
 
-This change does not add inheritance or synchronization. After Save, the origin and the new BOM Template are independent.
+A Product can have one available BOM Template. A Product Variant can have one available BOM Implementation. A BOM Implementation also has a BOM Typification that must be unique within its Product.
 
-## What the User Does
+Before this change, a User could not free one of these slots without losing the normal workflow. Now an Admin or Operator can soft-delete the Bill of Materials. An Admin can restore it when the original slot and name rules are available again.
 
-The User starts in the Bill of Materials catalog.
+The completed requirements are in [Issue 14](.scratch/bill-of-materials-builder/issues/14-delete-and-restore-bills-of-materials.md).
 
-1. Open the actions for a non-deleted BOM Template or BOM Implementation.
-2. Select **Derive Template**.
-3. Review the copied construction in the Construction Board.
-4. Edit the proposed BOM Template name.
-5. Keep, remove, or change the proposed Product association.
-6. Select **Save BOM**.
+## Delete Frees a Slot but Preserves the Record
 
-The Builder proposes `<BOM Origin name> — copy` as the new name. The User can change this name. BOM Template names do not have to be unique.
+Delete is a lifecycle change, not erasure.
 
-The Builder shows the copied BOM Lines before Save. The copied BOM Lines are read-only during this step. If Save fails, the Builder keeps the name, Product choice, and copied BOM Lines. The User can correct the problem and try again.
+- The Bill of Materials leaves the ordinary catalog.
+- Its Product or Product Variant slot becomes available.
+- Its Product, Product Variant, BOM Origin, and BOM Line relationships stay unchanged.
+- Its descendants stay available. They continue to identify the deleted record as their unavailable BOM Origin.
+- The confirmation shows the Bill of Materials context and the full descendant count before the User continues.
 
-The [BOM catalog](apps/web/src/features/bills-of-materials/bills-of-materials-catalog-page.tsx) starts the operation. [DeriveTemplateBuilder](apps/web/src/features/bills-of-materials/derive-template-builder.tsx) loads the current Bill of Materials and opens the Construction Board.
+The [lifecycle service](apps/api/app/modules/bills_of_materials/services/delete_and_restore_bill_of_materials.ts) owns the transaction and row lock. The [read service](apps/api/app/modules/bills_of_materials/services/read_bills_of_materials.ts) owns deleted-record visibility, transitive descendant counts, and read-only reasons.
 
-## What the System Copies
+## Restore Rechecks the Original Business Rules
 
-Save creates one new BOM Template and new BOM Lines in one database transaction.
+Only an Admin can restore a Bill of Materials. Restore does not bypass the rules that protect Product structure.
 
-The system copies these values from the BOM Origin:
+- A BOM Template can return only when its Product Template slot is free.
+- A BOM Implementation can return only when its Product Variant slot is free.
+- Its BOM Typification must still be unique within the Product. Matching is case-insensitive.
+- Inactive or soft-deleted related Product records do not block restore.
+- A conflict changes neither Bill of Materials. The response identifies the occupying record.
 
-- Description.
-- Construction Piece.
-- Material.
-- Material Quantity.
-- Pattern Set.
-- Line Note.
-- BOM Line order.
+Restore locks the Product before the Product Variant. It then locks the deleted Bill of Materials and checks every constraint in the same transaction. The [controller](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts) validates the conflict response with the shared Zod contract before it returns `409`.
 
-The system gives the new BOM Template a new identity. It also gives each copied BOM Line a new identity. All copied BOM Lines start with BOM Line Verification set to Unverified.
+## Catalog and Construction Board Behavior
 
-The system does not change the BOM Origin. A failure during Save removes all new records from the transaction. It does not leave an incomplete BOM Template or an incomplete set of BOM Lines.
+The ordinary catalog excludes deleted Bills of Materials. An Admin can select **Include deleted** to see recovery records. An Operator cannot list or open a deleted record.
 
-The [BOM Derivation service](apps/api/app/modules/bills_of_materials/services/derive_bill_of_materials_template.ts) controls the transaction. The shared [copy rules](apps/api/app/modules/bills_of_materials/services/template_application_snapshot.ts) define the values that the system copies. These rules also reset BOM Line Verification.
+The [mutation dialog](apps/web/src/features/bills-of-materials/components/bill-of-materials-mutation-dialog.tsx) gives the User enough context before Delete or Restore. If restore has a conflict, the dialog links to the occupying Bill of Materials.
 
-## How the Product Association Works
+The [Construction Board](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) uses the server-owned `readOnlyReason`:
 
-A BOM Template can have a permanent association with one Product. A Product can have no more than one non-deleted BOM Template.
+- `bom-deleted` for a deleted Bill of Materials.
+- `product-deleted` when its Product is deleted.
+- `product-variant-deleted` when its Product Variant is deleted.
 
-When the BOM Origin has Product context, the Builder proposes that Product for the new BOM Template. For a BOM Implementation, the system gets the Product through its Product Variant.
-
-The User has three choices:
-
-- Keep the proposed Product.
-- Remove the Product and create an unassociated BOM Template.
-- Select a different eligible Product.
-
-If the proposed Product is Inactive, soft-deleted, or already has a BOM Template, Save still succeeds. The new BOM Template is unassociated.
-
-If the User selects a different Product, that Product must be Active and non-deleted. It must not have another non-deleted BOM Template. If it does not meet these rules, Save fails and the Builder keeps the draft.
-
-The [Template Product scope](apps/web/src/features/bills-of-materials/components/template-product-scope.tsx) lets the User change this choice. The API checks the Product again during Save.
-
-## What BOM Origin Means
-
-A derived BOM Template records one BOM Origin. The BOM Origin is the immediate Bill of Materials that the User copied.
-
-For example:
-
-- The User derives BOM Template B from BOM Template A. The BOM Origin of B is A.
-- The User then derives BOM Template C from B. The BOM Origin of C is B, not A.
-
-The system does not store a root, a depth value, a descendant list, BOM Line correspondence, or a historical snapshot. The derivation chain has no artificial depth limit.
-
-The BOM Origin cannot change after creation. A Bill of Materials cannot be its own BOM Origin. The [origin protection migration](apps/api/database/migrations/1789697600000_protect_bill_of_materials_origin.ts) enforces these rules.
-
-The application displays the current name, kind, and availability of the BOM Origin. If a User renames, soft-deletes, or restores the BOM Origin, this displayed information changes. The description and BOM Lines of the derived BOM Template do not change.
-
-A soft-deleted Bill of Materials cannot be used for a new BOM Derivation. Existing derived BOM Templates keep their BOM Origin reference when the origin is soft-deleted.
+These states lock every edit control. An Inactive Product or Product Variant stays editable. If another User deletes an open Bill of Materials, the later Save returns `409`; the local draft stays visible and the application does not restore the record.
 
 ## Architecture Views
+
+The views below show only the domain relationships and runtime collaboration changed by Issue 14.
 
 ### UML — Domain Relationships
 
@@ -86,33 +58,30 @@ A soft-deleted Bill of Materials cannot be used for a new BOM Derivation. Existi
 classDiagram
     direction LR
 
-    class BillOfMaterial {
-        +identity
+    class BillOfMaterials {
+        +id
         +kind
-        +name
-        +description
+        +deletedAt
+        +readOnlyReason
     }
     class BomTemplate
-    class BomImplementation
-    class BomLine {
-        +identity
-        +order
-        +verification
+    class BomImplementation {
+        +bomTypification
     }
+    class BomLine
     class Product
     class ProductVariant
 
-    BillOfMaterial <|-- BomTemplate
-    BillOfMaterial <|-- BomImplementation
-    BillOfMaterial "1" *-- "0..*" BomLine : owns
-    Product "0..1" <-- "0..1" BomTemplate : permanent association
+    BillOfMaterials <|-- BomTemplate
+    BillOfMaterials <|-- BomImplementation
+    BillOfMaterials "1" *-- "0..*" BomLine : keeps
+    BillOfMaterials "0..1" <-- "0..*" BillOfMaterials : immediate BOM Origin
+    Product "0..1" <-- "0..1 available" BomTemplate : Template slot
     Product "1" *-- "0..*" ProductVariant : owns
-    ProductVariant "1" <-- "0..1" BomImplementation : has
-    BillOfMaterial "0..1" <-- "0..*" BomTemplate : immediate BOM Origin
+    ProductVariant "1" <-- "0..1 available" BomImplementation : Implementation slot
 
-    note for BomTemplate "A derived BOM Template is an independent copy"
-    note for BomLine "A copied BOM Line has a new identity and is Unverified"
-    note for BillOfMaterial "A BOM Origin cannot change after creation"
+    note for BillOfMaterials "Soft delete preserves relationships and lineage"
+    note for BomImplementation "Available typification is unique within Product"
 ```
 
 ### C4 Level 3 — Web Application
@@ -123,21 +92,17 @@ flowchart LR
     api["Bill of Materials API"]
 
     subgraph web["Web Application · React"]
-        direction LR
-        catalog["BOM Catalog<br/>Starts BOM Derivation"]
-        loader["Derive Template Builder<br/>Loads the BOM Origin"]
-        board["Construction Board<br/>Shows the copied BOM Lines"]
-        product["Template Product Scope<br/>Changes the Product choice"]
-
-        catalog -->|"BOM Origin identity"| loader
-        loader -->|"Current Bill of Materials"| board
-        board -->|"Product choice"| product
-        product -->|"Updated choice"| board
+        catalog["BOM Catalog<br/>Lists records and starts actions"]
+        dialog["Mutation Dialog<br/>Confirms and shows conflicts"]
+        board["Construction Board<br/>Edits or shows read-only detail"]
+        catalog -->|"Open action"| dialog
+        catalog -->|"Open detail"| board
     end
 
-    user -->|"Selects Derive Template"| catalog
-    loader -->|"Gets the BOM Origin"| api
-    board -->|"Saves the new BOM Template"| api
+    user -->|"Browse and act"| catalog
+    catalog -->|"Load ordinary or deleted-inclusive data"| api
+    dialog -->|"Delete or restore"| api
+    board -->|"Load and save canonical detail"| api
 ```
 
 ### C4 Level 3 — API Application
@@ -148,27 +113,19 @@ flowchart LR
     database[("PostgreSQL")]
 
     subgraph api["API Application · AdonisJS"]
-        direction LR
-        controller["BOM Controller<br/>Checks the request"]
-        derivation["BOM Derivation Service<br/>Controls the transaction"]
-        product["Template Product Slot<br/>Checks the Product association"]
-        copy["Copy Rules<br/>Copy values and reset verification"]
-        read["BOM Read Service<br/>Returns current BOM Origin data"]
-
-        controller --> derivation
-        derivation --> product
-        derivation --> copy
-        derivation --> read
+        controller["BOM Controller<br/>Roles, validation, HTTP responses"]
+        lifecycle["Lifecycle Service<br/>Delete, restore, locks, conflicts"]
+        reader["Read Service<br/>Visibility, lineage, read-only reason"]
+        controller -->|"Command"| lifecycle
+        controller -->|"Query"| reader
     end
 
-    web -->|"BOM Derivation request"| controller
-    derivation -->|"Locks the BOM Origin and BOM Lines"| database
-    product -->|"Locks the Product"| database
-    derivation -->|"Creates the BOM Template and BOM Lines"| database
-    read -->|"Loads the completed Bill of Materials"| database
+    web -->|"Authenticated HTTP"| controller
+    lifecycle -->|"Transactional lifecycle change"| database
+    reader -->|"Canonical projection"| database
 ```
 
-### C4 Dynamic — Save a BOM Derivation
+### C4 Dynamic — Delete a Bill of Materials
 
 ```mermaid
 sequenceDiagram
@@ -176,85 +133,99 @@ sequenceDiagram
 
     box Frontend
         participant Catalog as BOM Catalog
-        participant Board as Construction Board
-        participant Product as Template Product Scope
+        participant Dialog as Delete Dialog
     end
 
     box Backend
         participant API as BOM Controller
-        participant Derivation as BOM Derivation Service
-        participant Rules as Product and Copy Rules
-        participant Database as PostgreSQL
+        participant Lifecycle as Lifecycle Service
+        participant DB as PostgreSQL
     end
 
-    User->>Catalog: Select Derive Template
-    Catalog->>API: Request the current BOM Origin
-    API->>Database: Load the Bill of Materials
-    Database-->>Board: Return the BOM Origin and BOM Lines
-    Board-->>User: Show the proposed copy
-    User->>Product: Keep, remove, or change the Product
-    Product-->>Board: Set the Product choice
-    User->>Board: Edit the name and select Save BOM
-    Board->>API: Send the name and Product choice
-    API->>Derivation: Start BOM Derivation
-    Derivation->>Database: Start transaction and lock the BOM Origin and BOM Lines
-    Derivation->>Rules: Check Product and prepare copied values
+    User->>Catalog: Select Delete
+    Catalog->>Dialog: Show name, context, and descendant count
+    User->>Dialog: Confirm
+    Dialog->>API: DELETE /bills-of-materials/:id
+    API->>Lifecycle: Soft-delete available BOM
+    Lifecycle->>DB: Lock BOM and set deletedAt
+    DB-->>Lifecycle: Keep relationships, lines, and lineage
+    API-->>Catalog: 204 No Content
+    Catalog-->>User: Refresh ordinary catalog
+```
 
-    alt The request is valid
-        Derivation->>Database: Create the BOM Template and new BOM Lines
-        Derivation->>Database: Load the completed Bill of Materials
-        Database-->>Board: Return the new BOM Template
-        Board-->>User: Return to the updated catalog
-    else The request fails
-        Derivation->>Database: Roll back all new records
-        API-->>Board: Return an error
-        Board-->>User: Keep the draft visible
+### C4 Dynamic — Restore a Bill of Materials
+
+```mermaid
+sequenceDiagram
+    actor Admin
+
+    box Frontend
+        participant Catalog as BOM Catalog
+        participant Dialog as Restore Dialog
+    end
+
+    box Backend
+        participant API as BOM Controller
+        participant Lifecycle as Lifecycle Service
+        participant DB as PostgreSQL
+    end
+
+    Admin->>Catalog: Include deleted and select Restore
+    Catalog->>Dialog: Show original context
+    Admin->>Dialog: Confirm
+    Dialog->>API: POST /bills-of-materials/:id/restore
+    API->>Lifecycle: Restore deleted BOM
+    Lifecycle->>DB: Lock Product, Variant when present, and BOM
+    Lifecycle->>DB: Check slot and BOM Typification
+
+    alt Constraints are free
+        Lifecycle->>DB: Clear deletedAt
+        API-->>Catalog: 200 canonical detail
+        Catalog-->>Admin: Refresh recovery view
+    else Another BOM occupies a constraint
+        Lifecycle-->>API: Occupying BOM identity and name
+        API-->>Dialog: 409 conflict
+        Dialog-->>Admin: Keep dialog open and link to occupant
     end
 ```
 
-## What the Tests Prove
+## Focused Coverage
 
-The focused tests prove these behaviors:
+The focused tests prove these behaviors through the API and visible Builder seams:
 
-- A BOM Template or BOM Implementation can be a BOM Origin.
-- The new BOM Template and its BOM Lines have new identities.
-- The system copies the specified construction values in the correct order.
-- Copied BOM Lines start Unverified.
-- The User can keep or remove the proposed Product.
-- An unavailable proposed Product results in an unassociated BOM Template.
-- A different selected Product must meet the existing association rules.
-- A derivation chain stores only the immediate BOM Origin.
-- The database rejects a self-reference and a later change to BOM Origin.
-- The displayed BOM Origin information uses the current name and availability.
-- Changes to an origin do not change a derived BOM Template.
-- A failed Save keeps the Builder draft.
+- Soft delete releases the slot and preserves BOM Lines and BOM Origin lineage.
+- Descendant counts include the full available and deleted Origin chain.
+- Admin and Operator permissions differ for deleted lists, detail, and Restore.
+- Restore protects Template slots, Implementation slots, and Product-scoped BOM Typification.
+- Concurrent restore and association operations produce one valid winner without partial mutation.
+- Inactive related records stay editable. Soft-deleted related records reject Save without data changes.
+- Every Builder mutation control is locked for each read-only reason.
+- A Save after concurrent deletion preserves the local draft and does not restore the record.
+- Invalid conflict data does not create an unsafe occupying-record link.
 
-## Checks That Passed
+The main API coverage is in [bills_of_materials.spec.ts](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts). The catalog and Builder coverage is in [-bills-of-materials.test.tsx](apps/web/src/routes/-bills-of-materials.test.tsx) and [endpoints.test.ts](apps/web/src/features/bills-of-materials/api/endpoints.test.ts).
 
-- Shared types build.
-- Shared validation build.
-- API TypeScript check.
-- Web TypeScript check.
-- Two copy-rule unit tests.
-- Four isolated issue 13 API functional tests.
-- Twenty Bill of Materials route tests.
-- Focused API ESLint.
-- Focused Web and shared-contract Oxlint.
-- Origin protection migration. The migration is complete in development batch 22.
-- `git diff --check`.
+## Focused Verification
 
-The combined Bill of Materials functional test file had a separate problem. Thirty-two tests passed. Six later Material tests returned `422` because earlier tests changed shared Material data. All issue 13 tests passed in that run. They also passed in isolated database runs.
+- First red test — Delete returned `404` instead of the required `204`.
+- Exact AdonisJS functional cases for Delete, transitive lineage, Admin recovery, Product and Product Variant read-only behavior, and concurrent BOM Typification restore — pass individually.
+- Direct Vitest run for `src/routes/-bills-of-materials.test.tsx` — 26 of 26 pass.
+- Direct Vitest run for `src/features/bills-of-materials/api/endpoints.test.ts` — the same-origin `includeDeleted` case passes.
+- Shared Types and Shared Validation builds, typechecks, and linters — pass.
+- API and Web typechecks and linters — pass.
+- `git diff --check` and Mermaid heading/fence structure checks — pass.
 
-The first API test command could not open a local network port in the sandbox. The same focused tests passed when the command had local-port permission.
+An earlier combined run of the BOM API file reported 40 passing and seven failing tests. All Issue 14 tests in that run passed. The seven failures are existing Material-line fixture cases that return `422` instead of `201`; they were present before this implementation. The complete API file did not run again after the last focused tests were added.
 
-The complete test suites did not run. `pnpm quality` did not run. The repository reserves that final check for the User and CI.
+One earlier Web test command expanded to 103 tests; all 103 passed. The final direct route run is the focused 26-of-26 result above.
 
-## What This Change Does Not Do
+The complete repository suites and `pnpm quality` did not run. The final quality gate belongs to the User and CI.
 
-This change does not add inheritance, synchronization, merge, or refresh-from-origin behavior.
+## Scope Boundaries
 
-It does not store a root BOM Origin, derivation depth, descendants, BOM Line correspondence, or historical snapshots.
-
-It does not add deleted-record browsing, deletion confirmation, restoration controls, descendant counts, or restoration conflict handling. [Issue 14](.scratch/bill-of-materials-builder/issues/14-delete-and-restore-bills-of-materials.md) owns that work.
-
-The existing `.gitignore` change and `docs/architecture/framework-abstraction-decision.md` are not part of this feature. This work did not change them.
+- No Bill of Materials is hard-deleted.
+- Delete does not cascade to BOM Lines, descendants, Products, Product Variants, Materials, Sources, or Pattern Sets.
+- Restore does not restore a related Product or Product Variant.
+- Restore does not move a Bill of Materials or change its permanent relationships.
+- Issue 14 is marked `done`; all acceptance items are checked.
+- The existing `.gitignore` change and `docs/architecture/framework-abstraction-decision.md` are unrelated and remain unchanged.

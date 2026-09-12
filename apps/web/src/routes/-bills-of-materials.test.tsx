@@ -637,7 +637,7 @@ describe('Bills of Materials route', () => {
   it('preserves the local draft when the open Bill of Materials was deleted', async () => {
     const user = userEvent.setup()
     const saved = billOfMaterialsDetailFixture()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
@@ -686,9 +686,16 @@ describe('Bills of Materials route', () => {
       ),
     ).toBeInTheDocument()
     expect(name).toHaveValue('Unsaved deleted-record draft')
+    expect(name).not.toBeDisabled()
     expect(
       screen.queryByRole('button', { name: 'Reload current saved version' }),
     ).not.toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.some(([input, init]) => {
+        const url = new URL(String(input))
+        return url.pathname.endsWith('/restore') && init?.method === 'POST'
+      }),
+    ).toBe(false)
   })
 
   it('saves an existing Implementation and replaces previews with canonical projections', async () => {
@@ -1531,6 +1538,294 @@ describe('Bills of Materials route', () => {
     )
   })
 
+  it('confirms deletion with Product context and descendant lineage', async () => {
+    const user = userEvent.setup()
+    const template = {
+      ...billOfMaterialsFixture(),
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      descendantCount: 2,
+    }
+    let deleted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: deleted ? [] : [template] })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'DELETE'
+      ) {
+        deleted = true
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${template.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Delete Bill of Materials' }),
+    )
+    expect(screen.getByRole('dialog')).toHaveTextContent('Template · Jackie')
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      '2 descendants retain this BOM as Origin.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete BOM' }))
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+  })
+
+  it('lets an Admin include and open a deleted Bill of Materials read-only', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsDetailFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({
+          billsOfMaterials:
+            url.searchParams.get('includeDeleted') === 'true'
+              ? [deletedTemplate]
+              : [],
+        })
+      }
+      if (url.pathname === `/bills-of-materials/${deletedTemplate.id}`) {
+        return jsonResponse(deletedTemplate)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await screen.findByText(deletedTemplate.name)
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'View Bill of Materials' }),
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This Bill of Materials is deleted. Restore it before editing.',
+    )
+    expect(screen.getByRole('button', { name: 'Read only' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add BOM line' })).toBeDisabled()
+  })
+
+  it.each([
+    {
+      reason: 'product-deleted' as const,
+      message:
+        'The assigned Product is deleted. Restore it before editing this Bill of Materials.',
+      kind: 'template' as const,
+      fieldName: 'BOM Name',
+      productVariant: null,
+    },
+    {
+      reason: 'product-variant-deleted' as const,
+      message:
+        'The assigned Product Variant is deleted. Restore it before editing this Bill of Materials.',
+      kind: 'implementation' as const,
+      fieldName: 'BOM Typification',
+      productVariant: {
+        id: 'PV-JACKIE',
+        name: 'Jackie Showroom',
+        availability: 'unavailable' as const,
+      },
+    },
+  ])('locks every Builder mutation for $reason', async (scenario) => {
+    const user = userEvent.setup()
+    const readOnlyBillOfMaterials = {
+      ...billOfMaterialsDetailFixture(),
+      kind: scenario.kind,
+      readOnlyReason: scenario.reason,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'unavailable' as const,
+      },
+      productVariant: scenario.productVariant,
+      lines: billOfMaterialsDetailFixture().lines.map((line) => ({
+        ...line,
+        patternSet: {
+          id: 'PS-SKRT23',
+          name: 'Skirt patterns',
+          status: 'active' as const,
+          quantityProposalCount: 1,
+        },
+      })),
+    }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [readOnlyBillOfMaterials] })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${readOnlyBillOfMaterials.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse(readOnlyBillOfMaterials)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(readOnlyBillOfMaterials.name)
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${readOnlyBillOfMaterials.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(scenario.message)
+    const name = screen.getByRole('textbox', { name: scenario.fieldName })
+    expect(name).toBeDisabled()
+    expect(screen.getByLabelText('Description')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add BOM line' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reorder Outer skirt' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Duplicate line' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove line' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
+    expect(screen.queryByRole('combobox', { name: 'Choose Material' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Choose Pattern Set' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Final meters')).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Manually verified' })).toBeDisabled()
+    expect(screen.getByLabelText('Line Note')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Read only' })).toBeDisabled()
+    expect(
+      fetchSpy.mock.calls.some(([, init]) => init?.method === 'PUT'),
+    ).toBe(false)
+  })
+
+  it('keeps a restore conflict in context and links to the occupying Bill of Materials', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [deletedTemplate] })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            message: 'The original Product slot is occupied.',
+            conflictingBillOfMaterials: {
+              id: 'BOM-OCCUP2',
+              name: 'Jackie replacement',
+            },
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Restore Bill of Materials' }),
+    )
+    expect(screen.getByRole('dialog')).toHaveTextContent('Template · Jackie')
+    await user.click(screen.getByRole('button', { name: 'Restore BOM' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Restore blocked by Jackie replacement.',
+    )
+    expect(
+      screen.getByRole('button', { name: 'Open Jackie replacement' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not create a typed restore conflict from an invalid 409 response', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse({ billsOfMaterials: [deletedTemplate] })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            message: 'Restore conflict response was incomplete.',
+            conflictingBillOfMaterials: { id: 42, name: '' },
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(await screen.findByRole('button', { name: 'Include deleted' }))
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${deletedTemplate.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Restore Bill of Materials' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Restore BOM' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Restore conflict response was incomplete.',
+    )
+    expect(screen.queryByRole('button', { name: /^Open / })).not.toBeInTheDocument()
+  })
+
   it('keeps the draft visible when authorization expires during Save', async () => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -1588,22 +1883,22 @@ function renderBillsOfMaterialsRoute(initialEntry = '/app/bills-of-materials') {
   )
 }
 
-function seedStoredSession() {
+function seedStoredSession(role: 'admin' | 'operator' = 'operator') {
   localStorage.setItem(
     AUTH_SESSION_STORAGE_KEY,
-    JSON.stringify(sessionFixture()),
+    JSON.stringify(sessionFixture(role)),
   )
 }
 
-function sessionFixture() {
+function sessionFixture(role: 'admin' | 'operator' = 'operator') {
   return {
     token: 'session-token',
     tokenType: 'Bearer' as const,
     expiresAt: '2026-09-09T12:00:00.000Z',
     user: {
       id: 1,
-      email: 'operator@example.com',
-      role: 'operator' as const,
+      email: `${role}@example.com`,
+      role,
       active: true,
     },
   }
@@ -1618,6 +1913,9 @@ function billOfMaterialsFixture() {
     product: null,
     productVariant: null,
     origin: null,
+    deletedAt: null,
+    descendantCount: 0,
+    readOnlyReason: null,
     createdBy: { id: 1, email: 'operator@example.com' },
     createdAt: '2026-09-08T12:00:00.000Z',
     updatedAt: '2026-09-08T12:00:00.000Z',

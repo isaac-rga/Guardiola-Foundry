@@ -79,6 +79,11 @@ router
       'deriveTemplate',
     ])
     router.put('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'update'])
+    router.delete('/bills-of-materials/:billOfMaterialsId', [BillsOfMaterialsController, 'destroy'])
+    router.post('/bills-of-materials/:billOfMaterialsId/restore', [
+      BillsOfMaterialsController,
+      'restore',
+    ])
     router.post('/bills-of-materials/:billOfMaterialsId/product', [
       BillsOfMaterialsController,
       'associateProduct',

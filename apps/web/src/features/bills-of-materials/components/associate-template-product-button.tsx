@@ -16,7 +16,11 @@ export function AssociateTemplateProductButton({
   billOfMaterialsName,
   canAssociateProduct,
   canCreateImplementation,
+  isAdmin,
+  isDeleted,
+  onDelete,
   onEdit,
+  onRestore,
   onDeriveTemplate,
   onCreateImplementation,
   token,
@@ -25,9 +29,13 @@ export function AssociateTemplateProductButton({
   billOfMaterialsName: string
   canAssociateProduct: boolean
   canCreateImplementation: boolean
+  isAdmin: boolean
+  isDeleted: boolean
+  onDelete: () => void
   onCreateImplementation: () => void
   onDeriveTemplate: () => void
   onEdit: () => void
+  onRestore: () => void
   token: string
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
@@ -51,11 +59,13 @@ export function AssociateTemplateProductButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={onEdit}>
-            Edit Bill of Materials
+            {isDeleted ? 'View Bill of Materials' : 'Edit Bill of Materials'}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onDeriveTemplate}>
-            Derive Template
-          </DropdownMenuItem>
+          {!isDeleted ? (
+            <DropdownMenuItem onSelect={onDeriveTemplate}>
+              Derive Template
+            </DropdownMenuItem>
+          ) : null}
           {canAssociateProduct ? (
             <DropdownMenuItem onSelect={() => setIsPickerOpen(true)}>
               Associate Product
@@ -64,6 +74,16 @@ export function AssociateTemplateProductButton({
           {canCreateImplementation ? (
             <DropdownMenuItem onSelect={onCreateImplementation}>
               Create Implementation
+            </DropdownMenuItem>
+          ) : null}
+          {isDeleted && isAdmin ? (
+            <DropdownMenuItem onSelect={onRestore}>
+              Restore Bill of Materials
+            </DropdownMenuItem>
+          ) : null}
+          {!isDeleted ? (
+            <DropdownMenuItem onSelect={onDelete} variant="destructive">
+              Delete Bill of Materials
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

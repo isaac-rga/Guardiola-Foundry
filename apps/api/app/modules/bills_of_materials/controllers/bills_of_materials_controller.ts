@@ -19,6 +19,8 @@ import {
   ProductVariantCandidateTemplateUnavailableError,
   BillOfMaterialsDerivationOriginNotFoundError,
   deriveBillOfMaterialsTemplate,
+  restoreBillOfMaterials,
+  softDeleteBillOfMaterials,
 } from '#modules/bills_of_materials/services/index'
 import {
   ImplementationDestinationTypificationConflictError,
@@ -29,20 +31,61 @@ import {
   associateBillOfMaterialsTemplateProductRequestSchema,
   createBillOfMaterialsRequestSchema,
   deriveBillOfMaterialsTemplateRequestSchema,
+  billOfMaterialsRestoreConflictResponseSchema,
+  listBillsOfMaterialsQuerySchema,
   searchProductVariantCandidatesQuerySchema,
   updateBillOfMaterialsRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class BillsOfMaterialsController {
-  async index({ response }: HttpContext) {
-    return response.ok(await listBillsOfMaterials())
+  async index({ authenticatedSession, request, response }: HttpContext) {
+    const query = listBillsOfMaterialsQuerySchema.safeParse(request.qs())
+    if (!query.success) {
+      return response.unprocessableEntity({ message: 'Invalid Bill of Materials filters.' })
+    }
+    return response.ok(
+      await listBillsOfMaterials({
+        includeDeleted: authenticatedSession.user.role === 'admin' && query.data.includeDeleted,
+      })
+    )
   }
 
-  async show({ params, response }: HttpContext) {
-    const billOfMaterials = await getBillOfMaterials(params.billOfMaterialsId)
+  async show({ authenticatedSession, params, response }: HttpContext) {
+    const billOfMaterials = await getBillOfMaterials(params.billOfMaterialsId, {
+      includeDeleted: authenticatedSession.user.role === 'admin',
+    })
     if (!billOfMaterials) return response.notFound({ message: 'Bill of Materials not found.' })
     return response.ok(billOfMaterials)
+  }
+
+  async destroy({ params, response }: HttpContext) {
+    const result = await softDeleteBillOfMaterials(params.billOfMaterialsId)
+    if (result === 'not-found') {
+      return response.notFound({ message: 'Bill of Materials not found.' })
+    }
+    return response.noContent()
+  }
+
+  async restore({ authenticatedSession, params, response }: HttpContext) {
+    if (authenticatedSession.user.role !== 'admin') {
+      return response.forbidden({ message: 'Only Admins can restore deleted Bills of Materials.' })
+    }
+    const result = await restoreBillOfMaterials(params.billOfMaterialsId)
+    if (result === 'not-found') {
+      return response.notFound({ message: 'Deleted Bill of Materials not found.' })
+    }
+    if ('conflict' in result) {
+      const body = billOfMaterialsRestoreConflictResponseSchema.safeParse({
+        message: `Restore blocked by ${result.conflict.name}.`,
+        conflictingBillOfMaterials: result.conflict,
+      })
+      if (!body.success) {
+        throw new Error('Bill of Materials restore conflict response is invalid.')
+      }
+      return response.conflict(body.data)
+    }
+    return response.ok(result)
   }
 
   async searchProductVariantCandidates({ request, response }: HttpContext) {

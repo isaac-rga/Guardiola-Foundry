@@ -3,6 +3,7 @@ import {
   BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH,
   type BillOfMaterialsDetail,
   type BillOfMaterialsLine,
+  type BillOfMaterialsRestoreConflictResponse,
   type BillOfMaterialsSummary,
   type AssociateBillOfMaterialsTemplateProductRequest,
   type ApplyBillOfMaterialsTemplateRequest,
@@ -86,6 +87,11 @@ const billOfMaterialsReferenceSchema = z.object({
   name: z.string().min(1),
 })
 
+export const billOfMaterialsRestoreConflictResponseSchema = z.object({
+  message: z.string().min(1),
+  conflictingBillOfMaterials: billOfMaterialsReferenceSchema,
+}) satisfies z.ZodType<BillOfMaterialsRestoreConflictResponse>
+
 const billOfMaterialsOriginReferenceSchema = billOfMaterialsReferenceSchema.extend({
   kind: z.enum(['template', 'implementation']),
   availability: billOfMaterialsReferenceAvailabilitySchema,
@@ -149,6 +155,11 @@ export const billOfMaterialsSummarySchema = z.object({
   product: billOfMaterialsProductReferenceSchema.nullable(),
   productVariant: billOfMaterialsProductVariantReferenceSchema.nullable(),
   origin: billOfMaterialsOriginReferenceSchema.nullable(),
+  deletedAt: z.string().datetime({ offset: true }).nullable(),
+  descendantCount: z.number().int().nonnegative(),
+  readOnlyReason: z
+    .enum(['bom-deleted', 'product-deleted', 'product-variant-deleted'])
+    .nullable(),
   createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -163,6 +174,13 @@ export const billOfMaterialsDetailSchema = billOfMaterialsSummarySchema.extend({
   attentionCount: z.number().int().nonnegative(),
   costProjection: billOfMaterialsCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsDetail>
+
+export const listBillsOfMaterialsQuerySchema = z.object({
+  includeDeleted: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+})
 
 const billOfMaterialsLineRequestFields = {
   constructionPiece: z

@@ -33,3 +33,7 @@ export {
   BillOfMaterialsDerivationOriginNotFoundError,
   deriveBillOfMaterialsTemplate,
 } from '#modules/bills_of_materials/services/derive_bill_of_materials_template'
+export {
+  restoreBillOfMaterials,
+  softDeleteBillOfMaterials,
+} from '#modules/bills_of_materials/services/delete_and_restore_bill_of_materials'

@@ -3,6 +3,11 @@ export const BOM_LINE_CONSTRUCTION_PIECE_MAX_LENGTH = 255
 
 export type BillOfMaterialsKind = 'template' | 'implementation'
 export type BillOfMaterialsReferenceAvailability = 'available' | 'unavailable'
+export type BillOfMaterialsReadOnlyReason =
+  | 'bom-deleted'
+  | 'product-deleted'
+  | 'product-variant-deleted'
+  | null
 
 export interface BillOfMaterialsUserReference {
   id: number
@@ -26,6 +31,11 @@ export interface BillOfMaterialsReference {
   name: string
 }
 
+export interface BillOfMaterialsRestoreConflictResponse {
+  message: string
+  conflictingBillOfMaterials: BillOfMaterialsReference
+}
+
 export interface BillOfMaterialsOriginReference extends BillOfMaterialsReference {
   kind: BillOfMaterialsKind
   availability: BillOfMaterialsReferenceAvailability
@@ -39,6 +49,9 @@ export interface BillOfMaterialsSummary {
   product: BillOfMaterialsProductReference | null
   productVariant: BillOfMaterialsProductVariantReference | null
   origin: BillOfMaterialsOriginReference | null
+  deletedAt: string | null
+  descendantCount: number
+  readOnlyReason: BillOfMaterialsReadOnlyReason
   createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string

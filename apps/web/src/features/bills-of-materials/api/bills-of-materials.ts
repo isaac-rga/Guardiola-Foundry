@@ -13,9 +13,11 @@ import {
   associateBillOfMaterialsTemplateProduct,
   applyBillOfMaterialsTemplate,
   createBillOfMaterials,
+  deleteBillOfMaterials,
   deriveBillOfMaterialsTemplate,
   getBillOfMaterials,
   listBillsOfMaterials,
+  restoreBillOfMaterials,
   searchProductVariantCandidates,
   updateBillOfMaterials,
 } from './endpoints'
@@ -26,16 +28,46 @@ const templateProductCandidatesQueryKey = [
   'template-product-candidates',
 ] as const
 
-export function useBillsOfMaterials(token: string) {
+export function useBillsOfMaterials(token: string, includeDeleted = false) {
   const query = useQuery({
-    queryKey: billsOfMaterialsQueryKey,
-    queryFn: () => listBillsOfMaterials(token),
+    queryKey: [...billsOfMaterialsQueryKey, { includeDeleted }],
+    queryFn: () => listBillsOfMaterials(token, includeDeleted),
   })
 
   return {
     billsOfMaterials: query.data?.billsOfMaterials ?? [],
     isLoading: query.isLoading,
     loadError: query.error,
+  }
+}
+
+export function useDeleteBillOfMaterials(token: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (id: string) => deleteBillOfMaterials(token, id),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+  })
+  return {
+    deleteBillOfMaterials: mutation.mutateAsync,
+    isDeleting: mutation.isPending,
+    error: mutation.error,
+    reset: mutation.reset,
+  }
+}
+
+export function useRestoreBillOfMaterials(token: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (id: string) => restoreBillOfMaterials(token, id),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+  })
+  return {
+    restoreBillOfMaterials: mutation.mutateAsync,
+    isRestoring: mutation.isPending,
+    error: mutation.error,
+    reset: mutation.reset,
   }
 }
 

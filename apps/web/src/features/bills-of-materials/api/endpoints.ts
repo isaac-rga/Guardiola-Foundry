@@ -2,6 +2,7 @@ import {
   associateBillOfMaterialsTemplateProductRequestSchema,
   applyBillOfMaterialsTemplateRequestSchema,
   billOfMaterialsDetailSchema,
+  billOfMaterialsRestoreConflictResponseSchema,
   createBillOfMaterialsRequestSchema,
   deriveBillOfMaterialsTemplateRequestSchema,
   listBillsOfMaterialsResponseSchema,
@@ -12,6 +13,7 @@ import type {
   AssociateBillOfMaterialsTemplateProductRequest,
   ApplyBillOfMaterialsTemplateRequest,
   BillOfMaterialsDetail,
+  BillOfMaterialsRestoreConflictResponse,
   CreateBillOfMaterialsRequest,
   DeriveBillOfMaterialsTemplateRequest,
   ListBillsOfMaterialsResponse,
@@ -40,10 +42,24 @@ export class BillOfMaterialsRequestError extends Error {
   }
 }
 
+export class BillOfMaterialsRestoreConflictError extends Error {
+  readonly conflictingBillOfMaterials: BillOfMaterialsRestoreConflictResponse['conflictingBillOfMaterials']
+
+  constructor(
+    conflictingBillOfMaterials: BillOfMaterialsRestoreConflictResponse['conflictingBillOfMaterials'],
+  ) {
+    super(`Restore blocked by ${conflictingBillOfMaterials.name}.`)
+    this.conflictingBillOfMaterials = conflictingBillOfMaterials
+  }
+}
+
 export async function listBillsOfMaterials(
   token: string,
+  includeDeleted = false,
 ): Promise<ListBillsOfMaterialsResponse> {
-  const response = await fetch(resolveApiUrl('/bills-of-materials'), {
+  const url = new URL(resolveApiUrl('/bills-of-materials'), window.location.origin)
+  if (includeDeleted) url.searchParams.set('includeDeleted', 'true')
+  const response = await fetch(url.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -54,6 +70,48 @@ export async function listBillsOfMaterials(
     )
   }
   return listBillsOfMaterialsResponseSchema.parse(body)
+}
+
+export async function deleteBillOfMaterials(
+  token: string,
+  id: string,
+): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/bills-of-materials/${id}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const body = await response.json()
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to delete the Bill of Materials.'),
+    )
+  }
+}
+
+export async function restoreBillOfMaterials(
+  token: string,
+  id: string,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${id}/restore`),
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    const conflict = billOfMaterialsRestoreConflictResponseSchema.safeParse(body)
+    if (response.status === 409 && conflict.success) {
+      throw new BillOfMaterialsRestoreConflictError(
+        conflict.data.conflictingBillOfMaterials,
+      )
+    }
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to restore the Bill of Materials.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
 }
 
 export async function associateBillOfMaterialsTemplateProduct(

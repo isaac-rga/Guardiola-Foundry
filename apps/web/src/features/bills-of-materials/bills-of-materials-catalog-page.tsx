@@ -1,6 +1,7 @@
 import { CopyPlusIcon, FileStackIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import type { ProductVariantCandidate } from '@guardiola-foundry/shared-types'
+import type { BillOfMaterialsSummary } from '@guardiola-foundry/shared-types'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +22,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { useBillsOfMaterials } from './api/bills-of-materials'
+import {
+  useBillsOfMaterials,
+  useDeleteBillOfMaterials,
+  useRestoreBillOfMaterials,
+} from './api/bills-of-materials'
+import { BillOfMaterialsMutationDialog } from './components/bill-of-materials-mutation-dialog'
 import { AssociateTemplateProductButton } from './components/associate-template-product-button'
 import { ProductVariantCandidateDialog } from './components/product-variant-candidate-dialog'
 
@@ -34,16 +40,30 @@ export function BillsOfMaterialsCatalogPage({
 }: {
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
-  onApplyTemplate: (templateId: string, candidate: ProductVariantCandidate) => void
+  onApplyTemplate: (
+    templateId: string,
+    candidate: ProductVariantCandidate,
+  ) => void
   onDeriveTemplate: (originId: string) => void
   onEdit: (billOfMaterialsId: string) => void
 }) {
   const { session } = useAppShell()
+  const isAdmin = session.user.role === 'admin'
+  const [includeDeleted, setIncludeDeleted] = useState(false)
   const { billsOfMaterials, isLoading, loadError } = useBillsOfMaterials(
     session.token,
+    isAdmin && includeDeleted,
   )
+  const deletion = useDeleteBillOfMaterials(session.token)
+  const restoration = useRestoreBillOfMaterials(session.token)
+  const [pendingMutation, setPendingMutation] = useState<{
+    action: 'delete' | 'restore'
+    target: BillOfMaterialsSummary
+  } | null>(null)
   const [variantDialogOpen, setVariantDialogOpen] = useState(false)
-  const [applicationTemplateId, setApplicationTemplateId] = useState<string | null>(null)
+  const [applicationTemplateId, setApplicationTemplateId] = useState<
+    string | null
+  >(null)
 
   return (
     <div className="space-y-6">
@@ -51,10 +71,22 @@ export function BillsOfMaterialsCatalogPage({
         title="Bills of Materials"
         description="Browse reusable Templates and Product Variant Implementations in one operational catalog."
         action={
-          <CreateBomMenu
-            onCreateImplementation={() => setVariantDialogOpen(true)}
-            onCreateTemplate={onCreateTemplate}
-          />
+          <div className="flex gap-2">
+            {isAdmin ? (
+              <Button
+                aria-pressed={includeDeleted}
+                type="button"
+                variant={includeDeleted ? 'secondary' : 'outline'}
+                onClick={() => setIncludeDeleted((value) => !value)}
+              >
+                {includeDeleted ? 'Including deleted' : 'Include deleted'}
+              </Button>
+            ) : null}
+            <CreateBomMenu
+              onCreateImplementation={() => setVariantDialogOpen(true)}
+              onCreateTemplate={onCreateTemplate}
+            />
+          </div>
         }
       />
 
@@ -109,14 +141,18 @@ export function BillsOfMaterialsCatalogPage({
                     <TableCell className="align-top">
                       <Badge
                         variant={
-                          billOfMaterials.kind === 'template'
-                            ? 'secondary'
-                            : 'outline'
+                          billOfMaterials.deletedAt
+                            ? 'destructive'
+                            : billOfMaterials.kind === 'template'
+                              ? 'secondary'
+                              : 'outline'
                         }
                       >
-                        {billOfMaterials.kind === 'template'
-                          ? 'Template'
-                          : 'Implementation'}
+                        {billOfMaterials.deletedAt
+                          ? 'Deleted'
+                          : billOfMaterials.kind === 'template'
+                            ? 'Template'
+                            : 'Implementation'}
                       </Badge>
                     </TableCell>
                     <TableCell className="whitespace-normal align-top">
@@ -162,17 +198,37 @@ export function BillsOfMaterialsCatalogPage({
                         billOfMaterialsId={billOfMaterials.id}
                         billOfMaterialsName={billOfMaterials.name}
                         canAssociateProduct={
+                          !billOfMaterials.deletedAt &&
                           billOfMaterials.kind === 'template' &&
                           billOfMaterials.product === null
                         }
                         canCreateImplementation={
+                          !billOfMaterials.deletedAt &&
                           billOfMaterials.kind === 'template' &&
                           billOfMaterials.product !== null &&
                           billOfMaterials.product.availability === 'available'
                         }
                         token={session.token}
+                        isAdmin={isAdmin}
+                        isDeleted={billOfMaterials.deletedAt !== null}
+                        onDelete={() => {
+                          deletion.reset()
+                          setPendingMutation({
+                            action: 'delete',
+                            target: billOfMaterials,
+                          })
+                        }}
                         onEdit={() => onEdit(billOfMaterials.id)}
-                        onDeriveTemplate={() => onDeriveTemplate(billOfMaterials.id)}
+                        onDeriveTemplate={() =>
+                          onDeriveTemplate(billOfMaterials.id)
+                        }
+                        onRestore={() => {
+                          restoration.reset()
+                          setPendingMutation({
+                            action: 'restore',
+                            target: billOfMaterials,
+                          })
+                        }}
                         onCreateImplementation={() =>
                           setApplicationTemplateId(billOfMaterials.id)
                         }
@@ -191,6 +247,44 @@ export function BillsOfMaterialsCatalogPage({
         onOpenChange={setVariantDialogOpen}
         onSelect={onCreateImplementation}
       />
+      <BillOfMaterialsMutationDialog
+        action={pendingMutation?.action ?? 'delete'}
+        error={
+          (pendingMutation?.action === 'restore'
+            ? restoration.error
+            : deletion.error) ?? null
+        }
+        isPending={
+          pendingMutation?.action === 'restore'
+            ? restoration.isRestoring
+            : deletion.isDeleting
+        }
+        target={pendingMutation?.target ?? null}
+        onOpenBillOfMaterials={(id) => {
+          setPendingMutation(null)
+          onEdit(id)
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            deletion.reset()
+            restoration.reset()
+            setPendingMutation(null)
+          }
+        }}
+        onConfirm={async () => {
+          if (!pendingMutation) return
+          try {
+            if (pendingMutation.action === 'restore')
+              await restoration.restoreBillOfMaterials(
+                pendingMutation.target.id,
+              )
+            else await deletion.deleteBillOfMaterials(pendingMutation.target.id)
+            setPendingMutation(null)
+          } catch {
+            // Keep the dialog open with the server result and current catalog state.
+          }
+        }}
+      />
       <ProductVariantCandidateDialog
         open={applicationTemplateId !== null}
         templateId={applicationTemplateId ?? undefined}
@@ -199,7 +293,8 @@ export function BillsOfMaterialsCatalogPage({
           if (!open) setApplicationTemplateId(null)
         }}
         onSelect={(candidate) => {
-          if (applicationTemplateId) onApplyTemplate(applicationTemplateId, candidate)
+          if (applicationTemplateId)
+            onApplyTemplate(applicationTemplateId, candidate)
         }}
       />
     </div>

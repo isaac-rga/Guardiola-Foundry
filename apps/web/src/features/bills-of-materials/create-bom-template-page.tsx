@@ -117,7 +117,9 @@ export function BomBuilderPage({
   const implementationVariant =
     context.kind === 'implementation' ? context.productVariant : undefined
   const initialBillOfMaterials = existing ?? copySource
-  const capabilities = resolveBuilderCapabilities(copySource)
+  const isReadOnly =
+    existing?.readOnlyReason !== null && existing?.readOnlyReason !== undefined
+  const capabilities = resolveBuilderCapabilities(copySource, isReadOnly)
   const form = useForm<
     CreateBillOfMaterialsFormValues,
     unknown,
@@ -319,16 +321,29 @@ export function BomBuilderPage({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Back to catalog
         </Button>
-        <Button type="submit" form="create-bom" disabled={isSaving}>
-          <SaveIcon /> {isSaving ? 'Saving...' : 'Save BOM'}
+        <Button
+          type="submit"
+          form="create-bom"
+          disabled={isSaving || isReadOnly}
+        >
+          <SaveIcon />{' '}
+          {isReadOnly ? 'Read only' : isSaving ? 'Saving...' : 'Save BOM'}
         </Button>
       </div>
+      {isReadOnly ? (
+        <p
+          className="rounded-xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-foreground"
+          role="status"
+        >
+          {readOnlyReasonMessage(existing!.readOnlyReason)}
+        </p>
+      ) : null}
 
       <Form {...form}>
         <form
           id="create-bom"
           noValidate
-          onSubmit={submit}
+          onSubmit={isReadOnly ? (event) => event.preventDefault() : submit}
           className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start"
         >
           <Card className="xl:col-span-2">
@@ -372,7 +387,7 @@ export function BomBuilderPage({
                           {...field}
                           autoFocus
                           className="-ml-2 h-auto w-[calc(100%+1rem)] rounded-none border-0 border-b border-border/70 bg-transparent px-2 py-1 font-editorial text-4xl! leading-none text-foreground shadow-none transition-[border-color,background-color,box-shadow,border-radius] placeholder:text-muted-foreground/45 hover:rounded-md hover:border hover:border-input hover:bg-background/70 focus-visible:rounded-md focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/20 sm:text-5xl! md:text-5xl!"
-                          disabled={isSaving}
+                          disabled={isSaving || isReadOnly}
                           placeholder="Untitled Bill of Materials"
                         />
                       </FormControl>
@@ -486,7 +501,11 @@ export function BomBuilderPage({
                   {capabilities.copyNotice}
                 </p>
               ) : (
-                <Button type="button" onClick={addLine} disabled={isSaving}>
+                <Button
+                  type="button"
+                  onClick={addLine}
+                  disabled={isSaving || isReadOnly}
+                >
                   <PlusIcon /> Add BOM line
                 </Button>
               )}
@@ -1002,8 +1021,11 @@ export function BomBuilderPage({
   )
 }
 
-function resolveBuilderCapabilities(copySource?: BillOfMaterialsDetail) {
-  const canEditCopiedValues = copySource === undefined
+function resolveBuilderCapabilities(
+  copySource?: BillOfMaterialsDetail,
+  isReadOnly = false,
+) {
+  const canEditCopiedValues = copySource === undefined && !isReadOnly
   return {
     canEditDescription: canEditCopiedValues,
     canEditComposition: canEditCopiedValues,
@@ -1011,6 +1033,16 @@ function resolveBuilderCapabilities(copySource?: BillOfMaterialsDetail) {
       ? `Copied from ${copySource.name} when you save`
       : null,
   }
+}
+
+function readOnlyReasonMessage(
+  reason: BillOfMaterialsDetail['readOnlyReason'],
+) {
+  if (reason === 'bom-deleted')
+    return 'This Bill of Materials is deleted. Restore it before editing.'
+  if (reason === 'product-deleted')
+    return 'The assigned Product is deleted. Restore it before editing this Bill of Materials.'
+  return 'The assigned Product Variant is deleted. Restore it before editing this Bill of Materials.'
 }
 
 function shouldShowSaveError(error: Error | null) {
