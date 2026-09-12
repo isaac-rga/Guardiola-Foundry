@@ -16,6 +16,7 @@ import type {
   BillOfMaterialsRestoreConflictResponse,
   CreateBillOfMaterialsRequest,
   DeriveBillOfMaterialsTemplateRequest,
+  ListBillsOfMaterialsQuery,
   ListBillsOfMaterialsResponse,
   SearchProductVariantCandidatesResponse,
   UpdateBillOfMaterialsRequest,
@@ -55,10 +56,12 @@ export class BillOfMaterialsRestoreConflictError extends Error {
 
 export async function listBillsOfMaterials(
   token: string,
-  includeDeleted = false,
+  filters: ListBillsOfMaterialsQuery = {},
 ): Promise<ListBillsOfMaterialsResponse> {
   const url = new URL(resolveApiUrl('/bills-of-materials'), window.location.origin)
-  if (includeDeleted) url.searchParams.set('includeDeleted', 'true')
+  if (filters.search) url.searchParams.set('search', filters.search)
+  if (filters.kind) url.searchParams.set('kind', filters.kind)
+  if (filters.includeDeleted) url.searchParams.set('includeDeleted', 'true')
   const response = await fetch(url.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },

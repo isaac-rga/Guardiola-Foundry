@@ -42,7 +42,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       throw new Error(`Unexpected request: ${url.pathname}`)
     })
@@ -54,6 +54,15 @@ describe('Bills of Materials route', () => {
 
     expect(
       await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Include deleted' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create Template' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create Implementation' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('textbox', { name: 'BOM Name' }),
@@ -69,7 +78,7 @@ describe('Bills of Materials route', () => {
         const url = new URL(String(input))
         if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
         if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-          return jsonResponse({ billsOfMaterials })
+          return jsonResponse(catalogResponse(billsOfMaterials))
         }
         if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
           const created = billOfMaterialsFixture()
@@ -151,7 +160,7 @@ describe('Bills of Materials route', () => {
       within(row).queryByText('Reusable starting point'),
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole('columnheader', { name: 'Type' }),
+      screen.getByRole('columnheader', { name: 'Kind' }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('columnheader', { name: 'Product context' }),
@@ -186,7 +195,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials })
+        return jsonResponse(catalogResponse(billsOfMaterials))
       }
       if (url.pathname === '/bills-of-materials/product-variant-candidates') {
         return jsonResponse({
@@ -332,7 +341,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [template] })
+        return jsonResponse(catalogResponse([template]))
       }
       if (url.pathname === '/bills-of-materials/product-variant-candidates') {
         expect(url.searchParams.get('templateId')).toBe(template.id)
@@ -455,7 +464,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [saved] })
+        return jsonResponse(catalogResponse([saved]))
       }
       if (
         url.pathname === `/bills-of-materials/${saved.id}` &&
@@ -562,7 +571,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials })
+        return jsonResponse(catalogResponse(billsOfMaterials))
       }
       if (
         url.pathname === `/bills-of-materials/${origin.id}` &&
@@ -577,7 +586,10 @@ describe('Bills of Materials route', () => {
         postedBodies.push(JSON.parse(String(init.body)))
         saveAttempts += 1
         if (saveAttempts === 1) {
-          return jsonResponse({ message: 'Unable to derive this Template.' }, { status: 500 })
+          return jsonResponse(
+            { message: 'Unable to derive this Template.' },
+            { status: 500 },
+          )
         }
         const derived = {
           ...origin,
@@ -612,14 +624,20 @@ describe('Bills of Materials route', () => {
     expect(screen.getByLabelText('Description')).toBeDisabled()
     expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
     expect(
-      screen.getByText(`Origin: Implementation · ${origin.name} · ${origin.id}`),
+      screen.getByText(
+        `Origin: Implementation · ${origin.name} · ${origin.id}`,
+      ),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Continue without Product' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Continue without Product' }),
+    )
     await user.clear(name)
     await user.type(name, 'Jackie working copy')
     await user.click(screen.getByRole('button', { name: 'Save BOM' }))
 
-    expect(await screen.findByText('Unable to derive this Template.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Unable to derive this Template.'),
+    ).toBeInTheDocument()
     expect(name).toHaveValue('Jackie working copy')
     expect(screen.getByText('Outer skirt')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save BOM' }))
@@ -631,39 +649,41 @@ describe('Bills of Materials route', () => {
       ]),
     )
     expect(await screen.findByText('Jackie working copy')).toBeInTheDocument()
-    expect(screen.getByText(/Origin: Jackie atelier sample/)).toBeInTheDocument()
+    expect(screen.getAllByText('Jackie atelier sample')).toHaveLength(2)
   })
 
   it('preserves the local draft when the open Bill of Materials was deleted', async () => {
     const user = userEvent.setup()
     const saved = billOfMaterialsDetailFixture()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = new URL(String(input))
-      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
-      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [saved] })
-      }
-      if (
-        url.pathname === `/bills-of-materials/${saved.id}` &&
-        init?.method === 'GET'
-      ) {
-        return jsonResponse(saved)
-      }
-      if (
-        url.pathname === `/bills-of-materials/${saved.id}` &&
-        init?.method === 'PUT'
-      ) {
-        return jsonResponse(
-          {
-            message:
-              'This Bill of Materials was deleted while it was open. Your draft was not saved.',
-            deleted: true,
-          },
-          { status: 409 },
-        )
-      }
-      throw new Error(`Unexpected request: ${url.pathname}`)
-    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+        if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+          return jsonResponse(catalogResponse([saved]))
+        }
+        if (
+          url.pathname === `/bills-of-materials/${saved.id}` &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse(saved)
+        }
+        if (
+          url.pathname === `/bills-of-materials/${saved.id}` &&
+          init?.method === 'PUT'
+        ) {
+          return jsonResponse(
+            {
+              message:
+                'This Bill of Materials was deleted while it was open. Your draft was not saved.',
+              deleted: true,
+            },
+            { status: 409 },
+          )
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
 
     seedStoredSession()
     renderBillsOfMaterialsRoute()
@@ -741,7 +761,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [saved] })
+        return jsonResponse(catalogResponse([saved]))
       }
       if (
         url.pathname === `/bills-of-materials/${saved.id}` &&
@@ -797,7 +817,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials })
+        return jsonResponse(catalogResponse(billsOfMaterials))
       }
       if (url.pathname === '/products') {
         return jsonResponse({
@@ -889,8 +909,8 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials') {
-        return jsonResponse({
-          billsOfMaterials: [
+        return jsonResponse(
+          catalogResponse([
             billOfMaterialsFixture(),
             {
               ...billOfMaterialsFixture(),
@@ -898,8 +918,8 @@ describe('Bills of Materials route', () => {
               kind: 'implementation',
               name: 'Jackie sample implementation',
             },
-          ],
-        })
+          ]),
+        )
       }
       throw new Error(`Unexpected request: ${url.pathname}`)
     })
@@ -930,6 +950,203 @@ describe('Bills of Materials route', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders the operational summary and compact projection and line-review context', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials') {
+        return jsonResponse({
+          billsOfMaterials: [
+            {
+              ...billOfMaterialsFixture(),
+              lineCount: 2,
+              verifiedLineCount: 1,
+              attentionCount: 1,
+              costProjection: {
+                availability: 'partial',
+                amountCents: 8400,
+                excludedLineCount: 1,
+              },
+            },
+            {
+              ...billOfMaterialsFixture(),
+              id: 'BOM-DEF567',
+              kind: 'implementation',
+              name: 'Jackie sample implementation',
+              product: {
+                id: 'P-JACKIE',
+                name: 'Jackie',
+                availability: 'available',
+              },
+              productVariant: {
+                id: 'PV-SAMPLE',
+                name: 'Jackie Showroom',
+                availability: 'available',
+              },
+              origin: {
+                id: 'BOM-ORIGIN',
+                name: 'Archived base',
+                kind: 'template',
+                availability: 'unavailable',
+              },
+              lineCount: 1,
+              verifiedLineCount: 1,
+              costProjection: {
+                availability: 'complete',
+                amountCents: 4200,
+                excludedLineCount: 0,
+              },
+            },
+          ],
+          summary: {
+            totalAvailable: 2,
+            templateCount: 1,
+            implementationCount: 1,
+            withoutProductVariantCount: 1,
+            withUnverifiedLinesCount: 1,
+          },
+        })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+
+    const summary = await screen.findByRole('region', {
+      name: 'Bills of Materials summary',
+    })
+    expect(within(summary).getByText('Available BOMs')).toBeInTheDocument()
+    expect(within(summary).getByText('2')).toBeInTheDocument()
+    expect(
+      within(summary).getByText('1 Templates · 1 Implementations'),
+    ).toBeInTheDocument()
+    expect(
+      within(summary).getByText('BOMs without an associated Product Variant'),
+    ).toBeInTheDocument()
+    expect(within(summary).getAllByText('1')).toHaveLength(2)
+    expect(
+      within(summary).getByText('BOMs pending line verification'),
+    ).toBeInTheDocument()
+
+    const table = screen.getByRole('table')
+    expect(table.parentElement).toHaveClass('overflow-x-auto')
+    for (const column of [
+      'Bill of Materials',
+      'Kind',
+      'Product context',
+      'Origin',
+      'Cost projection',
+      'Lines',
+      'Actions',
+    ]) {
+      expect(
+        within(table).getByRole('columnheader', { name: column }),
+      ).toBeInTheDocument()
+    }
+    expect(
+      screen.queryByRole('columnheader', { name: 'Availability' }),
+    ).not.toBeInTheDocument()
+
+    const templateRow = screen
+      .getByText('Jackie base construction')
+      .closest('tr') as HTMLTableRowElement
+    expect(
+      within(templateRow).getByRole('button', {
+        name: 'Jackie base construction',
+      }),
+    ).toHaveAttribute('data-variant', 'link')
+    expect(within(templateRow).getByText('2')).toBeInTheDocument()
+    expect(within(templateRow).getByText('1 verified')).toBeInTheDocument()
+    expect(within(templateRow).getByText('1 needs review')).toBeInTheDocument()
+    expect(
+      within(templateRow).getByText('1 needs attention'),
+    ).toBeInTheDocument()
+    expect(
+      within(templateRow).getByLabelText(
+        /Partial projection:.*84\.00.*1 line excluded/,
+      ),
+    ).toBeInTheDocument()
+
+    const implementationRow = screen
+      .getByText('Jackie sample implementation')
+      .closest('tr') as HTMLTableRowElement
+    expect(
+      within(implementationRow).getByText('Archived base'),
+    ).toBeInTheDocument()
+    expect(implementationRow).toHaveTextContent('Template · Unavailable origin')
+    expect(
+      within(implementationRow).getByLabelText(/Complete projection:.*42\.00/),
+    ).toBeInTheDocument()
+  })
+
+  it('hydrates catalog filters from the URL and keeps server requests synchronized', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture('admin'))
+        if (url.pathname === '/bills-of-materials') {
+          return jsonResponse({
+            billsOfMaterials: [],
+            summary: {
+              totalAvailable: 3,
+              templateCount: 2,
+              implementationCount: 1,
+              withoutProductVariantCount: 2,
+              withUnverifiedLinesCount: 1,
+            },
+          })
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+    seedStoredSession('admin')
+    const { router } = renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials?search=Jackie&catalogKind=implementation&includeDeleted=true',
+    )
+
+    expect(
+      await screen.findByRole('searchbox', {
+        name: 'Search Bills of Materials',
+      }),
+    ).toHaveValue('Jackie')
+    expect(
+      screen.getByRole('button', { name: 'Implementations' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('button', { name: 'Including deleted' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.some(([input]) => {
+          const url = new URL(String(input))
+          return (
+            url.pathname === '/bills-of-materials' &&
+            url.searchParams.get('search') === 'Jackie' &&
+            url.searchParams.get('kind') === 'implementation' &&
+            url.searchParams.get('includeDeleted') === 'true'
+          )
+        }),
+      ).toBe(true)
+    })
+    expect(
+      screen.getByText('No Bills of Materials match this view.'),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Clear catalog filters' }),
+    )
+
+    await waitFor(() => {
+      expect(router.state.location.search.search).toBeUndefined()
+      expect(router.state.location.search.catalogKind).toBeUndefined()
+      expect(router.state.location.search.includeDeleted).toBeUndefined()
+    })
+  })
+
   it('assigns a previously unassociated Template once from the catalog', async () => {
     const user = userEvent.setup()
     let template = {
@@ -945,7 +1162,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [template] })
+        return jsonResponse(catalogResponse([template]))
       }
       if (url.pathname === '/products') {
         return jsonResponse({
@@ -1020,7 +1237,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/materials/search') {
         return jsonResponse(materialSearchFixture())
@@ -1122,7 +1339,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/materials/search') {
         return jsonResponse(materialSearchFixture(true))
@@ -1235,7 +1452,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/materials/search') {
         return jsonResponse(materialSearchFixture())
@@ -1348,7 +1565,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/pattern-sets/search') {
         return jsonResponse({
@@ -1413,7 +1630,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/materials/search') {
         return jsonResponse(materialSearchFixture(true, true))
@@ -1483,7 +1700,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/materials/search') {
         return jsonResponse(materialSearchFixture(true))
@@ -1518,10 +1735,14 @@ describe('Bills of Materials route', () => {
   })
 
   it('shows a recoverable catalog loading error', async () => {
+    const user = userEvent.setup()
+    let catalogLoads = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials') {
+        catalogLoads += 1
+        if (catalogLoads > 1) return jsonResponse(catalogResponse([]))
         return jsonResponse(
           { message: 'Catalog temporarily unavailable.' },
           { status: 503 },
@@ -1536,6 +1757,11 @@ describe('Bills of Materials route', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Catalog temporarily unavailable.',
     )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('confirms deletion with Product context and descendant lineage', async () => {
@@ -1554,7 +1780,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: deleted ? [] : [template] })
+        return jsonResponse(catalogResponse(deleted ? [] : [template]))
       }
       if (
         url.pathname === `/bills-of-materials/${template.id}` &&
@@ -1597,12 +1823,13 @@ describe('Bills of Materials route', () => {
       if (url.pathname === '/auth/me')
         return jsonResponse(sessionFixture('admin'))
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({
-          billsOfMaterials:
+        return jsonResponse(
+          catalogResponse(
             url.searchParams.get('includeDeleted') === 'true'
               ? [deletedTemplate]
               : [],
-        })
+          ),
+        )
       }
       if (url.pathname === `/bills-of-materials/${deletedTemplate.id}`) {
         return jsonResponse(deletedTemplate)
@@ -1674,20 +1901,24 @@ describe('Bills of Materials route', () => {
         },
       })),
     }
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = new URL(String(input))
-      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
-      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [readOnlyBillOfMaterials] })
-      }
-      if (
-        url.pathname === `/bills-of-materials/${readOnlyBillOfMaterials.id}` &&
-        init?.method === 'GET'
-      ) {
-        return jsonResponse(readOnlyBillOfMaterials)
-      }
-      throw new Error(`Unexpected request: ${url.pathname}`)
-    })
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture('admin'))
+        if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+          return jsonResponse(catalogResponse([readOnlyBillOfMaterials]))
+        }
+        if (
+          url.pathname ===
+            `/bills-of-materials/${readOnlyBillOfMaterials.id}` &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse(readOnlyBillOfMaterials)
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
 
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
@@ -1698,27 +1929,41 @@ describe('Bills of Materials route', () => {
       }),
     )
     await user.click(
-      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+      screen.getByRole('menuitem', { name: 'View Bill of Materials' }),
     )
 
-    expect(await screen.findByRole('status')).toHaveTextContent(scenario.message)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      scenario.message,
+    )
     const name = screen.getByRole('textbox', { name: scenario.fieldName })
     expect(name).toBeDisabled()
     expect(screen.getByLabelText('Description')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Add BOM line' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Reorder Outer skirt' })).toBeDisabled()
-    expect(screen.queryByRole('button', { name: 'Duplicate line' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Remove line' })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Reorder Outer skirt' }),
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Duplicate line' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Remove line' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
-    expect(screen.queryByRole('combobox', { name: 'Choose Material' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: 'Choose Pattern Set' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('combobox', { name: 'Choose Material' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('combobox', { name: 'Choose Pattern Set' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText('Final meters')).toBeDisabled()
-    expect(screen.getByRole('checkbox', { name: 'Manually verified' })).toBeDisabled()
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeDisabled()
     expect(screen.getByLabelText('Line Note')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Read only' })).toBeDisabled()
-    expect(
-      fetchSpy.mock.calls.some(([, init]) => init?.method === 'PUT'),
-    ).toBe(false)
+    expect(fetchSpy.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(
+      false,
+    )
   })
 
   it('keeps a restore conflict in context and links to the occupying Bill of Materials', async () => {
@@ -1738,7 +1983,7 @@ describe('Bills of Materials route', () => {
       if (url.pathname === '/auth/me')
         return jsonResponse(sessionFixture('admin'))
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [deletedTemplate] })
+        return jsonResponse(catalogResponse([deletedTemplate]))
       }
       if (
         url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
@@ -1790,9 +2035,10 @@ describe('Bills of Materials route', () => {
     }
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
-      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [deletedTemplate] })
+        return jsonResponse(catalogResponse([deletedTemplate]))
       }
       if (
         url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
@@ -1811,9 +2057,13 @@ describe('Bills of Materials route', () => {
 
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
-    await user.click(await screen.findByRole('button', { name: 'Include deleted' }))
     await user.click(
-      screen.getByRole('button', { name: `Actions for ${deletedTemplate.name}` }),
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
     )
     await user.click(
       screen.getByRole('menuitem', { name: 'Restore Bill of Materials' }),
@@ -1823,7 +2073,9 @@ describe('Bills of Materials route', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Restore conflict response was incomplete.',
     )
-    expect(screen.queryByRole('button', { name: /^Open / })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^Open / }),
+    ).not.toBeInTheDocument()
   })
 
   it('keeps the draft visible when authorization expires during Save', async () => {
@@ -1832,7 +2084,7 @@ describe('Bills of Materials route', () => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
       if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
-        return jsonResponse({ billsOfMaterials: [] })
+        return jsonResponse(catalogResponse([]))
       }
       if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
         return jsonResponse(
@@ -1876,11 +2128,14 @@ function renderBillsOfMaterialsRoute(initialEntry = '/app/bills-of-materials') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  )
+  return {
+    router,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+  }
 }
 
 function seedStoredSession(role: 'admin' | 'operator' = 'operator') {
@@ -1916,6 +2171,9 @@ function billOfMaterialsFixture() {
     deletedAt: null,
     descendantCount: 0,
     readOnlyReason: null,
+    lineCount: 0,
+    verifiedLineCount: 0,
+    costProjection: unavailableProjection(),
     createdBy: { id: 1, email: 'operator@example.com' },
     createdAt: '2026-09-08T12:00:00.000Z',
     updatedAt: '2026-09-08T12:00:00.000Z',
@@ -2077,6 +2335,45 @@ function unavailableProjection() {
     availability: 'unavailable' as const,
     amountCents: null,
     excludedLineCount: 0,
+  }
+}
+
+function catalogResponse(billsOfMaterials: unknown[]) {
+  const available = billsOfMaterials.filter(
+    (item) =>
+      typeof item === 'object' &&
+      item !== null &&
+      'deletedAt' in item &&
+      item.deletedAt === null,
+  )
+  const read = (item: unknown, key: string) =>
+    typeof item === 'object' && item !== null && key in item
+      ? item[key as keyof typeof item]
+      : undefined
+
+  return {
+    billsOfMaterials,
+    summary: {
+      totalAvailable: available.length,
+      templateCount: available.filter(
+        (item) => read(item, 'kind') === 'template',
+      ).length,
+      implementationCount: available.filter(
+        (item) => read(item, 'kind') === 'implementation',
+      ).length,
+      withoutProductVariantCount: available.filter(
+        (item) => read(item, 'productVariant') === null,
+      ).length,
+      withUnverifiedLinesCount: available.filter((item) => {
+        const lineCount = read(item, 'lineCount')
+        const verifiedLineCount = read(item, 'verifiedLineCount')
+        return (
+          typeof lineCount === 'number' &&
+          typeof verifiedLineCount === 'number' &&
+          verifiedLineCount < lineCount
+        )
+      }).length,
+    },
   }
 }
 

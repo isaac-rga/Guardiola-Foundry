@@ -4,6 +4,7 @@ import type {
   ApplyBillOfMaterialsTemplateRequest,
   CreateBillOfMaterialsRequest,
   DeriveBillOfMaterialsTemplateRequest,
+  ListBillsOfMaterialsQuery,
   ProductSummary,
   UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
@@ -28,16 +29,21 @@ const templateProductCandidatesQueryKey = [
   'template-product-candidates',
 ] as const
 
-export function useBillsOfMaterials(token: string, includeDeleted = false) {
+export function useBillsOfMaterials(
+  token: string,
+  filters: ListBillsOfMaterialsQuery = {},
+) {
   const query = useQuery({
-    queryKey: [...billsOfMaterialsQueryKey, { includeDeleted }],
-    queryFn: () => listBillsOfMaterials(token, includeDeleted),
+    queryKey: [...billsOfMaterialsQueryKey, filters],
+    queryFn: () => listBillsOfMaterials(token, filters),
   })
 
   return {
     billsOfMaterials: query.data?.billsOfMaterials ?? [],
+    summary: query.data?.summary ?? null,
     isLoading: query.isLoading,
     loadError: query.error,
+    reload: query.refetch,
   }
 }
 

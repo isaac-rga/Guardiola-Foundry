@@ -12,6 +12,7 @@ import {
   type CreateBillOfMaterialsRequest,
   type CreateBillOfMaterialsTemplateRequest,
   type DeriveBillOfMaterialsTemplateRequest,
+  type ListBillsOfMaterialsQuery,
   type ListBillsOfMaterialsResponse,
   type ProductVariantCandidate,
   type SearchProductVariantCandidatesResponse,
@@ -160,6 +161,10 @@ export const billOfMaterialsSummarySchema = z.object({
   readOnlyReason: z
     .enum(['bom-deleted', 'product-deleted', 'product-variant-deleted'])
     .nullable(),
+  lineCount: z.number().int().nonnegative(),
+  verifiedLineCount: z.number().int().nonnegative(),
+  attentionCount: z.number().int().nonnegative(),
+  costProjection: billOfMaterialsCostProjectionSchema,
   createdBy: billOfMaterialsUserReferenceSchema,
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
@@ -167,20 +172,33 @@ export const billOfMaterialsSummarySchema = z.object({
 
 export const listBillsOfMaterialsResponseSchema = z.object({
   billsOfMaterials: z.array(billOfMaterialsSummarySchema),
+  summary: z.object({
+    totalAvailable: z.number().int().nonnegative(),
+    templateCount: z.number().int().nonnegative(),
+    implementationCount: z.number().int().nonnegative(),
+    withoutProductVariantCount: z.number().int().nonnegative(),
+    withUnverifiedLinesCount: z.number().int().nonnegative(),
+  }),
 }) satisfies z.ZodType<ListBillsOfMaterialsResponse>
 
 export const billOfMaterialsDetailSchema = billOfMaterialsSummarySchema.extend({
   lines: z.array(billOfMaterialsLineSchema),
-  attentionCount: z.number().int().nonnegative(),
   costProjection: billOfMaterialsCostProjectionSchema,
 }) satisfies z.ZodType<BillOfMaterialsDetail>
 
 export const listBillsOfMaterialsQuerySchema = z.object({
-  includeDeleted: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => value === 'true'),
-})
+  search: z
+    .string()
+    .max(200)
+    .refine((value) => value.trim().length > 0)
+    .optional(),
+  kind: z.enum(['template', 'implementation']).optional(),
+  includeDeleted: z.preprocess((value) => {
+    if (value === 'true') return true
+    if (value === 'false') return false
+    return value
+  }, z.boolean().optional()),
+}) satisfies z.ZodType<ListBillsOfMaterialsQuery>
 
 const billOfMaterialsLineRequestFields = {
   constructionPiece: z

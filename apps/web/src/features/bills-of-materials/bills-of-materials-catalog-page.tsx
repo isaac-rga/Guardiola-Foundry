@@ -1,12 +1,15 @@
 import { CopyPlusIcon, FileStackIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
-import type { ProductVariantCandidate } from '@guardiola-foundry/shared-types'
-import type { BillOfMaterialsSummary } from '@guardiola-foundry/shared-types'
+import type {
+  BillOfMaterialsSummary,
+  ListBillsOfMaterialsQuery,
+  ProductVariantCandidate,
+} from '@guardiola-foundry/shared-types'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { cn } from '@/lib/utils'
 import {
   useBillsOfMaterials,
   useDeleteBillOfMaterials,
@@ -29,6 +33,12 @@ import {
 } from './api/bills-of-materials'
 import { BillOfMaterialsMutationDialog } from './components/bill-of-materials-mutation-dialog'
 import { AssociateTemplateProductButton } from './components/associate-template-product-button'
+import {
+  CatalogEmptyState,
+  CatalogFilters,
+  CatalogSummary,
+  CostProjection,
+} from './components/catalog-presentation'
 import { ProductVariantCandidateDialog } from './components/product-variant-candidate-dialog'
 
 export function BillsOfMaterialsCatalogPage({
@@ -37,6 +47,8 @@ export function BillsOfMaterialsCatalogPage({
   onApplyTemplate,
   onDeriveTemplate,
   onEdit,
+  filters,
+  onFiltersChange,
 }: {
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
@@ -46,13 +58,21 @@ export function BillsOfMaterialsCatalogPage({
   ) => void
   onDeriveTemplate: (originId: string) => void
   onEdit: (billOfMaterialsId: string) => void
+  filters: ListBillsOfMaterialsQuery
+  onFiltersChange: (changes: ListBillsOfMaterialsQuery) => void
 }) {
   const { session } = useAppShell()
   const isAdmin = session.user.role === 'admin'
-  const [includeDeleted, setIncludeDeleted] = useState(false)
-  const { billsOfMaterials, isLoading, loadError } = useBillsOfMaterials(
-    session.token,
-    isAdmin && includeDeleted,
+  const catalogFilters = {
+    ...filters,
+    includeDeleted: isAdmin && filters.includeDeleted,
+  }
+  const { billsOfMaterials, summary, isLoading, loadError, reload } =
+    useBillsOfMaterials(session.token, catalogFilters)
+  const hasActiveFilters = Boolean(
+    catalogFilters.search ||
+    catalogFilters.kind ||
+    catalogFilters.includeDeleted,
   )
   const deletion = useDeleteBillOfMaterials(session.token)
   const restoration = useRestoreBillOfMaterials(session.token)
@@ -71,50 +91,65 @@ export function BillsOfMaterialsCatalogPage({
         title="Bills of Materials"
         description="Browse reusable Templates and Product Variant Implementations in one operational catalog."
         action={
-          <div className="flex gap-2">
-            {isAdmin ? (
-              <Button
-                aria-pressed={includeDeleted}
-                type="button"
-                variant={includeDeleted ? 'secondary' : 'outline'}
-                onClick={() => setIncludeDeleted((value) => !value)}
-              >
-                {includeDeleted ? 'Including deleted' : 'Include deleted'}
-              </Button>
-            ) : null}
-            <CreateBomMenu
-              onCreateImplementation={() => setVariantDialogOpen(true)}
-              onCreateTemplate={onCreateTemplate}
-            />
-          </div>
+          <CreateBomMenu
+            onCreateImplementation={() => setVariantDialogOpen(true)}
+            onCreateTemplate={onCreateTemplate}
+          />
         }
       />
 
+      {summary ? <CatalogSummary summary={summary} /> : null}
+
       <Card>
-        <CardHeader>
-          <CardTitle>Operational catalog</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
+          <CatalogFilters
+            filters={catalogFilters}
+            isAdmin={isAdmin}
+            onChange={onFiltersChange}
+          />
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Loading Bills of Materials...
             </p>
           ) : null}
-          {loadError ? <p role="alert">{loadError.message}</p> : null}
-          {!isLoading && !loadError && billsOfMaterials.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No Bills of Materials registered yet.
+          {loadError ? (
+            <div
+              className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+              role="alert"
+            >
+              <p>{loadError.message}</p>
+              <Button
+                className="mt-3"
+                onClick={() => void reload()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Try again
+              </Button>
             </div>
           ) : null}
+          {!isLoading &&
+          !loadError &&
+          billsOfMaterials.length === 0 &&
+          summary ? (
+            <CatalogEmptyState
+              filtered={hasActiveFilters || summary.totalAvailable > 0}
+              onClear={() => onFiltersChange({})}
+              onCreateImplementation={() => setVariantDialogOpen(true)}
+              onCreateTemplate={onCreateTemplate}
+            />
+          ) : null}
           {billsOfMaterials.length > 0 ? (
-            <Table className="min-w-[58rem]">
+            <Table className="min-w-[68rem]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Bill of Materials</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>Kind</TableHead>
                   <TableHead>Product context</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last updated</TableHead>
+                  <TableHead>Origin</TableHead>
+                  <TableHead className="text-right">Cost projection</TableHead>
+                  <TableHead className="text-right">Lines</TableHead>
                   <TableHead className="w-12">
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -122,37 +157,39 @@ export function BillsOfMaterialsCatalogPage({
               </TableHeader>
               <TableBody>
                 {billsOfMaterials.map((billOfMaterials) => (
-                  <TableRow key={billOfMaterials.id}>
+                  <TableRow
+                    className={cn(billOfMaterials.deletedAt && 'opacity-65')}
+                    key={billOfMaterials.id}
+                  >
                     <TableCell className="max-w-[18rem] whitespace-normal align-top">
-                      <p className="font-medium">{billOfMaterials.name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          className="h-auto justify-start p-0 text-left whitespace-normal"
+                          onClick={() => onEdit(billOfMaterials.id)}
+                          type="button"
+                          variant="link"
+                        >
+                          {billOfMaterials.name}
+                        </Button>
+                        {billOfMaterials.deletedAt ? (
+                          <Badge variant="destructive">Deleted</Badge>
+                        ) : null}
+                      </div>
                       <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                         {billOfMaterials.id}
                       </p>
-                      {billOfMaterials.origin ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Origin: {billOfMaterials.origin.name} ·{' '}
-                          {billOfMaterials.origin.kind === 'template'
-                            ? 'Template'
-                            : 'Implementation'}{' '}
-                          · {billOfMaterials.origin.availability}
-                        </p>
-                      ) : null}
                     </TableCell>
                     <TableCell className="align-top">
                       <Badge
                         variant={
-                          billOfMaterials.deletedAt
-                            ? 'destructive'
-                            : billOfMaterials.kind === 'template'
-                              ? 'secondary'
-                              : 'outline'
+                          billOfMaterials.kind === 'template'
+                            ? 'secondary'
+                            : 'outline'
                         }
                       >
-                        {billOfMaterials.deletedAt
-                          ? 'Deleted'
-                          : billOfMaterials.kind === 'template'
-                            ? 'Template'
-                            : 'Implementation'}
+                        {billOfMaterials.kind === 'template'
+                          ? 'Template'
+                          : 'Implementation'}
                       </Badge>
                     </TableCell>
                     <TableCell className="whitespace-normal align-top">
@@ -182,16 +219,58 @@ export function BillsOfMaterialsCatalogPage({
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-normal align-top text-sm">
-                      <p>{billOfMaterials.createdBy.email}</p>
-                      <p className="text-muted-foreground">
-                        {new Date(
-                          billOfMaterials.createdAt,
-                        ).toLocaleDateString()}
-                      </p>
+                    <TableCell className="max-w-[14rem] whitespace-normal align-top">
+                      {billOfMaterials.origin ? (
+                        <div>
+                          <p>{billOfMaterials.origin.name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {billOfMaterials.origin.kind === 'template'
+                              ? 'Template'
+                              : 'Implementation'}
+                            {billOfMaterials.origin.availability ===
+                            'unavailable'
+                              ? ' · Unavailable origin'
+                              : ' · Immediate origin'}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          Created manually
+                        </span>
+                      )}
                     </TableCell>
-                    <TableCell className="align-top text-sm">
-                      {new Date(billOfMaterials.updatedAt).toLocaleDateString()}
+                    <TableCell className="text-right align-top">
+                      <CostProjection
+                        projection={billOfMaterials.costProjection}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      <p className="font-medium">{billOfMaterials.lineCount}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {billOfMaterials.verifiedLineCount} verified
+                      </p>
+                      {billOfMaterials.verifiedLineCount <
+                      billOfMaterials.lineCount ? (
+                        <p className="text-xs text-amber-700">
+                          {billOfMaterials.lineCount -
+                            billOfMaterials.verifiedLineCount}{' '}
+                          {billOfMaterials.lineCount -
+                            billOfMaterials.verifiedLineCount ===
+                          1
+                            ? 'needs'
+                            : 'need'}{' '}
+                          review
+                        </p>
+                      ) : null}
+                      {billOfMaterials.attentionCount > 0 ? (
+                        <p className="text-xs text-amber-700">
+                          {billOfMaterials.attentionCount}{' '}
+                          {billOfMaterials.attentionCount === 1
+                            ? 'needs'
+                            : 'need'}{' '}
+                          attention
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-right align-top">
                       <AssociateTemplateProductButton
@@ -211,6 +290,7 @@ export function BillsOfMaterialsCatalogPage({
                         token={session.token}
                         isAdmin={isAdmin}
                         isDeleted={billOfMaterials.deletedAt !== null}
+                        isReadOnly={billOfMaterials.readOnlyReason !== null}
                         onDelete={() => {
                           deletion.reset()
                           setPendingMutation({

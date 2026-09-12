@@ -18,6 +18,7 @@ export function AssociateTemplateProductButton({
   canCreateImplementation,
   isAdmin,
   isDeleted,
+  isReadOnly,
   onDelete,
   onEdit,
   onRestore,
@@ -31,6 +32,7 @@ export function AssociateTemplateProductButton({
   canCreateImplementation: boolean
   isAdmin: boolean
   isDeleted: boolean
+  isReadOnly: boolean
   onDelete: () => void
   onCreateImplementation: () => void
   onDeriveTemplate: () => void
@@ -59,7 +61,7 @@ export function AssociateTemplateProductButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={onEdit}>
-            {isDeleted ? 'View Bill of Materials' : 'Edit Bill of Materials'}
+            {isReadOnly ? 'View Bill of Materials' : 'Edit Bill of Materials'}
           </DropdownMenuItem>
           {!isDeleted ? (
             <DropdownMenuItem onSelect={onDeriveTemplate}>

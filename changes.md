@@ -1,56 +1,62 @@
-# Delete and Restore Bills of Materials Without Losing History
+# Complete the Operational Bills of Materials Catalog
 
-Issue 14 adds a safe way to remove a Bill of Materials from ordinary work and restore it later. Delete frees the available Product or Product Variant slot. It does not erase the Bill of Materials, its BOM Lines, or its BOM Origin history. This change does not hard-delete or move any record.
+Issue 15 gives each User one operational catalog for BOM Templates and BOM Implementations. The catalog shows Product context, immediate BOM Origin, BOM Cost Projection, BOM Line Verification, attention conditions, and valid actions in a compact table. This change does not add a Product workspace or a master-detail view. The governing requirements are in [Issue 15](.scratch/bill-of-materials-builder/issues/15-complete-the-operational-bills-of-materials-catalog.md).
 
-## Start Here
+## Catalog Contract and Projection
 
-A Product can have one available BOM Template. A Product Variant can have one available BOM Implementation. A BOM Implementation also has a BOM Typification that must be unique within its Product.
+The shared catalog contract now accepts `search`, `kind`, and `includeDeleted`. Each Bill of Materials summary now includes these derived values:
 
-Before this change, a User could not free one of these slots without losing the normal workflow. Now an Admin or Operator can soft-delete the Bill of Materials. An Admin can restore it when the original slot and name rules are available again.
+- Total BOM Line count.
+- Verified BOM Line count.
+- Count of BOM Lines that have at least one attention condition.
+- Current BOM Cost Projection and BOM Cost Projection Availability.
+- Available-catalog totals for BOM Templates, BOM Implementations, records without Product Variant context, and records with an Unverified BOM Line.
 
-The completed requirements are in [Issue 14](.scratch/bill-of-materials-builder/issues/14-delete-and-restore-bills-of-materials.md).
+The [shared types](packages/shared-types/src/bills-of-materials.ts) and [shared validation](packages/shared-validation/src/bills-of-materials.ts) keep the API and Web Application on the same contract. The summary always describes non-deleted Bills of Materials. Search, Kind filters, and the Admin deleted-record view do not change these totals.
 
-## Delete Frees a Slot but Preserves the Record
+The [read service](apps/api/app/modules/bills_of_materials/services/read_bills_of_materials.ts) loads Product, Product Variant, immediate BOM Origin, BOM Lines, Material, Pattern Set, and current or retained Preferred Source context. The service derives each row projection from current records. It does not store a Bill of Materials status or a BOM Cost Projection.
 
-Delete is a lifecycle change, not erasure.
+Search is case-insensitive, ignores accents, removes leading and trailing whitespace, and collapses repeated whitespace. It matches Bill of Materials name and ID, Product name and ID, Product Variant name and ID, and immediate BOM Origin name and ID. The Kind filters select All, BOM Templates, or BOM Implementations. The controller ignores `includeDeleted` unless the current User is an Admin.
 
-- The Bill of Materials leaves the ordinary catalog.
-- Its Product or Product Variant slot becomes available.
-- Its Product, Product Variant, BOM Origin, and BOM Line relationships stay unchanged.
-- Its descendants stay available. They continue to identify the deleted record as their unavailable BOM Origin.
-- The confirmation shows the Bill of Materials context and the full descendant count before the User continues.
+## Operational Catalog
 
-The [lifecycle service](apps/api/app/modules/bills_of_materials/services/delete_and_restore_bill_of_materials.ts) owns the transaction and row lock. The [read service](apps/api/app/modules/bills_of_materials/services/read_bills_of_materials.ts) owns deleted-record visibility, transitive descendant counts, and read-only reasons.
+The [catalog page](apps/web/src/features/bills-of-materials/bills-of-materials-catalog-page.tsx) lists BOM Templates and BOM Implementations in one table. The table has horizontal overflow and right-aligned numeric columns. Each row shows:
 
-## Restore Rechecks the Original Business Rules
+- Bill of Materials name and stable ID.
+- Permanent kind.
+- Product and Product Variant context.
+- Immediate BOM Origin, including an Unavailable origin.
+- Complete, Partial, or Unavailable BOM Cost Projection.
+- Total and Verified BOM Line counts.
+- BOM Lines that need review or attention.
 
-Only an Admin can restore a Bill of Materials. Restore does not bypass the rules that protect Product structure.
+Availability is not an ordinary column. A deleted record appears only when an Admin selects **Include deleted**. The row then shows a Deleted badge.
 
-- A BOM Template can return only when its Product Template slot is free.
-- A BOM Implementation can return only when its Product Variant slot is free.
-- Its BOM Typification must still be unique within the Product. Matching is case-insensitive.
-- Inactive or soft-deleted related Product records do not block restore.
-- A conflict changes neither Bill of Materials. The response identifies the occupying record.
+The [catalog presentation components](apps/web/src/features/bills-of-materials/components/catalog-presentation.tsx) own the summary cards, filters, BOM Cost Projection display, and empty states. The page distinguishes these states:
 
-Restore locks the Product before the Product Variant. It then locks the deleted Bill of Materials and checks every constraint in the same transaction. The [controller](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts) validates the conflict response with the shared Zod contract before it returns `409`.
+- Initial loading.
+- A recoverable load failure with **Try again**.
+- No registered Bills of Materials, with separate creation actions.
+- No match for the current view, with **Clear catalog filters**.
+- A populated operational table.
 
-## Catalog and Construction Board Behavior
+The route stores search, Kind, and deleted-record selection in the URL. A refresh or a shared URL restores the same catalog view.
 
-The ordinary catalog excludes deleted Bills of Materials. An Admin can select **Include deleted** to see recovery records. An Operator cannot list or open a deleted record.
+## Contextual Actions
 
-The [mutation dialog](apps/web/src/features/bills-of-materials/components/bill-of-materials-mutation-dialog.tsx) gives the User enough context before Delete or Restore. If restore has a conflict, the dialog links to the occupying Bill of Materials.
+**Create BOM** keeps separate BOM Template and BOM Implementation actions. Each row keeps only actions that match its current context:
 
-The [Construction Board](apps/web/src/features/bills-of-materials/create-bom-template-page.tsx) uses the server-owned `readOnlyReason`:
+- A writable record offers **Edit Bill of Materials**. A read-only record offers **View Bill of Materials**.
+- A non-deleted record can start BOM Derivation and can be deleted.
+- An unassociated, non-deleted BOM Template can associate a Product.
+- A non-deleted BOM Template with an available Product can create a BOM Implementation.
+- A deleted record hides ordinary mutation actions. An Admin can restore it.
 
-- `bom-deleted` for a deleted Bill of Materials.
-- `product-deleted` when its Product is deleted.
-- `product-variant-deleted` when its Product Variant is deleted.
-
-These states lock every edit control. An Inactive Product or Product Variant stays editable. If another User deletes an open Bill of Materials, the later Save returns `409`; the local draft stays visible and the application does not restore the record.
+The catalog reuses the existing mutation dialogs and Builder flows. This issue changes action discovery. It does not change the mutation rules.
 
 ## Architecture Views
 
-The views below show only the domain relationships and runtime collaboration changed by Issue 14.
+These views show only the domain relationships and runtime collaboration used by the issue 15 catalog.
 
 ### UML — Domain Relationships
 
@@ -58,51 +64,74 @@ The views below show only the domain relationships and runtime collaboration cha
 classDiagram
     direction LR
 
-    class BillOfMaterials {
-        +id
+    class BillOfMaterials["Bill of Materials"] {
         +kind
-        +deletedAt
-        +readOnlyReason
+        +BOM Cost Projection
+        +total BOM Line count
+        +Verified BOM Line count
+        +attention count
     }
-    class BomTemplate
-    class BomImplementation {
-        +bomTypification
+    class BomTemplate["BOM Template"]
+    class BomImplementation["BOM Implementation"] {
+        +BOM Typification
     }
-    class BomLine
+    class BomLine["BOM Line"] {
+        +Material Quantity
+        +BOM Line Verification
+    }
     class Product
-    class ProductVariant
+    class ProductVariant["Product Variant"]
+    class Material
+    class Source {
+        +Landed Unit Cost
+    }
+    class BomCostProjection["BOM Cost Projection"] {
+        +amount MXN
+        +availability
+    }
 
     BillOfMaterials <|-- BomTemplate
     BillOfMaterials <|-- BomImplementation
-    BillOfMaterials "1" *-- "0..*" BomLine : keeps
+    BillOfMaterials "1" *-- "0..*" BomLine : ordered definition
     BillOfMaterials "0..1" <-- "0..*" BillOfMaterials : immediate BOM Origin
-    Product "0..1" <-- "0..1 available" BomTemplate : Template slot
+    Product "0..1" <-- "0..*" BomTemplate : optional permanent association
     Product "1" *-- "0..*" ProductVariant : owns
-    ProductVariant "1" <-- "0..1 available" BomImplementation : Implementation slot
+    ProductVariant "1" <-- "0..*" BomImplementation : permanent context
+    BomLine "0..*" --> "0..1" Material : selects
+    Material "0..*" --> "0..1" Source : current or retained Preferred Source
+    BillOfMaterials ..> BomCostProjection : derives from BOM Lines
 
-    note for BillOfMaterials "Soft delete preserves relationships and lineage"
-    note for BomImplementation "Available typification is unique within Product"
+    note for BomTemplate "Each Product has at most one non-deleted associated BOM Template"
+    note for BomImplementation "Each Product Variant has at most one non-deleted BOM Implementation"
+    note for BomLine "Attention is derived and is not a stored Bill of Materials status"
+    note for BomCostProjection "Availability is Complete, Partial, or Unavailable"
 ```
 
 ### C4 Level 3 — Web Application
 
 ```mermaid
 flowchart LR
-    user["Admin or Operator"]
+    user["User"]
     api["Bill of Materials API"]
 
     subgraph web["Web Application · React"]
-        catalog["BOM Catalog<br/>Lists records and starts actions"]
-        dialog["Mutation Dialog<br/>Confirms and shows conflicts"]
-        board["Construction Board<br/>Edits or shows read-only detail"]
-        catalog -->|"Open action"| dialog
-        catalog -->|"Open detail"| board
+        filters["Catalog Filters<br/>Search, Kind, and Admin deleted-record selection"]
+        catalog["Bills of Materials Catalog Page<br/>Loads and renders the operational table"]
+        summary["Catalog Summary<br/>Shows available-catalog totals"]
+        projection["BOM Cost Projection<br/>Shows amount and availability"]
+        actions["Contextual Actions<br/>Shows valid row actions"]
+        empty["Catalog Empty State<br/>Offers creation or filter recovery"]
+
+        filters -->|"Change URL-backed catalog state"| catalog
+        catalog -->|"Render totals"| summary
+        catalog -->|"Render each row projection"| projection
+        catalog -->|"Render actions for row context"| actions
+        catalog -->|"Render recovery when no rows exist"| empty
     end
 
-    user -->|"Browse and act"| catalog
-    catalog -->|"Load ordinary or deleted-inclusive data"| api
-    dialog -->|"Delete or restore"| api
-    board -->|"Load and save canonical detail"| api
+    user -->|"Set the catalog view"| filters
+    user -->|"Scan rows and select actions"| catalog
+    catalog -->|"Load the filtered catalog"| api
 ```
 
 ### C4 Level 3 — API Application
@@ -113,119 +142,103 @@ flowchart LR
     database[("PostgreSQL")]
 
     subgraph api["API Application · AdonisJS"]
-        controller["BOM Controller<br/>Roles, validation, HTTP responses"]
-        lifecycle["Lifecycle Service<br/>Delete, restore, locks, conflicts"]
-        reader["Read Service<br/>Visibility, lineage, read-only reason"]
-        controller -->|"Command"| lifecycle
-        controller -->|"Query"| reader
+        controller["Bills of Materials Controller<br/>Validates filters and enforces Admin deleted-record access"]
+        reader["Read Bills of Materials Service<br/>Loads context, derives projections, filters rows, and summarizes available records"]
+
+        controller -->|"Validated query"| reader
     end
 
-    web -->|"Authenticated HTTP"| controller
-    lifecycle -->|"Transactional lifecycle change"| database
-    reader -->|"Canonical projection"| database
+    web -->|"Authenticated catalog request"| controller
+    reader -->|"Read Bill of Materials relationships and current cost context"| database
 ```
 
-### C4 Dynamic — Delete a Bill of Materials
+### C4 Dynamic — Load and Filter the Operational Catalog
 
 ```mermaid
 sequenceDiagram
     actor User
 
     box Frontend
-        participant Catalog as BOM Catalog
-        participant Dialog as Delete Dialog
+        participant Filters as Catalog Filters
+        participant Catalog as Bills of Materials Catalog Page
+        participant Summary as Catalog Summary
+        participant Projection as BOM Cost Projection
     end
 
     box Backend
-        participant API as BOM Controller
-        participant Lifecycle as Lifecycle Service
+        participant Controller as Bills of Materials Controller
+        participant Reader as Read Bills of Materials Service
         participant DB as PostgreSQL
     end
 
-    User->>Catalog: Select Delete
-    Catalog->>Dialog: Show name, context, and descendant count
-    User->>Dialog: Confirm
-    Dialog->>API: DELETE /bills-of-materials/:id
-    API->>Lifecycle: Soft-delete available BOM
-    Lifecycle->>DB: Lock BOM and set deletedAt
-    DB-->>Lifecycle: Keep relationships, lines, and lineage
-    API-->>Catalog: 204 No Content
-    Catalog-->>User: Refresh ordinary catalog
-```
-
-### C4 Dynamic — Restore a Bill of Materials
-
-```mermaid
-sequenceDiagram
-    actor Admin
-
-    box Frontend
-        participant Catalog as BOM Catalog
-        participant Dialog as Restore Dialog
-    end
-
-    box Backend
-        participant API as BOM Controller
-        participant Lifecycle as Lifecycle Service
-        participant DB as PostgreSQL
-    end
-
-    Admin->>Catalog: Include deleted and select Restore
-    Catalog->>Dialog: Show original context
-    Admin->>Dialog: Confirm
-    Dialog->>API: POST /bills-of-materials/:id/restore
-    API->>Lifecycle: Restore deleted BOM
-    Lifecycle->>DB: Lock Product, Variant when present, and BOM
-    Lifecycle->>DB: Check slot and BOM Typification
-
-    alt Constraints are free
-        Lifecycle->>DB: Clear deletedAt
-        API-->>Catalog: 200 canonical detail
-        Catalog-->>Admin: Refresh recovery view
-    else Another BOM occupies a constraint
-        Lifecycle-->>API: Occupying BOM identity and name
-        API-->>Dialog: 409 conflict
-        Dialog-->>Admin: Keep dialog open and link to occupant
-    end
+    User->>Filters: Change search, Kind, or Include deleted
+    Filters->>Catalog: Update URL-backed catalog state
+    Catalog->>Controller: GET /bills-of-materials with current filters
+    Controller->>Controller: Validate query and authorize Include deleted
+    Controller->>Reader: List the catalog
+    Reader->>DB: Load Bill of Materials and current related context
+    DB-->>Reader: Return records, BOM Lines, and sourcing context
+    Reader->>Reader: Derive row projections and available-catalog summary
+    Reader->>Reader: Apply search and Kind filters to rows
+    Reader-->>Controller: Return filtered rows and summary
+    Controller-->>Catalog: Return the validated catalog response
+    Catalog->>Summary: Render available-catalog totals
+    Catalog->>Projection: Render Complete, Partial, or Unavailable per row
+    Catalog-->>User: Show the table or a recovery state
 ```
 
 ## Focused Coverage
 
-The focused tests prove these behaviors through the API and visible Builder seams:
+The focused tests prove these behaviors:
 
-- Soft delete releases the slot and preserves BOM Lines and BOM Origin lineage.
-- Descendant counts include the full available and deleted Origin chain.
-- Admin and Operator permissions differ for deleted lists, detail, and Restore.
-- Restore protects Template slots, Implementation slots, and Product-scoped BOM Typification.
-- Concurrent restore and association operations produce one valid winner without partial mutation.
-- Inactive related records stay editable. Soft-deleted related records reject Save without data changes.
-- Every Builder mutation control is locked for each read-only reason.
-- A Save after concurrent deletion preserves the local draft and does not restore the record.
-- Invalid conflict data does not create an unsafe occupying-record link.
+- The API returns row-level BOM Cost Projection, BOM Line Verification, attention-condition counts, and available-catalog summary values.
+- The API search finds current Bill of Materials, Product, Product Variant, and immediate BOM Origin context. Matching ignores case and accents.
+- The API filters by permanent kind and limits deleted-record access to Admins.
+- The summary excludes deleted records and stays independent of the current search and Kind filters.
+- The Web Application renders the compact table, horizontal overflow, summary cards, Product context, immediate BOM Origin, BOM Cost Projection Availability, and BOM Line review context.
+- URL state initializes and updates catalog filters and server requests.
+- Operators do not see deleted-record controls. Admins can include and open deleted records.
+- Empty and filtered-empty states offer the correct recovery action.
+- A catalog failure keeps its message visible and supports a successful retry.
+- Row actions remain contextual for Product association, BOM Implementation creation, BOM Derivation, edit or read-only detail, delete, and restore.
+- The endpoint serializes search, Kind, and deleted-record filters for same-origin requests.
 
-The main API coverage is in [bills_of_materials.spec.ts](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts). The catalog and Builder coverage is in [-bills-of-materials.test.tsx](apps/web/src/routes/-bills-of-materials.test.tsx) and [endpoints.test.ts](apps/web/src/features/bills-of-materials/api/endpoints.test.ts).
+The API coverage is in [bills_of_materials.spec.ts](apps/api/tests/functional/bills_of_materials/bills_of_materials.spec.ts). The route and endpoint coverage is in [-bills-of-materials.test.tsx](apps/web/src/routes/-bills-of-materials.test.tsx) and [endpoints.test.ts](apps/web/src/features/bills-of-materials/api/endpoints.test.ts).
 
 ## Focused Verification
 
-- First red test — Delete returned `404` instead of the required `204`.
-- Exact AdonisJS functional cases for Delete, transitive lineage, Admin recovery, Product and Product Variant read-only behavior, and concurrent BOM Typification restore — pass individually.
-- Direct Vitest run for `src/routes/-bills-of-materials.test.tsx` — 26 of 26 pass.
-- Direct Vitest run for `src/features/bills-of-materials/api/endpoints.test.ts` — the same-origin `includeDeleted` case passes.
-- Shared Types and Shared Validation builds, typechecks, and linters — pass.
-- API and Web typechecks and linters — pass.
-- `git diff --check` and Mermaid heading/fence structure checks — pass.
+- Focused Web Application Bill of Materials catalog and endpoint tests — 29 of 29 pass.
+- Full Web Application test suite — 110 of 110 pass.
+- Focused issue 15 API catalog and attention tests — pass in isolation.
+- API Application, Web Application, Shared Types, and Shared Validation typechecks and build checks — pass.
+- Focused API Application, Web Application, Shared Types, and Shared Validation linters — pass.
+- Whole Bill of Materials API test file — 43 of 52 pass. The nine failures are unrelated shared-state failures from the existing concurrently installed `issue_12_reject_copy` database trigger. No issue 15 catalog test failed.
+- Independent Standards review — pass with zero findings.
+- Independent Spec review — pass with zero findings.
+- `git diff --check` — pass.
+- Mermaid heading, fence, and structure checks — pass.
 
-An earlier combined run of the BOM API file reported 40 passing and seven failing tests. All Issue 14 tests in that run passed. The seven failures are existing Material-line fixture cases that return `422` instead of `201`; they were present before this implementation. The complete API file did not run again after the last focused tests were added.
-
-One earlier Web test command expanded to 103 tests; all 103 passed. The final direct route run is the focused 26-of-26 result above.
-
-The complete repository suites and `pnpm quality` did not run. The final quality gate belongs to the User and CI.
+The complete `pnpm quality` gate did not run. The final quality gate belongs to the User and CI.
 
 ## Scope Boundaries
 
-- No Bill of Materials is hard-deleted.
-- Delete does not cascade to BOM Lines, descendants, Products, Product Variants, Materials, Sources, or Pattern Sets.
-- Restore does not restore a related Product or Product Variant.
-- Restore does not move a Bill of Materials or change its permanent relationships.
-- Issue 14 is marked `done`; all acceptance items are checked.
-- The existing `.gitignore` change and `docs/architecture/framework-abstraction-decision.md` are unrelated and remain unchanged.
+- The catalog is not a Product workspace and is not a master-detail interface.
+- Availability is not a dedicated ordinary column.
+- BOM Cost Projection, BOM Cost Projection Availability, BOM Line Verification totals, and attention totals remain derived read data. They are not stored Bill of Materials status.
+- The summary describes all non-deleted Bills of Materials. It does not describe only the filtered rows.
+- This issue does not change creation, BOM Derivation, Product association, delete, or restore business rules.
+- This issue does not add roles or change Admin and Operator authority.
+
+## Review Closure
+
+The independent Standards review passed with zero findings. The independent Spec review passed with zero findings. No review action remains for issue 15.
+
+## Remaining Risk
+
+The whole Bill of Materials API file does not run in isolation from every concurrently installed database trigger. The existing `issue_12_reject_copy` trigger causes nine shared-state failures in the aggregate run. Focused issue 15 API tests pass, but the aggregate isolation problem remains outside this issue.
+
+The architecture context map points to `architecture/how-to-choice.md`, but that file is absent. This handoff uses the implemented seams and does not infer the missing guidance.
+
+## Commit State
+
+The issue 15 implementation and this reviewer handoff are uncommitted and not pushed. The current `HEAD` is `4cca0b5`, the completed issue 14 commit.

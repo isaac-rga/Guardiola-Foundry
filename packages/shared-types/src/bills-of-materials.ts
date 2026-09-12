@@ -52,13 +52,32 @@ export interface BillOfMaterialsSummary {
   deletedAt: string | null
   descendantCount: number
   readOnlyReason: BillOfMaterialsReadOnlyReason
+  lineCount: number
+  verifiedLineCount: number
+  attentionCount: number
+  costProjection: BillOfMaterialsCostProjection
   createdBy: BillOfMaterialsUserReference
   createdAt: string
   updatedAt: string
 }
 
+export interface ListBillsOfMaterialsQuery {
+  search?: string
+  kind?: BillOfMaterialsKind
+  includeDeleted?: boolean
+}
+
+export interface BillsOfMaterialsCatalogSummary {
+  totalAvailable: number
+  templateCount: number
+  implementationCount: number
+  withoutProductVariantCount: number
+  withUnverifiedLinesCount: number
+}
+
 export interface ListBillsOfMaterialsResponse {
   billsOfMaterials: BillOfMaterialsSummary[]
+  summary: BillsOfMaterialsCatalogSummary
 }
 
 export interface BillOfMaterialsLineMaterial {
@@ -132,7 +151,6 @@ export interface BillOfMaterialsLine {
 
 export interface BillOfMaterialsDetail extends BillOfMaterialsSummary {
   lines: BillOfMaterialsLine[]
-  attentionCount: number
   costProjection: BillOfMaterialsCostProjection
 }
 

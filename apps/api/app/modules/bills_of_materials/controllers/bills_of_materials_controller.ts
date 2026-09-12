@@ -46,6 +46,8 @@ export default class BillsOfMaterialsController {
     }
     return response.ok(
       await listBillsOfMaterials({
+        search: query.data.search,
+        kind: query.data.kind,
         includeDeleted: authenticatedSession.user.role === 'admin' && query.data.includeDeleted,
       })
     )

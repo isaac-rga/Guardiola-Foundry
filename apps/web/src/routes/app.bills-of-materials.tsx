@@ -16,6 +16,9 @@ export const Route = createFileRoute('/app/bills-of-materials')({
     billOfMaterialsId: z.string().optional(),
     templateId: z.string().optional(),
     derivationOriginId: z.string().optional(),
+    search: z.string().max(200).optional(),
+    catalogKind: z.enum(['template', 'implementation']).optional(),
+    includeDeleted: z.boolean().optional().catch(false),
   }),
   component: BillsOfMaterialsRoute,
 })
@@ -28,6 +31,9 @@ function BillsOfMaterialsRoute() {
     billOfMaterialsId,
     templateId,
     derivationOriginId,
+    search,
+    catalogKind,
+    includeDeleted,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
 
@@ -121,6 +127,19 @@ function BillsOfMaterialsRoute() {
 
   return (
     <BillsOfMaterialsCatalogPage
+      filters={{ search, kind: catalogKind, includeDeleted }}
+      onFiltersChange={(changes) =>
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            search: changes.search,
+            catalogKind: changes.kind,
+            includeDeleted: changes.includeDeleted,
+          }),
+          replace: true,
+          resetScroll: false,
+        })
+      }
       onEdit={(billOfMaterialsId) =>
         void navigate({
           search: {

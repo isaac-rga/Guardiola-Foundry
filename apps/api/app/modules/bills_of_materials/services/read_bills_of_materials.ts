@@ -13,15 +13,18 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   BillOfMaterialsDetail,
   BillOfMaterialsLine,
+  BillOfMaterialsLineAttention,
   BillOfMaterialsLineCostProjection,
   BillOfMaterialsLinePreferredSource,
   BillOfMaterialsSummary,
+  BillsOfMaterialsCatalogSummary,
+  ListBillsOfMaterialsQuery,
   ListBillsOfMaterialsResponse,
 } from '@guardiola-foundry/shared-types'
 
-export async function listBillsOfMaterials(options?: {
-  includeDeleted?: boolean
-}): Promise<ListBillsOfMaterialsResponse> {
+export async function listBillsOfMaterials(
+  filters: ListBillsOfMaterialsQuery = {}
+): Promise<ListBillsOfMaterialsResponse> {
   const query = BillOfMaterial.query()
     .preload('createdBy')
     .preload('product', (productQuery) => Product.includeDeleted(productQuery))
@@ -30,16 +33,32 @@ export async function listBillsOfMaterials(options?: {
       variantQuery.preload('product', (productQuery) => Product.includeDeleted(productQuery))
     })
     .preload('origin', (originQuery) => BillOfMaterial.includeDeleted(originQuery))
+    .preload('lines', (linesQuery) => {
+      linesQuery.preload('patternSet')
+      linesQuery.preload('material', (materialQuery) => {
+        Material.includeDeleted(materialQuery)
+        materialQuery.preload('sourceLinks', (sourceLinkQuery) => {
+          sourceLinkQuery.where('isPreferred', true).preload('materialSource', (sourceQuery) => {
+            MaterialSource.includeDeleted(sourceQuery)
+          })
+        })
+      })
+    })
     .orderBy('updatedAt', 'desc')
 
-  if (options?.includeDeleted) BillOfMaterial.includeDeleted(query)
+  if (filters.includeDeleted) BillOfMaterial.includeDeleted(query)
   const billsOfMaterials = await query
   const descendantCounts = await loadDescendantCounts()
+  const summaries = billsOfMaterials.map((billOfMaterials) =>
+    serializeBillOfMaterials(billOfMaterials, descendantCounts.get(billOfMaterials.id) ?? 0)
+  )
+  const availableSummaries = summaries.filter((billOfMaterials) => !billOfMaterials.deletedAt)
 
   return {
-    billsOfMaterials: billsOfMaterials.map((billOfMaterials) =>
-      serializeBillOfMaterials(billOfMaterials, descendantCounts.get(billOfMaterials.id) ?? 0)
+    billsOfMaterials: summaries.filter((billOfMaterials) =>
+      matchesCatalogFilters(billOfMaterials, filters)
     ),
+    summary: summarizeAvailableCatalog(availableSummaries),
   }
 }
 
@@ -74,6 +93,7 @@ function serializeBillOfMaterials(
     billOfMaterials.productId === null
       ? billOfMaterials.productVariant?.product
       : billOfMaterials.product
+  const costProjection = calculateBomCostProjection(billOfMaterials.lines)
 
   return {
     id: billOfMaterials.publicId,
@@ -116,6 +136,10 @@ function serializeBillOfMaterials(
     deletedAt: billOfMaterials.deletedAt?.toISO() ?? null,
     descendantCount,
     readOnlyReason: resolveReadOnlyReason(billOfMaterials, product),
+    lineCount: billOfMaterials.lines.length,
+    verifiedLineCount: billOfMaterials.lines.filter((line) => line.verifiedAt !== null).length,
+    attentionCount: billOfMaterials.lines.filter((line) => lineAttention(line).length > 0).length,
+    costProjection: costProjection.summary,
     createdBy: {
       id: billOfMaterials.createdBy.id,
       email: billOfMaterials.createdBy.email,
@@ -123,6 +147,50 @@ function serializeBillOfMaterials(
     createdAt: billOfMaterials.createdAt.toISO()!,
     updatedAt: billOfMaterials.updatedAt.toISO()!,
   }
+}
+
+function summarizeAvailableCatalog(
+  billsOfMaterials: BillOfMaterialsSummary[]
+): BillsOfMaterialsCatalogSummary {
+  return {
+    totalAvailable: billsOfMaterials.length,
+    templateCount: billsOfMaterials.filter((item) => item.kind === 'template').length,
+    implementationCount: billsOfMaterials.filter((item) => item.kind === 'implementation').length,
+    withoutProductVariantCount: billsOfMaterials.filter((item) => item.productVariant === null)
+      .length,
+    withUnverifiedLinesCount: billsOfMaterials.filter(
+      (item) => item.verifiedLineCount < item.lineCount
+    ).length,
+  }
+}
+
+function matchesCatalogFilters(
+  billOfMaterials: BillOfMaterialsSummary,
+  filters: ListBillsOfMaterialsQuery
+) {
+  if (filters.kind && billOfMaterials.kind !== filters.kind) return false
+  if (!filters.search) return true
+
+  const search = normalizeCatalogSearch(filters.search)
+  return [
+    billOfMaterials.name,
+    billOfMaterials.id,
+    billOfMaterials.product?.name,
+    billOfMaterials.product?.id,
+    billOfMaterials.productVariant?.name,
+    billOfMaterials.productVariant?.id,
+    billOfMaterials.origin?.name,
+    billOfMaterials.origin?.id,
+  ].some((value) => value !== undefined && normalizeCatalogSearch(value).includes(search))
+}
+
+function normalizeCatalogSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase()
 }
 
 function resolveReadOnlyReason(
@@ -194,17 +262,21 @@ function serializeBillOfMaterialsLine(
             verifiedBy: { id: line.verifiedBy.id, email: line.verifiedBy.email },
             verifiedAt: line.verifiedAt.toISO()!,
           },
-    attention: [
-      ...(line.materialId !== null && line.material.deletedAt !== null
-        ? (['material-needs-attention'] as const)
-        : []),
-      ...(sourceNeedsAttention(line) ? (['source-needs-attention'] as const) : []),
-      ...(line.patternSetId !== null && line.patternSet.status === 'retired'
-        ? (['pattern-needs-attention'] as const)
-        : []),
-    ],
+    attention: lineAttention(line),
     costProjection,
   }
+}
+
+function lineAttention(line: BillOfMaterialLine): BillOfMaterialsLineAttention[] {
+  return [
+    ...(line.materialId !== null && line.material.deletedAt !== null
+      ? (['material-needs-attention'] as const)
+      : []),
+    ...(sourceNeedsAttention(line) ? (['source-needs-attention'] as const) : []),
+    ...(line.patternSetId !== null && line.patternSet.status === 'retired'
+      ? (['pattern-needs-attention'] as const)
+      : []),
+  ]
 }
 
 function serializeLinePreferredSource(
