@@ -33,6 +33,7 @@ import { findDuplicateProductName } from '@/features/products/utils/product-name
 import { updateProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   DeletedProductDetail,
+  GetProductResponse,
   ListProductsResponse,
   ProductCategory,
   ProductDetail,
@@ -73,105 +74,19 @@ const productCategoryOptions: Array<{
   { value: 'other', label: 'Other' },
 ]
 
-const defaultFormValues: UpdateProductRequest = {
-  name: '',
-  shortDescription: null,
-  lifecycleStatus: 'concept',
-  productStatus: 'active',
-  productCategory: null,
-  collectionId: null,
-}
-
 export function ProductEditPage({ productId }: { productId: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { session } = useAppShell()
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
-  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
-  const [removeImage, setRemoveImage] = useState(false)
-  const [imageInputKey, setImageInputKey] = useState(0)
-  const [isNavigatingAfterDelete, setIsNavigatingAfterDelete] = useState(false)
-  const [includeDeletedVariants, setIncludeDeletedVariants] = useState(false)
   const productQueryKey = productDetailQueryKey(productId)
-  const defaultProductsQueryKey = productListQueryKey(false)
-  const form = useForm<UpdateProductRequest>({
-    resolver: zodResolver(updateProductRequestSchema),
-    defaultValues: defaultFormValues,
-  })
   const productQuery = useQuery({
     queryKey: productQueryKey,
     queryFn: () => getProduct(session.token, productId),
   })
-  const productsQuery = useQuery({
-    queryKey: defaultProductsQueryKey,
-    queryFn: () => listProducts(session.token),
-  })
-
   const product = productQuery.data?.state === 'active' ? productQuery.data.product : null
   const deletedProduct = productQuery.data?.state === 'deleted' ? productQuery.data.product : null
   const collections = productQuery.data?.state === 'active' ? productQuery.data.collections : []
-  const isAdmin = session.user.role === 'admin'
-  const productVariants = useProductVariants(
-    session.token,
-    productId,
-    product !== null,
-    isAdmin && includeDeletedVariants
-  )
-  const hasPendingImageChanges = selectedImageFile !== null || removeImage
-  const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
-
-  useEffect(() => {
-    if (!product) {
-      return
-    }
-
-    form.reset(toFormValues(product))
-    setSelectedImageFile(null)
-    setRemoveImage(false)
-    setImageInputKey((currentValue) => currentValue + 1)
-  }, [form, product])
-
-  useEffect(() => {
-    if (hasPendingChanges) {
-      setSaveMessage(null)
-    }
-  }, [hasPendingChanges])
-
-  useBlocker({
-    shouldBlockFn: () =>
-      !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage),
-    enableBeforeUnload: () => hasPendingChanges,
-  })
-
-  const updateProductMutation = useMutation({
-    mutationFn: (payload: UpdateProductInput) => updateProduct(session.token, productId, payload),
-    onSuccess: (updatedProduct) => {
-      queryClient.setQueryData(productQueryKey, (currentData: typeof productQuery.data) => {
-        if (!currentData) {
-          return currentData
-        }
-
-        return {
-          ...currentData,
-          product: updatedProduct,
-        }
-      })
-      updateProductInListCaches(queryClient, updatedProduct)
-      form.reset(toFormValues(updatedProduct))
-      setSelectedImageFile(null)
-      setRemoveImage(false)
-      setImageInputKey((currentValue) => currentValue + 1)
-      setSaveMessage('Changes saved.')
-    },
-  })
-
-  const onSubmit = form.handleSubmit(async (values) => {
-    await updateProductMutation.mutateAsync({
-      ...values,
-      imageFile: selectedImageFile,
-      removeImage,
-    })
-  })
   const restoreProductMutation = useMutation({
     mutationFn: () => restoreProduct(session.token, productId),
     onSuccess: async () => {
@@ -183,42 +98,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
       ])
     },
   })
-  const deleteProductMutation = useMutation({
-    mutationFn: () => deleteProduct(session.token, productId),
-    onSuccess: async () => {
-      if (!product) {
-        return
-      }
-
-      queryClient.removeQueries({ queryKey: productQueryKey })
-      queryClient.setQueryData<ListProductsResponse>(defaultProductsQueryKey, (currentData) => {
-        if (!currentData) {
-          return currentData
-        }
-
-        return {
-          ...currentData,
-          products: currentData.products.filter((currentProduct) => currentProduct.id !== productId),
-        }
-      })
-      setIsNavigatingAfterDelete(true)
-      await queryClient.invalidateQueries({ queryKey: productListQueryKey(true) })
-      await navigate({
-        to: '/app/products',
-        search: {
-          deletedProductName: product.name,
-        },
-      })
-    },
-  })
-  const nameValue = form.watch('name')
-  const duplicateNameMatch = findDuplicateProductName(productsQuery.data?.products ?? [], nameValue, {
-    excludeProductId: productId,
-  })
-  const isSaving = updateProductMutation.isPending
   const isRestoring = restoreProductMutation.isPending
-  const isDeleting = deleteProductMutation.isPending
-  const isMutating = isSaving || isRestoring || isDeleting
 
   if (productQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading product…</p>
@@ -253,6 +133,135 @@ export function ProductEditPage({ productId }: { productId: string }) {
       </p>
     )
   }
+
+  return (
+    <ActiveProductEditPage
+      key={product.id}
+      collections={collections}
+      isRestoring={isRestoring}
+      product={product}
+      productId={productId}
+      saveMessage={saveMessage}
+      onSaveMessageChange={setSaveMessage}
+    />
+  )
+}
+
+function ActiveProductEditPage({
+  collections,
+  isRestoring,
+  onSaveMessageChange,
+  product,
+  productId,
+  saveMessage,
+}: {
+  collections: Array<{ id: number; name: string }>
+  isRestoring: boolean
+  onSaveMessageChange: (message: string | null) => void
+  product: ProductDetail
+  productId: string
+  saveMessage: string | null
+}) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { session } = useAppShell()
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
+  const [removeImage, setRemoveImage] = useState(false)
+  const [imageInputKey, setImageInputKey] = useState(0)
+  const [isNavigatingAfterDelete, setIsNavigatingAfterDelete] = useState(false)
+  const [includeDeletedVariants, setIncludeDeletedVariants] = useState(false)
+  const productQueryKey = productDetailQueryKey(productId)
+  const defaultProductsQueryKey = productListQueryKey(false)
+  const form = useForm<UpdateProductRequest>({
+    resolver: zodResolver(updateProductRequestSchema),
+    defaultValues: toFormValues(product),
+  })
+  const productsQuery = useQuery({
+    queryKey: defaultProductsQueryKey,
+    queryFn: () => listProducts(session.token),
+  })
+  const isAdmin = session.user.role === 'admin'
+  const productVariants = useProductVariants(
+    session.token,
+    productId,
+    true,
+    isAdmin && includeDeletedVariants
+  )
+  const hasPendingImageChanges = selectedImageFile !== null || removeImage
+  const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
+
+  useEffect(() => {
+    if (hasPendingChanges) {
+      onSaveMessageChange(null)
+    }
+  }, [hasPendingChanges, onSaveMessageChange])
+
+  useBlocker({
+    shouldBlockFn: () =>
+      !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage),
+    enableBeforeUnload: () => hasPendingChanges,
+  })
+
+  const updateProductMutation = useMutation({
+    mutationFn: (payload: UpdateProductInput) => updateProduct(session.token, productId, payload),
+    onSuccess: (updatedProduct) => {
+      queryClient.setQueryData<GetProductResponse>(productQueryKey, (currentData) => {
+        if (currentData?.state !== 'active') {
+          return currentData
+        }
+
+        return {
+          ...currentData,
+          product: updatedProduct,
+        }
+      })
+      updateProductInListCaches(queryClient, updatedProduct)
+      form.reset(toFormValues(updatedProduct))
+      setSelectedImageFile(null)
+      setRemoveImage(false)
+      setImageInputKey((currentValue) => currentValue + 1)
+      onSaveMessageChange('Changes saved.')
+    },
+  })
+
+  const onSubmit = form.handleSubmit(async (values) => {
+    await updateProductMutation.mutateAsync({
+      ...values,
+      imageFile: selectedImageFile,
+      removeImage,
+    })
+  })
+  const deleteProductMutation = useMutation({
+    mutationFn: () => deleteProduct(session.token, productId),
+    onSuccess: async () => {
+      queryClient.removeQueries({ queryKey: productQueryKey })
+      queryClient.setQueryData<ListProductsResponse>(defaultProductsQueryKey, (currentData) => {
+        if (!currentData) {
+          return currentData
+        }
+
+        return {
+          ...currentData,
+          products: currentData.products.filter((currentProduct) => currentProduct.id !== productId),
+        }
+      })
+      setIsNavigatingAfterDelete(true)
+      await queryClient.invalidateQueries({ queryKey: productListQueryKey(true) })
+      await navigate({
+        to: '/app/products',
+        search: {
+          deletedProductName: product.name,
+        },
+      })
+    },
+  })
+  const nameValue = form.watch('name')
+  const duplicateNameMatch = findDuplicateProductName(productsQuery.data?.products ?? [], nameValue, {
+    excludeProductId: productId,
+  })
+  const isSaving = updateProductMutation.isPending
+  const isDeleting = deleteProductMutation.isPending
+  const isMutating = isSaving || isRestoring || isDeleting
 
   return (
     <div className="space-y-6">

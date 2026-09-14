@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUTH_SESSION_STORAGE_KEY } from '@/lib/auth/session-storage'
@@ -461,10 +462,10 @@ describe('products route', () => {
             name: 'Valencia Gown',
             shortDescription: null,
             image: null,
-            lifecycleStatus: 'concept',
-            productStatus: 'active',
-            productCategory: null,
-            collection: null,
+            lifecycleStatus: 'testing',
+            productStatus: 'inactive',
+            productCategory: 'dress',
+            collection: { id: 2, name: '2026' },
             createdAt: '2026-07-01T18:33:00.000Z',
             createdBy: {
               id: 1,
@@ -513,13 +514,19 @@ describe('products route', () => {
 
     seedStoredSession()
 
-    renderProductsRoute('/app/products/P-AB12CD')
+    renderProductsRoute('/app/products/P-AB12CD', { strictMode: true })
 
     expect(await screen.findByRole('heading', { name: 'Valencia Gown' })).toBeInTheDocument()
     expect(screen.getByText('Product ID')).toBeInTheDocument()
     expect(screen.getByText('Created by')).toBeInTheDocument()
     expect(screen.getByText('Created at')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Valencia Gown')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Product Category' })).toHaveTextContent('Dress')
+      expect(screen.getByRole('combobox', { name: 'Collection' })).toHaveTextContent('2026')
+      expect(screen.getByRole('combobox', { name: 'Lifecycle Status' })).toHaveTextContent('Testing')
+      expect(screen.getByRole('combobox', { name: 'Product Status' })).toHaveTextContent('Inactive')
+    })
 
     await user.clear(screen.getByLabelText(/product name/i))
     await user.type(screen.getByLabelText(/product name/i), 'Valencia Gown Revised')
@@ -1473,7 +1480,7 @@ describe('products route', () => {
   })
 })
 
-function renderProductsRoute(initialEntry = '/app/products') {
+function renderProductsRoute(initialEntry = '/app/products', options?: { strictMode?: boolean }) {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
@@ -1488,13 +1495,15 @@ function renderProductsRoute(initialEntry = '/app/products') {
     },
   })
 
+  const content = (
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  )
+
   return {
     router,
-    ...render(
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    ),
+    ...render(options?.strictMode ? <StrictMode>{content}</StrictMode> : content),
   }
 }
 
