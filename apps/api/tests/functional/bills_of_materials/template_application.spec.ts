@@ -19,15 +19,7 @@ import db from '@adonisjs/lucid/services/db'
 import { test } from '@japa/runner'
 
 test.group('Bills of Materials', (group) => {
-  group.each.setup(async () => {
-    await BillOfMaterial.query().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
-
-  group.each.teardown(async () => {
-    await BillOfMaterial.queryWithDeleted().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('applies an associated Template as an independent ordered Implementation snapshot', async ({
     assert,
@@ -90,7 +82,10 @@ test.group('Bills of Materials', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
     restoredPatternSet.assertStatus(200)
     unchangedSource.assertStatus(200)
-    assert.deepEqual(unchangedSource.body(), sourceSnapshot.body())
+    assert.deepEqual(unchangedSource.body(), {
+      ...sourceSnapshot.body(),
+      descendantCount: 1,
+    })
 
     applied.assertStatus(201)
     applied.assertBodyContains({

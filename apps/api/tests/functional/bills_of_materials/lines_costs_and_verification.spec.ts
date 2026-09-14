@@ -15,15 +15,7 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 
 test.group('Bills of Materials', (group) => {
-  group.each.setup(async () => {
-    await BillOfMaterial.query().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
-
-  group.each.teardown(async () => {
-    await BillOfMaterial.queryWithDeleted().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('atomically creates and reloads ordered repeated and incomplete BOM Lines', async ({
     assert,
@@ -192,7 +184,7 @@ test.group('Bills of Materials', (group) => {
       excludedLineCount: 3,
     })
     assert.deepEqual(response.body().lines[2].material.preferredSource, {
-      id: 'S-0003',
+      id: zeroCostSource.publicId,
       name: 'Champagne Structure Satin',
       vendor: 'Atelier Supply',
       vendorShadeOrDetail: null,

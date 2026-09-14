@@ -1,4 +1,3 @@
-import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import Material from '#models/material'
 import {
   MATERIAL_IMPORT_FIXTURE,
@@ -16,15 +15,7 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 
 test.group('Bills of Materials', (group) => {
-  group.each.setup(async () => {
-    await BillOfMaterial.query().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
-
-  group.each.teardown(async () => {
-    await BillOfMaterial.queryWithDeleted().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('starts with an empty persisted catalog', async ({ client }) => {
     const session = await authenticateAs(client, 'operator')

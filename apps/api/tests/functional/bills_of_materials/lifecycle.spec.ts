@@ -14,15 +14,7 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 
 test.group('Bills of Materials', (group) => {
-  group.each.setup(async () => {
-    await BillOfMaterial.query().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
-
-  group.each.teardown(async () => {
-    await BillOfMaterial.queryWithDeleted().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('soft deletes a Bill of Materials, releases its Product slot, and preserves descendant lineage', async ({
     assert,

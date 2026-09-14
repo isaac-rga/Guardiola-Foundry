@@ -15,15 +15,7 @@ import db from '@adonisjs/lucid/services/db'
 import { test } from '@japa/runner'
 
 test.group('Bills of Materials', (group) => {
-  group.each.setup(async () => {
-    await BillOfMaterial.query().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
-
-  group.each.teardown(async () => {
-    await BillOfMaterial.queryWithDeleted().delete()
-    await testUtils.db('postgres_test').truncate()
-  })
+  group.each.setup(() => testUtils.db('postgres_test').truncate())
 
   test('derives an independent Template from a current BOM snapshot with immediate lineage', async ({
     assert,
