@@ -331,6 +331,22 @@ test.group('Bills of Materials', (group) => {
       .delete(`/pattern-sets/${patternSet.id}`)
       .header('Authorization', `Bearer ${session.token}`)
 
+    const retained = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    retained.assertStatus(200)
+    retained.assertBodyContains({
+      lines: [
+        {
+          materialId: 'M-0001',
+          material: { id: 'M-0001' },
+          patternSetId: patternSet.id,
+          patternSet: { id: patternSet.id, status: 'retired' },
+          attention: ['material-needs-attention', 'pattern-needs-attention'],
+        },
+      ],
+    })
+
     const updated = await client
       .put(`/bills-of-materials/${created.body().id}`)
       .header('Authorization', `Bearer ${session.token}`)

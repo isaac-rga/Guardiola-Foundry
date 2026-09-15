@@ -14,6 +14,7 @@ import {
   searchPatternSets,
   updatePatternSet,
 } from './endpoints'
+import { ApiRequestError } from '@/lib/api/transport'
 
 const patternSetsQueryPrefix = ['pattern-sets'] as const
 
@@ -73,12 +74,23 @@ export function usePatternSets(token: string, includeRetired: boolean) {
 }
 
 export function usePatternSetSearch(token: string, search: string) {
-  return useQuery({
+  const query = useQuery({
     queryKey: [...patternSetsQueryPrefix, 'search', search],
     queryFn: ({ signal }) => searchPatternSets(token, search, signal),
     enabled: search.length > 0,
     staleTime: 30_000,
   })
+
+  return {
+    ...query,
+    isErrorRetryable: isCatalogSearchErrorRetryable(query.error),
+  }
+}
+
+function isCatalogSearchErrorRetryable(error: Error | null) {
+  return !(
+    error instanceof ApiRequestError && [401, 403].includes(error.status)
+  )
 }
 
 export function usePatternSetDetail(

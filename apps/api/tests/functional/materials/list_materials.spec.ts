@@ -219,6 +219,7 @@ test.group('Materials list', (group) => {
             name: 'Italian Silk Crepe',
             vendor: 'Casa Tessile',
             vendorShadeOrDetail: 'Ivory 100',
+            description: 'Silk crepe for bridal base fabric.',
             widthCentimeters: 140,
             landedUnitCostCents: 4200,
           },
@@ -227,6 +228,63 @@ test.group('Materials list', (group) => {
       ],
       hasMore: false,
     })
+
+    const descriptionMatch = await client
+      .get('/materials/search?search=bridal%20base%20fabric')
+      .header('Authorization', `Bearer ${session.token}`)
+    descriptionMatch.assertStatus(200)
+    assert.equal(descriptionMatch.body().items[0].id, 'M-0001')
+    assert.equal(descriptionMatch.body().items[0].preferredSource.id, 'S-0001')
+    assert.equal(descriptionMatch.body().items[0].preferredSource.vendorShadeOrDetail, 'Ivory 100')
+    assert.equal(
+      descriptionMatch.body().items[0].preferredSource.description,
+      'Silk crepe for bridal base fabric.'
+    )
+  })
+
+  test('normalizes Material search and ranks identity matches above Source-only matches', async ({
+    assert,
+    client,
+  }) => {
+    const sourceOnlyMatch = await MaterialSource.findByOrFail('publicId', 'S-0003')
+    sourceOnlyMatch.name = 'Silk supplier'
+    await sourceOnlyMatch.save()
+    const session = await authenticateAs(client, 'operator')
+
+    const ranked = await client
+      .get('/materials/search?search=silk')
+      .header('Authorization', `Bearer ${session.token}`)
+    const normalized = await client
+      .get('/materials/search?search=%20%20%C3%8DVORY%20%20%20casa%20%20')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    ranked.assertStatus(200)
+    assert.deepEqual(
+      ranked.body().items.map((item: { id: string }) => item.id),
+      ['M-0001', 'M-0002']
+    )
+    normalized.assertStatus(200)
+    assert.deepEqual(
+      normalized.body().items.map((item: { id: string }) => item.id),
+      ['M-0001']
+    )
+  })
+
+  test('folds non-Spanish Material name diacritics', async ({ assert, client }) => {
+    const material = await Material.findByOrFail('publicId', 'M-0001')
+    material.name = 'Crème Brûlée'
+    await material.save()
+    const session = await authenticateAs(client, 'operator')
+
+    const response = await client
+      .get('/materials/search?search=creme%20brulee')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((item: { id: string }) => item.id),
+      ['M-0001']
+    )
   })
 
   test('requires non-empty authenticated Material selection search and omits deleted Materials', async ({

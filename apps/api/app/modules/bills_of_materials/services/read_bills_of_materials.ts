@@ -4,18 +4,16 @@ import Product from '#models/product'
 import ProductVariant from '#models/product_variant'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import type BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
+import PatternSet from '#modules/pattern_sets/models/pattern_set'
+import { calculateBomCostProjection } from '#modules/bills_of_materials/services/bom_cost_projection'
 import {
-  calculateBomCostProjection,
-  preferredSourceFor,
-  sourceNeedsAttention,
-} from '#modules/bills_of_materials/services/bom_cost_projection'
+  resolveBillOfMaterialsLineAttention,
+  serializeBillOfMaterialsLine,
+  type BillOfMaterialsLineReferenceIds,
+} from '#modules/bills_of_materials/services/bill_of_materials_line_serializer'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
   BillOfMaterialsDetail,
-  BillOfMaterialsLine,
-  BillOfMaterialsLineAttention,
-  BillOfMaterialsLineCostProjection,
-  BillOfMaterialsLinePreferredSource,
   BillOfMaterialsSummary,
   BillsOfMaterialsCatalogSummary,
   ListBillsOfMaterialsQuery,
@@ -69,7 +67,7 @@ export async function getBillOfMaterials(
   const billOfMaterials = await loadBillOfMaterials(publicId, undefined, options?.includeDeleted)
   if (!billOfMaterials) return null
   const descendantCounts = await loadDescendantCounts()
-  return serializeBillOfMaterialsDetail(
+  return await serializeBillOfMaterialsDetail(
     billOfMaterials,
     descendantCounts.get(billOfMaterials.id) ?? 0
   )
@@ -79,9 +77,10 @@ export async function loadBillOfMaterialsDetail(publicId: string, trx: Transacti
   const billOfMaterials = await loadBillOfMaterials(publicId, trx)
   if (!billOfMaterials) throw new Error(`Bill of Materials ${publicId} could not be reloaded.`)
   const descendantCounts = await loadDescendantCounts(trx)
-  return serializeBillOfMaterialsDetail(
+  return await serializeBillOfMaterialsDetail(
     billOfMaterials,
-    descendantCounts.get(billOfMaterials.id) ?? 0
+    descendantCounts.get(billOfMaterials.id) ?? 0,
+    trx
   )
 }
 
@@ -138,7 +137,9 @@ function serializeBillOfMaterials(
     readOnlyReason: resolveReadOnlyReason(billOfMaterials, product),
     lineCount: billOfMaterials.lines.length,
     verifiedLineCount: billOfMaterials.lines.filter((line) => line.verifiedAt !== null).length,
-    attentionCount: billOfMaterials.lines.filter((line) => lineAttention(line).length > 0).length,
+    attentionCount: billOfMaterials.lines.filter(
+      (line) => resolveBillOfMaterialsLineAttention(line).length > 0
+    ).length,
     costProjection: costProjection.summary,
     createdBy: {
       id: billOfMaterials.createdBy.id,
@@ -203,13 +204,15 @@ function resolveReadOnlyReason(
   return null
 }
 
-function serializeBillOfMaterialsDetail(
+async function serializeBillOfMaterialsDetail(
   billOfMaterials: BillOfMaterial,
-  descendantCount: number
-): BillOfMaterialsDetail {
+  descendantCount: number,
+  trx?: TransactionClientContract
+): Promise<BillOfMaterialsDetail> {
   const projection = calculateBomCostProjection(billOfMaterials.lines)
+  const referenceIds = await loadLineReferenceIds(billOfMaterials.lines, trx)
   const lines = billOfMaterials.lines.map((line, index) =>
-    serializeBillOfMaterialsLine(line, projection.lines[index])
+    serializeBillOfMaterialsLine(line, projection.lines[index], referenceIds)
   )
 
   return {
@@ -220,77 +223,31 @@ function serializeBillOfMaterialsDetail(
   }
 }
 
-function serializeBillOfMaterialsLine(
-  line: BillOfMaterialLine,
-  costProjection: BillOfMaterialsLineCostProjection
-): BillOfMaterialsLine {
-  const hasValidQuantity = line.materialQuantity !== null && line.materialQuantity > 0
-  const preferredLink = preferredSourceFor(line)
-
-  return {
-    id: line.publicId,
-    constructionPiece: line.constructionPiece,
-    material:
-      line.materialId === null
-        ? null
-        : {
-            id: line.material.publicId,
-            name: line.material.name,
-            preferredSource: preferredLink ? serializeLinePreferredSource(preferredLink) : null,
-          },
-    materialQuantity: line.materialQuantity,
-    patternSet:
-      line.patternSetId === null
-        ? null
-        : {
-            id: line.patternSet.publicId,
-            name: line.patternSet.name,
-            status: line.patternSet.status,
-            quantityProposalCount: line.patternSet.quantityProposals.length,
-          },
-    lineNote: line.lineNote,
-    order: line.displayOrder,
-    completeness:
-      line.constructionPiece.length > 0 && line.materialId !== null && hasValidQuantity
-        ? 'complete'
-        : 'incomplete',
-    verification:
-      line.verifiedAt === null
-        ? { status: 'unverified', verifiedBy: null, verifiedAt: null }
-        : {
-            status: 'verified',
-            verifiedBy: { id: line.verifiedBy.id, email: line.verifiedBy.email },
-            verifiedAt: line.verifiedAt.toISO()!,
-          },
-    attention: lineAttention(line),
-    costProjection,
-  }
-}
-
-function lineAttention(line: BillOfMaterialLine): BillOfMaterialsLineAttention[] {
-  return [
-    ...(line.materialId !== null && line.material.deletedAt !== null
-      ? (['material-needs-attention'] as const)
-      : []),
-    ...(sourceNeedsAttention(line) ? (['source-needs-attention'] as const) : []),
-    ...(line.patternSetId !== null && line.patternSet.status === 'retired'
-      ? (['pattern-needs-attention'] as const)
-      : []),
+async function loadLineReferenceIds(
+  lines: BillOfMaterialLine[],
+  trx?: TransactionClientContract
+): Promise<BillOfMaterialsLineReferenceIds> {
+  const materialIds = [
+    ...new Set(lines.flatMap((line) => (line.materialId === null ? [] : [line.materialId]))),
   ]
-}
-
-function serializeLinePreferredSource(
-  preferredLink: Material['sourceLinks'][number]
-): BillOfMaterialsLinePreferredSource {
-  const source = preferredLink.materialSource
+  const patternSetIds = [
+    ...new Set(lines.flatMap((line) => (line.patternSetId === null ? [] : [line.patternSetId]))),
+  ]
+  const materialQuery = Material.query(trx ? { client: trx } : undefined)
+    .select('id', 'publicId')
+    .whereIn('id', materialIds)
+  Material.includeDeleted(materialQuery)
+  const materials = materialIds.length > 0 ? await materialQuery : []
+  const patternSets =
+    patternSetIds.length > 0
+      ? await PatternSet.query(trx ? { client: trx } : undefined)
+          .select('id', 'publicId')
+          .whereIn('id', patternSetIds)
+      : []
 
   return {
-    id: source.publicId,
-    name: source.name,
-    vendor: source.vendor,
-    vendorShadeOrDetail: preferredLink.vendorShade?.nameOrCode ?? source.description,
-    widthCentimeters: source.widthCentimeters,
-    landedUnitCostCents: source.landedUnitCostCents,
+    material: new Map(materials.map((material) => [material.id, material.publicId])),
+    patternSet: new Map(patternSets.map((patternSet) => [patternSet.id, patternSet.publicId])),
   }
 }
 

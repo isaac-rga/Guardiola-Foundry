@@ -17,14 +17,16 @@ export function calculateBomCostProjection(lines: BillOfMaterialLine[]) {
 }
 
 export function preferredSourceFor(line: BillOfMaterialLine) {
-  return line.materialId === null
+  return line.materialId === null || !line.material
     ? undefined
     : line.material.sourceLinks.find((sourceLink) => sourceLink.isPreferred)
 }
 
 export function sourceNeedsAttention(line: BillOfMaterialLine) {
   return (
-    line.materialId !== null && !isPreferredSourceUsable(preferredSourceFor(line)?.materialSource)
+    line.materialId !== null &&
+    Boolean(line.material) &&
+    !isPreferredSourceUsable(preferredSourceFor(line)?.materialSource)
   )
 }
 

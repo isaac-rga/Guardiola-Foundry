@@ -138,8 +138,10 @@ export type BillOfMaterialsLineVerification =
 export interface BillOfMaterialsLine {
   id: string
   constructionPiece: string
+  materialId: string | null
   material: BillOfMaterialsLineMaterial | null
   materialQuantity: number | null
+  patternSetId: string | null
   patternSet: BillOfMaterialsLinePatternSet | null
   lineNote: string | null
   order: number

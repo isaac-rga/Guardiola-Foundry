@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { usePatternSetDetail } from '@/features/pattern-sets/api/pattern-sets'
+import { usePatternSetDetail } from '@/features/pattern-sets/api/queries'
 import { cn } from '@/lib/utils'
 
 export function PatternProposalDialog({

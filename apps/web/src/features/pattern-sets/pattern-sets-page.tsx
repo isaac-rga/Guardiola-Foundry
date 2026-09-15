@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { usePatternSets } from './api/pattern-sets'
+import { usePatternSets } from './api/queries'
 
 const emptyValues: PatternSetMutationRequest = {
   name: '',

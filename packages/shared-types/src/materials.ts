@@ -39,6 +39,7 @@ export interface MaterialSearchItem {
     name: string
     vendor: string
     vendorShadeOrDetail: string | null
+    description: string | null
     widthCentimeters: number | null
     landedUnitCostCents: number | null
   }

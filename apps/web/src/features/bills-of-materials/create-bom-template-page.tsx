@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
-import { z } from 'zod'
 import type {
   BillOfMaterialsCostProjectionExclusionReason,
   BillOfMaterialsDetail,
@@ -17,7 +16,6 @@ import type {
   CreateBillOfMaterialsRequest,
   CreateBillOfMaterialsLineRequest,
   PatternSetSearchItem,
-  ProductVariantCandidate,
   ProductSummary,
 } from '@guardiola-foundry/shared-types'
 import { createBillOfMaterialsRequestSchema } from '@guardiola-foundry/shared-validation'
@@ -53,6 +51,11 @@ import {
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
 import { BillOfMaterialsRequestError } from './api/endpoints'
+import {
+  resolveBomBuilderDefaultValues,
+  type BomBuilderContext,
+  type BomBuilderFormValues,
+} from './bom-builder-default-values'
 import { calculateDraftBomCostProjection } from './bom-cost-projection'
 import {
   isCompleteBillOfMaterialsLine,
@@ -73,24 +76,14 @@ const emptyLine: CreateBillOfMaterialsLineRequest = {
   verified: false,
 }
 
-type CreateBillOfMaterialsFormValues = z.input<
-  typeof createBillOfMaterialsRequestSchema
->
 type CreateBillOfMaterialsLineFormValues = NonNullable<
-  CreateBillOfMaterialsFormValues['lines']
+  BomBuilderFormValues['lines']
 >[number]
-
-type BomBuilderContext =
-  | { kind: 'template'; sourceBillOfMaterials?: BillOfMaterialsDetail }
-  | {
-      kind: 'implementation'
-      productVariant: Pick<ProductVariantCandidate, 'id' | 'name' | 'product'>
-      sourceTemplate?: BillOfMaterialsDetail
-    }
 
 interface BuilderMaterial {
   id: string
-  name: string
+  name: string | null
+  availability?: 'available' | 'unavailable'
   preferredSource: BillOfMaterialsLinePreferredSource | null
   attention: Array<'source-needs-attention'>
 }
@@ -114,70 +107,19 @@ export function BomBuilderPage({
   const derivationSource =
     context.kind === 'template' ? context.sourceBillOfMaterials : undefined
   const copySource = sourceTemplate ?? derivationSource
-  const implementationVariant =
-    context.kind === 'implementation' ? context.productVariant : undefined
   const initialBillOfMaterials = existing ?? copySource
   const isReadOnly =
     existing?.readOnlyReason !== null && existing?.readOnlyReason !== undefined
   const capabilities = resolveBuilderCapabilities(copySource, isReadOnly)
   const form = useForm<
-    CreateBillOfMaterialsFormValues,
+    BomBuilderFormValues,
     unknown,
     CreateBillOfMaterialsRequest
   >({
     resolver: zodResolver(createBillOfMaterialsRequestSchema, undefined, {
       mode: 'sync',
     }),
-    defaultValues: existing
-      ? {
-          kind: existing.kind,
-          name: existing.name,
-          description: existing.description,
-          ...(existing.kind === 'template'
-            ? { productId: existing.product?.id ?? null }
-            : { productVariantId: existing.productVariant!.id }),
-          lines: existing.lines.map((line) => ({
-            constructionPiece: line.constructionPiece,
-            materialId: line.material?.id ?? null,
-            materialQuantity: line.materialQuantity,
-            patternSetId: line.patternSet?.id ?? null,
-            lineNote: line.lineNote,
-            verified: line.verification.status === 'verified',
-          })),
-        }
-      : copySource
-        ? {
-            kind: context.kind,
-            name:
-              context.kind === 'template' ? `${copySource.name} — copy` : '',
-            description: copySource.description,
-            ...(context.kind === 'template'
-              ? { productId: copySource.product?.id ?? null }
-              : { productVariantId: implementationVariant!.id }),
-            lines: copySource.lines.map((line) => ({
-              constructionPiece: line.constructionPiece,
-              materialId: line.material?.id ?? null,
-              materialQuantity: line.materialQuantity,
-              patternSetId: line.patternSet?.id ?? null,
-              lineNote: line.lineNote,
-              verified: false,
-            })),
-          }
-        : context.kind === 'template'
-          ? {
-              kind: 'template',
-              name: '',
-              description: null,
-              productId: null,
-              lines: [],
-            }
-          : {
-              kind: 'implementation',
-              name: '',
-              description: null,
-              productVariantId: implementationVariant!.id,
-              lines: [],
-            },
+    defaultValues: resolveBomBuilderDefaultValues({ context, existing }),
   })
   const { append, fields, move, remove } = useFieldArray({
     control: form.control,
@@ -192,14 +134,19 @@ export function BomBuilderPage({
   >(() =>
     Object.fromEntries(
       initialBillOfMaterials?.lines.flatMap((line) =>
-        line.material
+        line.materialId
           ? [
               [
-                line.material.id,
+                line.materialId,
                 {
-                  id: line.material.id,
-                  name: line.material.name,
-                  preferredSource: line.material.preferredSource,
+                  id: line.materialId,
+                  name: line.material?.name ?? null,
+                  availability: line.material
+                    ? line.attention.includes('material-needs-attention')
+                      ? 'unavailable'
+                      : 'available'
+                    : undefined,
+                  preferredSource: line.material?.preferredSource ?? null,
                   attention: line.attention.filter(
                     (attention) => attention === 'source-needs-attention',
                   ),
@@ -213,20 +160,42 @@ export function BomBuilderPage({
   const [patternSetsById, setPatternSetsById] = useState<
     Record<
       string,
-      Pick<PatternSetSearchItem, 'id' | 'name' | 'quantityProposalCount'> & {
+      Pick<PatternSetSearchItem, 'id' | 'quantityProposalCount'> & {
+        name: string | null
         status?: 'active' | 'retired'
+        availability?: 'available' | 'unavailable'
       }
     >
   >(() =>
     Object.fromEntries(
       initialBillOfMaterials?.lines.flatMap((line) =>
-        line.patternSet ? [[line.patternSet.id, line.patternSet]] : [],
+        line.patternSetId
+          ? [
+              [
+                line.patternSetId,
+                line.patternSet
+                  ? {
+                      ...line.patternSet,
+                      availability:
+                        line.patternSet.status === 'retired'
+                          ? 'unavailable'
+                          : 'available',
+                    }
+                  : {
+                      id: line.patternSetId,
+                      name: null,
+                      quantityProposalCount: 0,
+                    },
+              ],
+            ]
+          : [],
       ) ?? [],
     ),
   )
-  const [selectedProduct, setSelectedProduct] = useState<
-    Pick<ProductSummary, 'id' | 'name'> | null
-  >(derivationSource?.product ?? null)
+  const [selectedProduct, setSelectedProduct] = useState<Pick<
+    ProductSummary,
+    'id' | 'name'
+  > | null>(derivationSource?.product ?? null)
   const dragHandleIndex = useRef<number | null>(null)
   const draggedIndex = useRef<number | null>(null)
   const { blocker, isSaving, saveError, submit } = useBomBuilderPersistence({
@@ -688,52 +657,52 @@ export function BomBuilderPage({
                         </div>
 
                         <div className="grid gap-5 md:grid-cols-2">
-                          <FormItem>
-                            <FormLabel>Material</FormLabel>
-                            {!capabilities.canEditComposition ? (
-                              <div className="rounded-xl border bg-muted/20 px-3 py-2 text-sm">
-                                {activeMaterial
-                                  ? `${activeMaterial.name} · ${activeMaterial.id}`
-                                  : 'Material unresolved'}
-                              </div>
-                            ) : (
-                              <MaterialPicker
-                                selected={activeMaterial}
-                                token={session.token}
-                                onSelect={(material) => {
-                                  const materialChanged =
-                                    material?.id !== activeLine.materialId
-                                  form.setValue(
-                                    `lines.${activeIndex}.materialId`,
-                                    material?.id ?? null,
-                                    {
-                                      shouldDirty: true,
-                                      shouldValidate: true,
-                                    },
-                                  )
-                                  if (materialChanged) {
-                                    form.setValue(
-                                      `lines.${activeIndex}.materialQuantity`,
-                                      null,
-                                      {
-                                        shouldDirty: true,
-                                        shouldValidate: true,
-                                      },
-                                    )
-                                    updateLineVerification(activeIndex, {
-                                      materialId: material?.id ?? null,
-                                    })
-                                  }
-                                  if (material) {
-                                    setMaterialsById((current) => ({
-                                      ...current,
-                                      [material.id]: material,
-                                    }))
-                                  }
-                                }}
-                              />
+                          <FormField
+                            control={form.control}
+                            name={`lines.${activeIndex}.materialId`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Material</FormLabel>
+                                {!capabilities.canEditComposition ? (
+                                  <div className="rounded-xl border bg-muted/20 px-3 py-2 text-sm">
+                                    {activeMaterial
+                                      ? `${activeMaterial.name ?? 'Details unavailable'} · ${activeMaterial.id}`
+                                      : 'Material unresolved'}
+                                  </div>
+                                ) : (
+                                  <MaterialPicker
+                                    selected={activeMaterial}
+                                    token={session.token}
+                                    onSelect={(material) => {
+                                      const materialChanged =
+                                        material?.id !== activeLine.materialId
+                                      field.onChange(material?.id ?? null)
+                                      if (materialChanged) {
+                                        form.setValue(
+                                          `lines.${activeIndex}.materialQuantity`,
+                                          null,
+                                          {
+                                            shouldDirty: true,
+                                            shouldValidate: true,
+                                          },
+                                        )
+                                        updateLineVerification(activeIndex, {
+                                          materialId: material?.id ?? null,
+                                        })
+                                      }
+                                      if (material) {
+                                        setMaterialsById((current) => ({
+                                          ...current,
+                                          [material.id]: material,
+                                        }))
+                                      }
+                                    }}
+                                  />
+                                )}
+                                <FormMessage />
+                              </FormItem>
                             )}
-                          </FormItem>
+                          />
                           <FormField
                             control={form.control}
                             name={`lines.${activeIndex}.patternSetId`}
@@ -774,7 +743,7 @@ export function BomBuilderPage({
                                 {!capabilities.canEditComposition ? (
                                   <div className="rounded-xl border bg-muted/20 px-3 py-2 text-sm">
                                     {activePatternSet
-                                      ? `${activePatternSet.name} · ${activePatternSet.id}`
+                                      ? `${activePatternSet.name ?? 'Details unavailable'} · ${activePatternSet.id}`
                                       : 'No Pattern Set'}
                                   </div>
                                 ) : (
@@ -1008,8 +977,11 @@ export function BomBuilderPage({
                 </p>
                 {copySource ? (
                   <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
-                    Origin: {copySource.kind === 'template' ? 'Template' : 'Implementation'} ·{' '}
-                    {copySource.name} · {copySource.id}
+                    Origin:{' '}
+                    {copySource.kind === 'template'
+                      ? 'Template'
+                      : 'Implementation'}{' '}
+                    · {copySource.name} · {copySource.id}
                   </p>
                 ) : null}
               </CardContent>

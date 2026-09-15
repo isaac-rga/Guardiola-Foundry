@@ -93,10 +93,11 @@ export const billOfMaterialsRestoreConflictResponseSchema = z.object({
   conflictingBillOfMaterials: billOfMaterialsReferenceSchema,
 }) satisfies z.ZodType<BillOfMaterialsRestoreConflictResponse>
 
-const billOfMaterialsOriginReferenceSchema = billOfMaterialsReferenceSchema.extend({
-  kind: z.enum(['template', 'implementation']),
-  availability: billOfMaterialsReferenceAvailabilitySchema,
-})
+const billOfMaterialsOriginReferenceSchema =
+  billOfMaterialsReferenceSchema.extend({
+    kind: z.enum(['template', 'implementation']),
+    availability: billOfMaterialsReferenceAvailabilitySchema,
+  })
 
 const billOfMaterialsLineVerificationSchema = z.discriminatedUnion('status', [
   z.object({
@@ -131,8 +132,16 @@ const billOfMaterialsCostProjectionSchema = z.object({
 export const billOfMaterialsLineSchema = z.object({
   id: z.string().regex(/^BML-[A-Z2-9]{6}$/),
   constructionPiece: z.string(),
+  materialId: z
+    .string()
+    .regex(/^M-\d{4,}$/)
+    .nullable(),
   material: billOfMaterialsLineMaterialSchema.nullable(),
   materialQuantity: z.number().positive().nullable(),
+  patternSetId: z
+    .string()
+    .regex(/^PS-[A-Z2-9]{6}$/)
+    .nullable(),
   patternSet: billOfMaterialsLinePatternSetSchema.nullable(),
   lineNote: z.string().nullable(),
   order: z.number().int().nonnegative(),
@@ -332,7 +341,10 @@ export const searchProductVariantCandidatesQuerySchema = z.object({
         .toLocaleLowerCase(),
     )
     .pipe(z.string().min(1)),
-  templateId: z.string().regex(/^BOM-[A-Z2-9]{6}$/).optional(),
+  templateId: z
+    .string()
+    .regex(/^BOM-[A-Z2-9]{6}$/)
+    .optional(),
 })
 
 const productVariantCandidateBaseSchema = z.object({
@@ -378,5 +390,9 @@ export const applyBillOfMaterialsTemplateRequestSchema = z.object({
 
 export const deriveBillOfMaterialsTemplateRequestSchema = z.object({
   name: billOfMaterialsNameSchema,
-  productId: z.string().regex(/^P-[A-Z2-9]{6}$/).nullable().optional(),
+  productId: z
+    .string()
+    .regex(/^P-[A-Z2-9]{6}$/)
+    .nullable()
+    .optional(),
 }) satisfies z.ZodType<DeriveBillOfMaterialsTemplateRequest>

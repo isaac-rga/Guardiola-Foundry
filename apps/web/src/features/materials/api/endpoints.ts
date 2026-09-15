@@ -19,7 +19,11 @@ import type {
   UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
 export async function listMaterials(
   token: string,
@@ -58,8 +62,9 @@ export async function searchMaterials(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(
+    throw new ApiRequestError(
       getResponseErrorMessage(body, 'Unable to search Materials.'),
+      response.status,
     )
   }
 

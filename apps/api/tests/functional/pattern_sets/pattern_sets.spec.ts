@@ -203,6 +203,86 @@ test.group('Pattern Sets', (group) => {
     })
   })
 
+  test('normalizes and deterministically ranks Pattern Set matches', async ({ assert, client }) => {
+    const session = await authenticateAs(client, 'operator')
+    const exact = await createPatternSet(client, session.token, 'Cape')
+    const prefix = await createPatternSet(client, session.token, 'Cape Train')
+    const word = await createPatternSet(client, session.token, 'Zeta Cape')
+    const partial = await createPatternSet(client, session.token, 'A-Capeline')
+
+    const response = await client
+      .get('/pattern-sets/search?search=%20%20C%C3%81PE%20%20')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((item: { id: string }) => item.id),
+      [exact.id, prefix.id, word.id, partial.id]
+    )
+  })
+
+  test('ranks exact Pattern Set identity before an exact name match', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const exactIdentity = await createPatternSet(client, session.token, 'Identity owner')
+    const exactName = await createPatternSet(client, session.token, exactIdentity.id)
+
+    const response = await client
+      .get(`/pattern-sets/search?search=${exactIdentity.id.toLocaleLowerCase()}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((item: { id: string }) => item.id),
+      [exactIdentity.id, exactName.id]
+    )
+  })
+
+  test('returns at most 25 Pattern Sets and reports more ordered matches', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    await PatternSet.createMany(
+      Array.from({ length: 26 }, (_, index) => ({
+        publicId: `PS-BND${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}A`,
+        name: `Bounded skirt ${String(index).padStart(2, '0')}`,
+        description: null,
+        status: 'active' as const,
+        createdByUserId: session.userId,
+      }))
+    )
+
+    const response = await client
+      .get('/pattern-sets/search?search=bounded')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.lengthOf(response.body().items, 25)
+    assert.isTrue(response.body().hasMore)
+    assert.deepEqual(
+      response.body().items.map((item: { name: string }) => item.name),
+      Array.from({ length: 25 }, (_, index) => `Bounded skirt ${String(index).padStart(2, '0')}`)
+    )
+  })
+
+  test('folds non-Spanish Pattern Set name diacritics', async ({ assert, client }) => {
+    const session = await authenticateAs(client, 'operator')
+    const patternSet = await createPatternSet(client, session.token, 'Ångström façade')
+
+    const response = await client
+      .get('/pattern-sets/search?search=angstrom%20facade')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((item: { id: string }) => item.id),
+      [patternSet.id]
+    )
+  })
+
   test('resolves retained records and counts affected lines and Bills of Materials', async ({
     assert,
     client,

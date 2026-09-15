@@ -56,9 +56,33 @@ export async function listMaterials(): Promise<ListMaterialsResponse> {
 }
 
 const MATERIAL_SEARCH_LIMIT = 25
+const NORMALIZED_MATERIAL_ID = `lower(materials.public_id)`
+const NORMALIZED_MATERIAL_NAME = `
+  regexp_replace(
+    unaccent(lower(materials.name)),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
+const NORMALIZED_MATERIAL_IDENTITY_DOCUMENT = `
+  regexp_replace(
+    unaccent(
+      lower(concat_ws(' ',
+        materials.public_id,
+        materials.name,
+        materials.material_color,
+        replace(materials.material_use, '-', ' ')
+      ))
+    ),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
 const NORMALIZED_MATERIAL_SEARCH_DOCUMENT = `
   regexp_replace(
-    translate(
+    unaccent(
       lower(concat_ws(' ',
         materials.public_id,
         materials.name,
@@ -70,9 +94,7 @@ const NORMALIZED_MATERIAL_SEARCH_DOCUMENT = `
         vendor_shade.name_or_code,
         preferred_source.description,
         preferred_source.width_centimeters::text
-      )),
-      'áéíóúüñ',
-      'aeiouun'
+      ))
     ),
     '\\s+',
     ' ',
@@ -82,8 +104,12 @@ const NORMALIZED_MATERIAL_SEARCH_DOCUMENT = `
 
 export async function searchMaterials(search: string): Promise<SearchMaterialsResponse> {
   const terms = search.split(' ')
-  const normalizedMaterialId = `lower(materials.public_id)`
-  const normalizedMaterialName = `translate(lower(materials.name), 'áéíóúüñ', 'aeiouun')`
+  const identityWordMatch = terms
+    .map(
+      () =>
+        `position((' ' || ? || ' ') in (' ' || ${NORMALIZED_MATERIAL_IDENTITY_DOCUMENT} || ' ')) > 0`
+    )
+    .join(' AND ')
   const query = db
     .from('materials')
     .join('material_source_links as preferred_link', function () {
@@ -120,15 +146,17 @@ export async function searchMaterials(search: string): Promise<SearchMaterialsRe
     ])
     .orderByRaw(
       `CASE
-        WHEN ${normalizedMaterialId} = ? THEN 0
-        WHEN ${normalizedMaterialName} = ? THEN 1
-        WHEN ${normalizedMaterialId} LIKE ? THEN 2
-        WHEN ${normalizedMaterialName} LIKE ? THEN 3
-        ELSE 4
+        WHEN ${NORMALIZED_MATERIAL_ID} = ? THEN 0
+        WHEN ${NORMALIZED_MATERIAL_NAME} = ? THEN 1
+        WHEN ${NORMALIZED_MATERIAL_ID} LIKE ? THEN 2
+        WHEN ${NORMALIZED_MATERIAL_NAME} LIKE ? THEN 3
+        WHEN ${identityWordMatch} THEN 4
+        WHEN position(? in ${NORMALIZED_MATERIAL_IDENTITY_DOCUMENT}) > 0 THEN 5
+        ELSE 6
       END`,
-      [search, search, `${search}%`, `${search}%`]
+      [search, search, `${search}%`, `${search}%`, ...terms, search]
     )
-    .orderBy('materials.name', 'asc')
+    .orderByRaw(`${NORMALIZED_MATERIAL_NAME} asc`)
     .orderBy('materials.public_id', 'asc')
     .limit(MATERIAL_SEARCH_LIMIT + 1)
 
@@ -149,6 +177,7 @@ export async function searchMaterials(search: string): Promise<SearchMaterialsRe
         name: row.source_name,
         vendor: row.source_vendor,
         vendorShadeOrDetail: row.vendor_shade ?? row.source_description,
+        description: row.source_description,
         widthCentimeters: row.width_centimeters === null ? null : Number(row.width_centimeters),
         landedUnitCostCents: row.landed_unit_cost_cents,
       },

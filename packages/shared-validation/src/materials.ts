@@ -70,6 +70,7 @@ export const materialSearchItemSchema = z.object({
     name: z.string().min(1),
     vendor: z.string().min(1),
     vendorShadeOrDetail: z.string().nullable(),
+    description: z.string().nullable(),
     widthCentimeters: z.number().positive().nullable(),
     landedUnitCostCents: z.number().int().nonnegative().nullable(),
   }),

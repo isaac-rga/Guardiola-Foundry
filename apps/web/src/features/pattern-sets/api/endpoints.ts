@@ -15,7 +15,11 @@ import type {
   UpdatePatternSetRequest,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
 export async function listPatternSets(
   token: string,
@@ -49,8 +53,9 @@ export async function searchPatternSets(
   })
   const body = await response.json()
   if (!response.ok) {
-    throw new Error(
+    throw new ApiRequestError(
       getResponseErrorMessage(body, 'Unable to search Pattern Sets.'),
+      response.status,
     )
   }
   return searchPatternSetsResponseSchema.parse(body)

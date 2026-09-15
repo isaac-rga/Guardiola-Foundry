@@ -16,12 +16,18 @@ import { randomBytes } from 'node:crypto'
 const PATTERN_SET_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PATTERN_SET_ID_LENGTH = 6
 const PATTERN_SET_SEARCH_LIMIT = 25
+const NORMALIZED_PATTERN_SET_ID = `lower(pattern_sets.public_id)`
+const NORMALIZED_PATTERN_SET_NAME = `
+  regexp_replace(
+    unaccent(lower(pattern_sets.name)),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
 const NORMALIZED_PATTERN_SET_SEARCH_DOCUMENT = `
   regexp_replace(
-    translate(lower(concat_ws(' ', pattern_sets.public_id, pattern_sets.name)),
-      'áéíóúüñ',
-      'aeiouun'
-    ),
+    unaccent(lower(concat_ws(' ', pattern_sets.public_id, pattern_sets.name))),
     '\\s+',
     ' ',
     'g'
@@ -46,8 +52,10 @@ export async function listPatternSets(includeRetired = false): Promise<ListPatte
 }
 
 export async function searchPatternSets(search: string): Promise<SearchPatternSetsResponse> {
-  const normalizedId = 'lower(pattern_sets.public_id)'
-  const normalizedName = `translate(lower(pattern_sets.name), 'áéíóúüñ', 'aeiouun')`
+  const terms = search.split(' ')
+  const nameWordMatch = terms
+    .map(() => `position((' ' || ? || ' ') in (' ' || ${NORMALIZED_PATTERN_SET_NAME} || ' ')) > 0`)
+    .join(' AND ')
   const query = db
     .from('pattern_sets')
     .leftJoin(
@@ -61,19 +69,20 @@ export async function searchPatternSets(search: string): Promise<SearchPatternSe
     .groupBy('pattern_sets.id')
     .orderByRaw(
       `CASE
-        WHEN ${normalizedId} = ? THEN 0
-        WHEN ${normalizedName} = ? THEN 1
-        WHEN ${normalizedId} LIKE ? THEN 2
-        WHEN ${normalizedName} LIKE ? THEN 3
-        ELSE 4
+        WHEN ${NORMALIZED_PATTERN_SET_ID} = ? THEN 0
+        WHEN ${NORMALIZED_PATTERN_SET_NAME} = ? THEN 1
+        WHEN ${NORMALIZED_PATTERN_SET_ID} LIKE ? THEN 2
+        WHEN ${NORMALIZED_PATTERN_SET_NAME} LIKE ? THEN 3
+        WHEN ${nameWordMatch} THEN 4
+        ELSE 5
       END`,
-      [search, search, `${search}%`, `${search}%`]
+      [search, search, `${search}%`, `${search}%`, ...terms]
     )
-    .orderBy('pattern_sets.name', 'asc')
+    .orderByRaw(`${NORMALIZED_PATTERN_SET_NAME} asc`)
     .orderBy('pattern_sets.public_id', 'asc')
     .limit(PATTERN_SET_SEARCH_LIMIT + 1)
 
-  search.split(' ').forEach((term) => {
+  terms.forEach((term) => {
     query.whereRaw(`position(? in ${NORMALIZED_PATTERN_SET_SEARCH_DOCUMENT}) > 0`, [term])
   })
 
