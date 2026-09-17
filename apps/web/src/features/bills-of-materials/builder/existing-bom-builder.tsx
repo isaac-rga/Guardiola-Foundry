@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { useBillOfMaterials } from './api/bills-of-materials'
-import { BomBuilderPage } from './create-bom-template-page'
+import { useBillOfMaterials } from '../api/bills-of-materials'
+import { BomBuilderPage } from './bom-builder-page'
 
 export function ExistingBomBuilder({
   billOfMaterialsId,

@@ -97,7 +97,11 @@ export default class BillsOfMaterialsController {
     }
     try {
       return response.ok(
-        await searchProductVariantCandidates(query.data.search, query.data.templateId)
+        await searchProductVariantCandidates(
+          query.data.search,
+          query.data.templateId,
+          query.data.productId
+        )
       )
     } catch (error) {
       if (error instanceof ProductVariantCandidateTemplateUnavailableError) {

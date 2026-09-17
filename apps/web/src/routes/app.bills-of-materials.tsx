@@ -1,12 +1,8 @@
-import { createFileRoute, Navigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
-import { BillsOfMaterialsCatalogPage } from '@/features/bills-of-materials/bills-of-materials-catalog-page'
-import { BomBuilderPage } from '@/features/bills-of-materials/create-bom-template-page'
-import { ImplementationBuilder } from '@/features/bills-of-materials/implementation-builder'
-import { ExistingBomBuilder } from '@/features/bills-of-materials/existing-bom-builder'
-import { ApplyTemplateBuilder } from '@/features/bills-of-materials/apply-template-builder'
-import { DeriveTemplateBuilder } from '@/features/bills-of-materials/derive-template-builder'
+import { BillsOfMaterialsWorkflow } from '@/features/bills-of-materials/bills-of-materials-workflow'
+import { clearAuthSession } from '@/lib/auth/session-storage'
 
 export const Route = createFileRoute('/app/bills-of-materials')({
   validateSearch: z.object({
@@ -37,97 +33,26 @@ function BillsOfMaterialsRoute() {
   } = Route.useSearch()
   const navigate = Route.useNavigate()
 
-  if (screen === 'builder') {
-    if (kind === 'template' && derivationOriginId) {
-      return (
-        <DeriveTemplateBuilder
-          originId={derivationOriginId}
-          onExit={() =>
-            void navigate({
-              search: { screen: 'catalog' },
-              replace: true,
-              resetScroll: false,
-            })
-          }
-        />
-      )
-    }
-    if (billOfMaterialsId) {
-      return (
-        <ExistingBomBuilder
-          billOfMaterialsId={billOfMaterialsId}
-          onExit={() =>
-            void navigate({
-              search: { screen: 'catalog' },
-              replace: true,
-              resetScroll: false,
-            })
-          }
-        />
-      )
-    }
-    if (kind === 'implementation') {
-      if (!productVariantId) {
-        return (
-          <Navigate
-            replace
-            search={{ screen: 'catalog' }}
-            to="/app/bills-of-materials"
-          />
-        )
-      }
-      if (templateId) {
-        return (
-          <ApplyTemplateBuilder
-            productVariantId={productVariantId}
-            templateId={templateId}
-            onExit={() =>
-              void navigate({
-                search: { screen: 'catalog' },
-                replace: true,
-                resetScroll: false,
-              })
-            }
-          />
-        )
-      }
-      return (
-        <ImplementationBuilder
-          productVariantId={productVariantId}
-          onExit={() =>
-            void navigate({
-              search: { screen: 'catalog' },
-              replace: true,
-              resetScroll: false,
-            })
-          }
-        />
-      )
-    }
-    return (
-      <BomBuilderPage
-        context={{ kind: 'template' }}
-        onCancel={() =>
-          void navigate({
-            search: { screen: 'catalog' },
-            replace: true,
-            resetScroll: false,
-          })
-        }
-        onSaved={() =>
-          void navigate({
-            search: { screen: 'catalog' },
-            replace: true,
-            resetScroll: false,
-          })
-        }
-      />
-    )
-  }
-
   return (
-    <BillsOfMaterialsCatalogPage
+    <BillsOfMaterialsWorkflow
+      billOfMaterialsId={billOfMaterialsId}
+      derivationOriginId={derivationOriginId}
       filters={{ search, kind: catalogKind, includeDeleted }}
+      kind={kind}
+      productVariantId={productVariantId}
+      screen={screen}
+      templateId={templateId}
+      onAuthenticationFailure={() => {
+        clearAuthSession()
+        void navigate({ to: '/sign-in' })
+      }}
+      onExitBuilder={() =>
+        void navigate({
+          search: { screen: 'catalog' },
+          replace: true,
+          resetScroll: false,
+        })
+      }
       onFiltersChange={(changes) =>
         void navigate({
           search: (previous) => ({
@@ -149,33 +74,33 @@ function BillsOfMaterialsRoute() {
           resetScroll: true,
         })
       }
-      onCreateImplementation={(candidate) =>
+      onMissingImplementationContext={() =>
+        void navigate({
+          search: { screen: 'catalog' },
+          replace: true,
+          resetScroll: false,
+        })
+      }
+      onOpenImplementationBuilder={(
+        selectedProductVariantId,
+        selectedTemplateId,
+      ) => {
         void navigate({
           search: {
             screen: 'builder',
             kind: 'implementation',
-            productVariantId: candidate.id,
+            productVariantId: selectedProductVariantId,
+            templateId: selectedTemplateId,
           },
           resetScroll: true,
         })
-      }
-      onApplyTemplate={(templateId, candidate) =>
-        void navigate({
-          search: {
-            screen: 'builder',
-            kind: 'implementation',
-            productVariantId: candidate.id,
-            templateId,
-          },
-          resetScroll: true,
-        })
-      }
-      onDeriveTemplate={(derivationOriginId) =>
+      }}
+      onOpenDerivationBuilder={(selectedDerivationOriginId) =>
         void navigate({
           search: {
             screen: 'builder',
             kind: 'template',
-            derivationOriginId,
+            derivationOriginId: selectedDerivationOriginId,
           },
           resetScroll: true,
         })

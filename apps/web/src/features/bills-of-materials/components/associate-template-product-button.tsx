@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { MoreHorizontalIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -34,13 +34,14 @@ export function AssociateTemplateProductButton({
   isDeleted: boolean
   isReadOnly: boolean
   onDelete: () => void
-  onCreateImplementation: () => void
+  onCreateImplementation: (returnFocusElement: HTMLButtonElement | null) => void
   onDeriveTemplate: () => void
   onEdit: () => void
   onRestore: () => void
   token: string
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const actionTriggerRef = useRef<HTMLButtonElement>(null)
   const association = useAssociateBillOfMaterialsTemplateProduct(
     token,
     billOfMaterialsId,
@@ -52,6 +53,7 @@ export function AssociateTemplateProductButton({
         <DropdownMenuTrigger asChild>
           <Button
             aria-label={`Actions for ${billOfMaterialsName}`}
+            ref={actionTriggerRef}
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -74,7 +76,9 @@ export function AssociateTemplateProductButton({
             </DropdownMenuItem>
           ) : null}
           {canCreateImplementation ? (
-            <DropdownMenuItem onSelect={onCreateImplementation}>
+            <DropdownMenuItem
+              onSelect={() => onCreateImplementation(actionTriggerRef.current)}
+            >
               Create Implementation
             </DropdownMenuItem>
           ) : null}

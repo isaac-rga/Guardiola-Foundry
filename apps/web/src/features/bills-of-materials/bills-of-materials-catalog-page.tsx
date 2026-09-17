@@ -1,5 +1,5 @@
 import { CopyPlusIcon, FileStackIcon, PlusIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type {
   BillOfMaterialsSummary,
   ListBillsOfMaterialsQuery,
@@ -42,6 +42,7 @@ import {
 import { ProductVariantCandidateDialog } from './components/product-variant-candidate-dialog'
 
 export function BillsOfMaterialsCatalogPage({
+  onAuthenticationFailure,
   onCreateTemplate,
   onCreateImplementation,
   onApplyTemplate,
@@ -50,6 +51,7 @@ export function BillsOfMaterialsCatalogPage({
   filters,
   onFiltersChange,
 }: {
+  onAuthenticationFailure: () => void
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
   onApplyTemplate: (
@@ -84,6 +86,18 @@ export function BillsOfMaterialsCatalogPage({
   const [applicationTemplateId, setApplicationTemplateId] = useState<
     string | null
   >(null)
+  const variantDialogReturnFocusRef = useRef<HTMLElement | null>(null)
+
+  const openManualCandidateDialog = (
+    returnFocusElement?: HTMLElement | null,
+  ) => {
+    variantDialogReturnFocusRef.current =
+      returnFocusElement ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null)
+    setVariantDialogOpen(true)
+  }
 
   return (
     <div className="space-y-6">
@@ -92,7 +106,7 @@ export function BillsOfMaterialsCatalogPage({
         description="Browse reusable Templates and Product Variant Implementations in one operational catalog."
         action={
           <CreateBomMenu
-            onCreateImplementation={() => setVariantDialogOpen(true)}
+            onCreateImplementation={openManualCandidateDialog}
             onCreateTemplate={onCreateTemplate}
           />
         }
@@ -136,7 +150,7 @@ export function BillsOfMaterialsCatalogPage({
             <CatalogEmptyState
               filtered={hasActiveFilters || summary.totalAvailable > 0}
               onClear={() => onFiltersChange({})}
-              onCreateImplementation={() => setVariantDialogOpen(true)}
+              onCreateImplementation={() => openManualCandidateDialog()}
               onCreateTemplate={onCreateTemplate}
             />
           ) : null}
@@ -309,9 +323,11 @@ export function BillsOfMaterialsCatalogPage({
                             target: billOfMaterials,
                           })
                         }}
-                        onCreateImplementation={() =>
+                        onCreateImplementation={(returnFocusElement) => {
+                          variantDialogReturnFocusRef.current =
+                            returnFocusElement
                           setApplicationTemplateId(billOfMaterials.id)
-                        }
+                        }}
                       />
                     </TableCell>
                   </TableRow>
@@ -322,7 +338,9 @@ export function BillsOfMaterialsCatalogPage({
         </CardContent>
       </Card>
       <ProductVariantCandidateDialog
+        onAuthenticationFailure={onAuthenticationFailure}
         open={variantDialogOpen}
+        returnFocusRef={variantDialogReturnFocusRef}
         token={session.token}
         onOpenChange={setVariantDialogOpen}
         onSelect={onCreateImplementation}
@@ -366,7 +384,9 @@ export function BillsOfMaterialsCatalogPage({
         }}
       />
       <ProductVariantCandidateDialog
+        onAuthenticationFailure={onAuthenticationFailure}
         open={applicationTemplateId !== null}
+        returnFocusRef={variantDialogReturnFocusRef}
         templateId={applicationTemplateId ?? undefined}
         token={session.token}
         onOpenChange={(open) => {
@@ -385,18 +405,22 @@ function CreateBomMenu({
   onCreateImplementation,
   onCreateTemplate,
 }: {
-  onCreateImplementation: () => void
+  onCreateImplementation: (returnFocusElement: HTMLButtonElement | null) => void
   onCreateTemplate: () => void
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button">
+        <Button ref={triggerRef} type="button">
           <PlusIcon /> Create BOM
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuItem onSelect={onCreateImplementation}>
+        <DropdownMenuItem
+          onSelect={() => onCreateImplementation(triggerRef.current)}
+        >
           <CopyPlusIcon />
           <div>
             <p className="font-medium">BOM Implementation</p>

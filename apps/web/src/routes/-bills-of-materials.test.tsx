@@ -37,7 +37,7 @@ describe('Bills of Materials route', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('returns an Implementation route without Variant context to the catalog', async () => {
+  it('returns an Implementation route without selected candidate state to the catalog', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
       if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
@@ -49,7 +49,7 @@ describe('Bills of Materials route', () => {
 
     seedStoredSession()
     renderBillsOfMaterialsRoute(
-      '/app/bills-of-materials?screen=builder&kind=implementation',
+      '/app/bills-of-materials?screen=builder&kind=implementation&productVariantId=PV-STALE2',
     )
 
     expect(
@@ -67,6 +67,87 @@ describe('Bills of Materials route', () => {
     expect(
       screen.queryByRole('textbox', { name: 'BOM Name' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('expires the current session without retrying a candidate search 401', async () => {
+    const user = userEvent.setup()
+    let candidateRequests = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
+        return jsonResponse(
+          { message: 'Your session has expired.' },
+          { status: 401 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute('/app/bills-of-materials', 2)
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to guardiola foundry/i,
+      }),
+    ).toBeInTheDocument()
+    expect(candidateRequests).toBe(1)
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+  })
+
+  it('keeps candidate authorization failures in context without retrying', async () => {
+    const user = userEvent.setup()
+    let candidateRequests = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
+        return jsonResponse(
+          { message: 'Candidate search is not allowed.' },
+          { status: 403 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute('/app/bills-of-materials', 2)
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Candidate search is not allowed.',
+    )
+    expect(candidateRequests).toBe(1)
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    expect(
+      screen.getByRole('heading', { name: 'Select a Product Variant' }),
+    ).toBeInTheDocument()
   })
 
   it('abandons without creating, then validates, saves, and reloads a Template', async () => {
@@ -176,6 +257,7 @@ describe('Bills of Materials route', () => {
   it('selects an eligible Product Variant before preserving and saving a manual Implementation draft', async () => {
     const user = userEvent.setup()
     let saveAttempts = 0
+    let candidateRequests = 0
     let billsOfMaterials: unknown[] = []
     const postedBodies: unknown[] = []
     const eligibleCandidate = {
@@ -198,6 +280,7 @@ describe('Bills of Materials route', () => {
         return jsonResponse(catalogResponse(billsOfMaterials))
       }
       if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
         return jsonResponse({
           items: [
             eligibleCandidate,
@@ -252,9 +335,11 @@ describe('Bills of Materials route', () => {
     })
 
     seedStoredSession()
-    renderBillsOfMaterialsRoute()
+    const { router } = renderBillsOfMaterialsRoute()
     await screen.findByText('No Bills of Materials registered yet.')
-    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    const createBomTrigger = screen.getByRole('button', { name: 'Create BOM' })
+    const focusSpy = vi.spyOn(createBomTrigger, 'focus')
+    await user.click(createBomTrigger)
     await user.click(
       screen.getByRole('menuitem', { name: /BOM Implementation/ }),
     )
@@ -269,14 +354,28 @@ describe('Bills of Materials route', () => {
     const occupied = await screen.findByRole('button', {
       name: /Jackie Editorial.*Existing construction.*BOM-USED24/i,
     })
-    expect(occupied).toBeDisabled()
+    expect(occupied).toHaveAttribute('aria-disabled', 'true')
+    expect(occupied).not.toBeDisabled()
+    const focusCallCountBeforeSelection = focusSpy.mock.calls.length
+    const candidateRequestsBeforeSelection = candidateRequests
     await user.click(
       screen.getByRole('button', { name: /Jackie Showroom.*PV-JACKIE/i }),
     )
 
+    await waitFor(() =>
+      expect(focusSpy.mock.calls.length).toBeGreaterThan(
+        focusCallCountBeforeSelection,
+      ),
+    )
     expect(
       await screen.findByRole('textbox', { name: 'BOM Typification' }),
     ).toBeInTheDocument()
+    expect(router.state.location.search).toMatchObject({
+      screen: 'builder',
+      kind: 'implementation',
+      productVariantId: eligibleCandidate.id,
+    })
+    expect(candidateRequests).toBe(candidateRequestsBeforeSelection)
     expect(screen.getByText('Jackie Showroom')).toBeInTheDocument()
     expect(screen.getByText('PV-JACKIE')).toBeInTheDocument()
     expect(
@@ -336,6 +435,7 @@ describe('Bills of Materials route', () => {
       existingImplementation: null,
     }
     const postedBodies: unknown[] = []
+    const candidateRequests: string[] = []
     let saveAttempts = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
@@ -344,6 +444,7 @@ describe('Bills of Materials route', () => {
         return jsonResponse(catalogResponse([template]))
       }
       if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests.push(url.toString())
         expect(url.searchParams.get('templateId')).toBe(template.id)
         return jsonResponse({ items: [candidate], hasMore: false })
       }
@@ -404,11 +505,13 @@ describe('Bills of Materials route', () => {
     })
 
     seedStoredSession()
-    renderBillsOfMaterialsRoute()
+    const { router } = renderBillsOfMaterialsRoute()
     await screen.findByText(template.name)
-    await user.click(
-      screen.getByRole('button', { name: `Actions for ${template.name}` }),
-    )
+    const actionTrigger = screen.getByRole('button', {
+      name: `Actions for ${template.name}`,
+    })
+    const focusSpy = vi.spyOn(actionTrigger, 'focus')
+    await user.click(actionTrigger)
     await user.click(
       screen.getByRole('menuitem', { name: 'Create Implementation' }),
     )
@@ -416,15 +519,28 @@ describe('Bills of Materials route', () => {
       screen.getByRole('textbox', { name: 'Search Product Variants' }),
       'showroom',
     )
-    await user.click(
-      await screen.findByRole('button', {
-        name: /Jackie Showroom.*PV-JACKIE/i,
-      }),
-    )
+    const focusCallCountBeforeSelection = focusSpy.mock.calls.length
+    const eligibleCandidateButton = await screen.findByRole('button', {
+      name: /Jackie Showroom.*PV-JACKIE/i,
+    })
+    const candidateRequestsBeforeSelection = [...candidateRequests]
+    await user.click(eligibleCandidateButton)
 
+    await waitFor(() =>
+      expect(focusSpy.mock.calls.length).toBeGreaterThan(
+        focusCallCountBeforeSelection,
+      ),
+    )
     const typification = await screen.findByRole('textbox', {
       name: 'BOM Typification',
     })
+    expect(router.state.location.search).toMatchObject({
+      screen: 'builder',
+      kind: 'implementation',
+      productVariantId: candidate.id,
+      templateId: template.id,
+    })
+    expect(candidateRequests).toEqual(candidateRequestsBeforeSelection)
     await user.type(typification, 'Jackie - Blush')
     expect(screen.getByText('Construction Board')).toBeInTheDocument()
     expect(screen.getByText('Outer skirt')).toBeInTheDocument()
@@ -2642,7 +2758,10 @@ describe('Bills of Materials route', () => {
   })
 })
 
-function renderBillsOfMaterialsRoute(initialEntry = '/app/bills-of-materials') {
+function renderBillsOfMaterialsRoute(
+  initialEntry = '/app/bills-of-materials',
+  queryRetry: boolean | number = false,
+) {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
@@ -2650,7 +2769,10 @@ function renderBillsOfMaterialsRoute(initialEntry = '/app/bills-of-materials') {
     }),
   })
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: { retry: queryRetry, retryDelay: 0 },
+      mutations: { retry: false },
+    },
   })
   return {
     router,

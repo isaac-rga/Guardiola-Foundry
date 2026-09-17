@@ -10,6 +10,11 @@ import type {
 } from '@guardiola-foundry/shared-types'
 
 import { listProducts } from '@/features/products/api/endpoints'
+import { ApiRequestError } from '@/lib/api/transport'
+import {
+  invalidateProductVariantCandidates,
+  productVariantCandidatesQueryKey,
+} from './query-keys'
 import {
   associateBillOfMaterialsTemplateProduct,
   applyBillOfMaterialsTemplate,
@@ -52,7 +57,7 @@ export function useDeleteBillOfMaterials(token: string) {
   const mutation = useMutation({
     mutationFn: (id: string) => deleteBillOfMaterials(token, id),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+      invalidateCandidateAffectingBillOfMaterialsQueries(queryClient),
   })
   return {
     deleteBillOfMaterials: mutation.mutateAsync,
@@ -67,7 +72,7 @@ export function useRestoreBillOfMaterials(token: string) {
   const mutation = useMutation({
     mutationFn: (id: string) => restoreBillOfMaterials(token, id),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+      invalidateCandidateAffectingBillOfMaterialsQueries(queryClient),
   })
   return {
     restoreBillOfMaterials: mutation.mutateAsync,
@@ -83,7 +88,7 @@ export function useCreateBillOfMaterials(token: string) {
     mutationFn: (payload: CreateBillOfMaterialsRequest) =>
       createBillOfMaterials(token, payload),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+      invalidateCandidateAffectingBillOfMaterialsQueries(queryClient),
   })
 
   return {
@@ -108,15 +113,18 @@ export function useUpdateBillOfMaterials(
   const mutation = useMutation({
     mutationFn: (payload: UpdateBillOfMaterialsRequest) =>
       updateBillOfMaterials(token, billOfMaterialsId, payload),
-    onSuccess: (billOfMaterials) => {
+    onSuccess: async (billOfMaterials) => {
       queryClient.setQueryData(
         [...billsOfMaterialsQueryKey, billOfMaterialsId],
         billOfMaterials,
       )
-      return queryClient.invalidateQueries({
-        queryKey: billsOfMaterialsQueryKey,
-        exact: true,
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: billsOfMaterialsQueryKey,
+          exact: true,
+        }),
+        invalidateProductVariantCandidates(queryClient),
+      ])
     },
   })
 
@@ -131,29 +139,46 @@ export function useUpdateBillOfMaterials(
 export function useProductVariantCandidates(
   token: string,
   search: string,
-  templateId?: string,
+  scope: { productId?: string; templateId?: string } = {},
 ) {
-  return useQuery({
+  const query = useQuery({
     queryKey: [
-      'bills-of-materials',
-      'product-variant-candidates',
-      templateId ?? 'manual',
+      ...productVariantCandidatesQueryKey,
+      token,
+      scope.productId
+        ? `product:${scope.productId}`
+        : scope.templateId
+          ? `template:${scope.templateId}`
+          : 'manual',
       search,
     ],
     queryFn: ({ signal }) =>
-      searchProductVariantCandidates(token, search, templateId, signal),
+      searchProductVariantCandidates(token, search, scope, signal),
     enabled: search.length > 0,
     staleTime: 30_000,
+    retry: false,
   })
+
+  return {
+    ...query,
+    isAuthenticationError:
+      query.error instanceof ApiRequestError && query.error.status === 401,
+    isErrorRetryable: !isCandidateAuthenticationOrAuthorizationError(
+      query.error,
+    ),
+  }
 }
 
-export function useApplyBillOfMaterialsTemplate(token: string, templateId: string) {
+export function useApplyBillOfMaterialsTemplate(
+  token: string,
+  templateId: string,
+) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: (payload: ApplyBillOfMaterialsTemplateRequest) =>
       applyBillOfMaterialsTemplate(token, templateId, payload),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+      invalidateCandidateAffectingBillOfMaterialsQueries(queryClient),
   })
 
   return {
@@ -163,7 +188,10 @@ export function useApplyBillOfMaterialsTemplate(token: string, templateId: strin
   }
 }
 
-export function useDeriveBillOfMaterialsTemplate(token: string, originId: string) {
+export function useDeriveBillOfMaterialsTemplate(
+  token: string,
+  originId: string,
+) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: (payload: DeriveBillOfMaterialsTemplateRequest) =>
@@ -226,7 +254,7 @@ export function useAssociateBillOfMaterialsTemplateProduct(
       ),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: billsOfMaterialsQueryKey }),
+        invalidateCandidateAffectingBillOfMaterialsQueries(queryClient),
         queryClient.invalidateQueries({
           queryKey: templateProductCandidatesQueryKey,
         }),
@@ -239,4 +267,23 @@ export function useAssociateBillOfMaterialsTemplateProduct(
     isAssociating: mutation.isPending,
     associationError: mutation.error,
   }
+}
+
+function invalidateCandidateAffectingBillOfMaterialsQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      predicate: ({ queryKey }) =>
+        queryKey[0] === billsOfMaterialsQueryKey[0] &&
+        queryKey[1] !== productVariantCandidatesQueryKey[1],
+    }),
+    invalidateProductVariantCandidates(queryClient),
+  ])
+}
+
+function isCandidateAuthenticationOrAuthorizationError(error: Error | null) {
+  return (
+    error instanceof ApiRequestError && [401, 403].includes(error.status)
+  )
 }

@@ -14,6 +14,161 @@ import { test } from '@japa/runner'
 test.group('Bills of Materials', (group) => {
   group.each.setup(() => testUtils.db('postgres_test').truncate())
 
+  test('restricts Product-context candidates to the requested Product', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const jackieId = await createProduct(client, session.token, 'Jackie')
+    const jackieVariantId = await createProductVariant(client, session.token, jackieId, 'Showroom')
+    const palomaId = await createProduct(client, session.token, 'Paloma')
+    await createProductVariant(client, session.token, palomaId, 'Showroom')
+
+    const response = await client
+      .get(`/bills-of-materials/product-variant-candidates?search=showroom&productId=${jackieId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((candidate: { id: string }) => candidate.id),
+      [jackieVariantId]
+    )
+  })
+
+  test('rejects ambiguous Product and Template candidate scope', async ({ client }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const template = await createTemplate(client, session.token, 'Jackie base', { productId })
+
+    const response = await client
+      .get(
+        `/bills-of-materials/product-variant-candidates?search=showroom&productId=${productId}&templateId=${template.id}`
+      )
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(422)
+  })
+
+  test('matches Product Variant candidates across fields without accents or significant whitespace', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Çeleste  Atelier')
+    const variantId = await createProductVariant(
+      client,
+      session.token,
+      productId,
+      'Élite  Showroom'
+    )
+
+    const response = await client
+      .get('/bills-of-materials/product-variant-candidates?search=showroom%20%20celeste')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((candidate: { id: string }) => candidate.id),
+      [variantId]
+    )
+  })
+
+  test('ranks mixed-field Variant relevance before Product-only context and eligibility', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const mixedFieldProductId = await createProduct(client, session.token, 'Celeste Atelier')
+    const mixedFieldVariantId = await createProductVariant(
+      client,
+      session.token,
+      mixedFieldProductId,
+      'Showroom'
+    )
+    await createImplementation(client, session.token, mixedFieldVariantId, 'Occupied construction')
+    const productOnlyId = await createProduct(client, session.token, 'Celeste Showroom')
+    const productOnlyVariantId = await createProductVariant(
+      client,
+      session.token,
+      productOnlyId,
+      'Editorial'
+    )
+
+    const response = await client
+      .get('/bills-of-materials/product-variant-candidates?search=celeste%20showroom')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((candidate: { id: string }) => candidate.id),
+      [mixedFieldVariantId, productOnlyVariantId]
+    )
+  })
+
+  test('ranks Variant relevance before eligibility and uses eligibility only for equivalent ties', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const eligibleProductId = await createProduct(client, session.token, 'Eligible Jackie')
+    const eligibleWordMatchId = await createProductVariant(
+      client,
+      session.token,
+      eligibleProductId,
+      'Jackie Showroom'
+    )
+    const occupiedProductId = await createProduct(client, session.token, 'Occupied Jackie')
+    const occupiedWordMatchId = await createProductVariant(
+      client,
+      session.token,
+      occupiedProductId,
+      'Jackie Showroom'
+    )
+    await createImplementation(client, session.token, occupiedWordMatchId, 'Occupied construction')
+    const secondaryProductId = await createProduct(client, session.token, 'Showroom collection')
+    const secondaryContextId = await createProductVariant(
+      client,
+      session.token,
+      secondaryProductId,
+      'Editorial'
+    )
+
+    const response = await client
+      .get('/bills-of-materials/product-variant-candidates?search=showroom')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(
+      response.body().items.map((candidate: { id: string }) => candidate.id),
+      [eligibleWordMatchId, occupiedWordMatchId, secondaryContextId]
+    )
+  })
+
+  test('bounds Product Variant candidate responses without returning a total', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Bounded Jackie')
+    for (let index = 0; index < 26; index += 1) {
+      await createProductVariant(
+        client,
+        session.token,
+        productId,
+        `Showroom ${String(index).padStart(2, '0')}`
+      )
+    }
+
+    const response = await client
+      .get('/bills-of-materials/product-variant-candidates?search=showroom')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    response.assertStatus(200)
+    assert.lengthOf(response.body().items, 25)
+    assert.isTrue(response.body().hasMore)
+    assert.notProperty(response.body(), 'total')
+  })
+
   test('searches Product Variant candidates with canonical eligibility and occupancy context', async ({
     assert,
     client,
@@ -67,6 +222,14 @@ test.group('Bills of Materials', (group) => {
       'Occupied construction'
     )
     await updateProduct(client, session.token, occupiedProductId, 'Occupied Jackie', 'inactive')
+    await updateProductVariant(
+      client,
+      session.token,
+      occupiedProductId,
+      occupiedVariantId,
+      'Showroom',
+      'inactive'
+    )
 
     const response = await client
       .get('/bills-of-materials/product-variant-candidates?search=jackie%20showroom')
@@ -74,7 +237,7 @@ test.group('Bills of Materials', (group) => {
 
     response.assertStatus(200)
     response.assertBodyContains({ hasMore: false })
-    const byId = new Map(response.body().items.map((item: any) => [item.id, item]))
+    const byId = new Map<string, any>(response.body().items.map((item: any) => [item.id, item]))
     assertCandidate(assert, byId.get(eligibleVariantId), true, 'eligible', null)
     assertCandidate(assert, byId.get(inactiveProductVariantId), false, 'product-unavailable', null)
     assertCandidate(assert, byId.get(inactiveVariantId), false, 'variant-inactive', null)
@@ -85,6 +248,17 @@ test.group('Bills of Materials', (group) => {
       'implementation-exists',
       implementation.id
     )
+    assert.equal(byId.get(eligibleVariantId).id, eligibleVariantId)
+    assert.equal(byId.get(eligibleVariantId).status, 'active')
+    assert.deepEqual(byId.get(eligibleVariantId).product, {
+      id: eligibleProductId,
+      name: 'Eligible Jackie',
+      availability: 'available',
+    })
+    assert.deepEqual(byId.get(occupiedVariantId).existingImplementation, {
+      id: implementation.id,
+      name: 'Occupied construction',
+    })
   })
 
   test('associates an unassociated Template once and rejects reassignment', async ({ client }) => {

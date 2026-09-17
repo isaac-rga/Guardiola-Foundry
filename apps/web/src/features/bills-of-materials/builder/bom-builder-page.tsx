@@ -50,7 +50,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
-import { BillOfMaterialsRequestError } from './api/endpoints'
+import { BillOfMaterialsRequestError } from '../api/endpoints'
 import {
   resolveBomBuilderDefaultValues,
   type BomBuilderContext,
@@ -64,7 +64,7 @@ import {
 import { MaterialPicker } from './components/material-picker'
 import { PatternProposalDialog } from './components/pattern-proposal-dialog'
 import { PatternSetPicker } from './components/pattern-set-picker'
-import { TemplateProductScope } from './components/template-product-scope'
+import { TemplateProductScope } from '../components/template-product-scope'
 import { useBomBuilderPersistence } from './use-bom-builder-persistence'
 
 const emptyLine: CreateBillOfMaterialsLineRequest = {

@@ -13,8 +13,8 @@ import {
   useCreateBillOfMaterials,
   useDeriveBillOfMaterialsTemplate,
   useUpdateBillOfMaterials,
-} from './api/bills-of-materials'
-import { BillOfMaterialsRequestError } from './api/endpoints'
+} from '../api/bills-of-materials'
+import { BillOfMaterialsRequestError } from '../api/endpoints'
 
 type BuilderFormValues = z.input<typeof createBillOfMaterialsRequestSchema>
 

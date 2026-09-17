@@ -329,23 +329,29 @@ export const updateBillOfMaterialsRequestSchema = z
   })
   .strict() satisfies z.ZodType<UpdateBillOfMaterialsRequest>
 
-export const searchProductVariantCandidatesQuerySchema = z.object({
-  search: z
-    .string()
-    .transform((value) =>
-      value
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim()
-        .replace(/\s+/g, ' ')
-        .toLocaleLowerCase(),
-    )
-    .pipe(z.string().min(1)),
-  templateId: z
-    .string()
-    .regex(/^BOM-[A-Z2-9]{6}$/)
-    .optional(),
-})
+export const searchProductVariantCandidatesQuerySchema = z
+  .object({
+    search: z
+      .string()
+      .transform((value) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .replace(/\s+/g, ' ')
+          .toLocaleLowerCase(),
+      )
+      .pipe(z.string().min(1)),
+    productId: z
+      .string()
+      .regex(/^P-[A-Z2-9]{6}$/)
+      .optional(),
+    templateId: z
+      .string()
+      .regex(/^BOM-[A-Z2-9]{6}$/)
+      .optional(),
+  })
+  .refine((query) => !(query.productId && query.templateId))
 
 const productVariantCandidateBaseSchema = z.object({
   id: z.string().regex(/^PV-[A-Z2-9]{6}$/),

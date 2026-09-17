@@ -22,7 +22,11 @@ import type {
   UpdateBillOfMaterialsRequest,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
 export class BillOfMaterialsRequestError extends Error {
   readonly fieldErrors: Record<string, string[]>
@@ -58,7 +62,10 @@ export async function listBillsOfMaterials(
   token: string,
   filters: ListBillsOfMaterialsQuery = {},
 ): Promise<ListBillsOfMaterialsResponse> {
-  const url = new URL(resolveApiUrl('/bills-of-materials'), window.location.origin)
+  const url = new URL(
+    resolveApiUrl('/bills-of-materials'),
+    window.location.origin,
+  )
   if (filters.search) url.searchParams.set('search', filters.search)
   if (filters.kind) url.searchParams.set('kind', filters.kind)
   if (filters.includeDeleted) url.searchParams.set('includeDeleted', 'true')
@@ -104,7 +111,8 @@ export async function restoreBillOfMaterials(
   )
   const body = await response.json()
   if (!response.ok) {
-    const conflict = billOfMaterialsRestoreConflictResponseSchema.safeParse(body)
+    const conflict =
+      billOfMaterialsRestoreConflictResponseSchema.safeParse(body)
     if (response.status === 409 && conflict.success) {
       throw new BillOfMaterialsRestoreConflictError(
         conflict.data.conflictingBillOfMaterials,
@@ -180,7 +188,9 @@ export async function applyBillOfMaterialsTemplate(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(applyBillOfMaterialsTemplateRequestSchema.parse(payload)),
+      body: JSON.stringify(
+        applyBillOfMaterialsTemplateRequestSchema.parse(payload),
+      ),
     },
   )
   const body = await response.json()
@@ -274,14 +284,15 @@ export async function updateBillOfMaterials(
 export async function searchProductVariantCandidates(
   token: string,
   search: string,
-  templateId?: string,
+  scope: { productId?: string; templateId?: string } = {},
   signal?: AbortSignal,
 ): Promise<SearchProductVariantCandidatesResponse> {
   const url = new URL(
     resolveApiUrl('/bills-of-materials/product-variant-candidates'),
   )
   url.searchParams.set('search', search)
-  if (templateId) url.searchParams.set('templateId', templateId)
+  if (scope.productId) url.searchParams.set('productId', scope.productId)
+  if (scope.templateId) url.searchParams.set('templateId', scope.templateId)
   const response = await fetch(url, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -289,8 +300,9 @@ export async function searchProductVariantCandidates(
   })
   const body = await response.json()
   if (!response.ok) {
-    throw new Error(
+    throw new ApiRequestError(
       getResponseErrorMessage(body, 'Unable to search Product Variants.'),
+      response.status,
     )
   }
   return searchProductVariantCandidatesResponseSchema.parse(body)

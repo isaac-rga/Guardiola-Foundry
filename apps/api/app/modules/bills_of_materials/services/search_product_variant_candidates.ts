@@ -6,14 +6,31 @@ import type {
 } from '@guardiola-foundry/shared-types'
 
 const SEARCH_LIMIT = 25
+const NORMALIZED_VARIANT_ID = `lower(product_variants.public_id)`
+const NORMALIZED_VARIANT_NAME = `
+  regexp_replace(
+    unaccent(lower(product_variants.name)),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
+const NORMALIZED_VARIANT_SEARCH_DOCUMENT = `
+  regexp_replace(
+    unaccent(lower(concat_ws(' ', product_variants.public_id, product_variants.name))),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
 const NORMALIZED_SEARCH_DOCUMENT = `
   regexp_replace(
-    translate(lower(concat_ws(' ',
+    unaccent(lower(concat_ws(' ',
       product_variants.public_id,
       product_variants.name,
       products.public_id,
       products.name
-    )), 'áéíóúüñ', 'aeiouun'),
+    ))),
     '\\s+',
     ' ',
     'g'
@@ -22,7 +39,8 @@ const NORMALIZED_SEARCH_DOCUMENT = `
 
 export async function searchProductVariantCandidates(
   search: string,
-  templatePublicId?: string
+  templatePublicId?: string,
+  productPublicId?: string
 ): Promise<SearchProductVariantCandidatesResponse> {
   let productId: number | undefined
   if (templatePublicId) {
@@ -35,8 +53,16 @@ export async function searchProductVariantCandidates(
     }
     productId = template.productId
   }
-  const normalizedVariantId = 'lower(product_variants.public_id)'
-  const normalizedVariantName = `translate(lower(product_variants.name), 'áéíóúüñ', 'aeiouun')`
+  const terms = search.split(' ')
+  const variantWordMatch = terms
+    .map(
+      () =>
+        `position((' ' || ? || ' ') in (' ' || ${NORMALIZED_VARIANT_SEARCH_DOCUMENT} || ' ')) > 0`
+    )
+    .join(' AND ')
+  const variantTermMatch = terms
+    .map(() => `position(? in ${NORMALIZED_VARIANT_SEARCH_DOCUMENT}) > 0`)
+    .join(' OR ')
   const query = db
     .from('product_variants')
     .join('products', 'products.id', 'product_variants.product_id')
@@ -59,13 +85,16 @@ export async function searchProductVariantCandidates(
     ])
     .orderByRaw(
       `CASE
-        WHEN ${normalizedVariantId} = ? THEN 0
-        WHEN ${normalizedVariantName} = ? THEN 1
-        WHEN ${normalizedVariantId} LIKE ? THEN 2
-        WHEN ${normalizedVariantName} LIKE ? THEN 3
-        ELSE 4
+        WHEN ${NORMALIZED_VARIANT_ID} = ? THEN 0
+        WHEN ${NORMALIZED_VARIANT_NAME} = ? THEN 1
+        WHEN ${NORMALIZED_VARIANT_ID} LIKE ? THEN 2
+        WHEN ${NORMALIZED_VARIANT_NAME} LIKE ? THEN 3
+        WHEN ${variantWordMatch} THEN 4
+        WHEN position(? in ${NORMALIZED_VARIANT_SEARCH_DOCUMENT}) > 0 THEN 5
+        WHEN ${variantTermMatch} THEN 6
+        ELSE 7
       END`,
-      [search, search, `${search}%`, `${search}%`]
+      [search, search, `${search}%`, `${search}%`, ...terms, search, ...terms]
     )
     .orderByRaw(
       `CASE
@@ -75,13 +104,14 @@ export async function searchProductVariantCandidates(
         THEN 0 ELSE 1
       END`
     )
-    .orderBy('product_variants.name', 'asc')
+    .orderByRaw(`${NORMALIZED_VARIANT_NAME} asc`)
     .orderBy('product_variants.public_id', 'asc')
     .limit(SEARCH_LIMIT + 1)
 
   if (productId !== undefined) query.where('products.id', productId)
+  else if (productPublicId !== undefined) query.where('products.public_id', productPublicId)
 
-  search.split(' ').forEach((term) => {
+  terms.forEach((term) => {
     query.whereRaw(`position(? in ${NORMALIZED_SEARCH_DOCUMENT}) > 0`, [term])
   })
 

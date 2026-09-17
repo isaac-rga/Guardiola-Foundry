@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { invalidateProductVariantCandidates } from '@/features/bills-of-materials/api/query-keys'
 import {
   createProductVariant,
   deleteProductVariant,
@@ -45,15 +46,28 @@ export function useProductVariants(
             )
           : [...(currentData?.variants ?? []), savedVariant],
       }))
+      return invalidateProductVariantCandidates(queryClient)
     },
   })
   const deleteMutation = useMutation({
     mutationFn: (variantId: string) => deleteProductVariant(token, productId, variantId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: productVariantsQueryPrefix(productId) }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: productVariantsQueryPrefix(productId),
+        }),
+        invalidateProductVariantCandidates(queryClient),
+      ]),
   })
   const restoreMutation = useMutation({
     mutationFn: (variantId: string) => restoreProductVariant(token, productId, variantId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: productVariantsQueryPrefix(productId) }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: productVariantsQueryPrefix(productId),
+        }),
+        invalidateProductVariantCandidates(queryClient),
+      ]),
   })
 
   return {

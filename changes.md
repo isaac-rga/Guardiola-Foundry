@@ -1,40 +1,66 @@
-# Dependable Material and Pattern Set Selection
+# Reliable Product Variant Candidates for BOM Implementation Creation
 
-Large-catalog Material and Pattern Set dialogs now preserve the User's Bill of Materials draft during search and recovery. Search is bounded and deterministic. A retained unavailable reference stays visible and removable. This issue does not add pagination or catalog management.
+Manual and BOM Template-derived creation now use one server-owned Product Variant candidate contract. The contract gives the User current eligibility, stable search order, and conflict-safe Save behavior at catalog scale. This change does not add a Product-page creation workflow or reserve a Product Variant before Save.
 
-## Bounded and Deterministic Search
+## Candidate Scope and Eligibility
 
-An empty search input keeps each dialog idle. The Web Application normalizes case, accents, outer whitespace, and repeated inner whitespace. It sends a search after about 250 milliseconds without an input change. A newer search cancels the prior request when possible. The dialog ignores a late response from a superseded request. When the User clears the input, the dialog returns to the idle state and removes old results.
+The [shared candidate query and response contract](packages/shared-validation/src/bills-of-materials.ts#L332-L384) accepts normalized search text and one optional creation scope.
 
-The [Material search service](apps/api/app/modules/materials/materials_service.ts) applies order-independent AND matching across Material ID, Material name, Material Color, Material Use, and visible Preferred Source context. Visible Source context includes Source ID, name, Vendor, shade or detail, description, and width. A Material identity match ranks above a Source-only match.
+- Manual creation has no scope and searches all Products.
+- Product-context creation supplies one Product ID.
+- BOM Template-derived creation supplies one BOM Template ID. The API derives the associated Product.
+- A request with both scope identities is invalid.
 
-The [Pattern Set search service](apps/api/app/modules/pattern_sets/services/pattern_sets_service.ts) matches only Pattern Set ID and name. Pattern Set Quantity Proposal count is display context. It is not a search field.
+The [BOM controller candidate action](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts#L93-L110) passes the validated scope to the [candidate search and outcome serializer](apps/api/app/modules/bills_of_materials/services/search_product_variant_candidates.ts#L40-L185). The service composes Product Status, Product Variant Status, and active BOM Implementation occupancy into one result.
 
-Both services rank results by exact ID, exact primary name, ID prefix, primary-name prefix, word match, and partial context. Primary name and ID provide deterministic tie-breaks. PostgreSQL `unaccent` provides general diacritic folding. Each service reads at most 26 ordered matches. It returns at most 25 items and a `hasMore` value. The dialogs ask the User to refine a search when more matches exist.
+Each candidate contains stable Product and Product Variant identity, `selectable`, one outcome, and the existing BOM Implementation identity when the Product Variant is occupied. The outcome precedence is:
 
-The Web Application can reuse an identical search for 30 seconds in the current session. Material–Source relationship changes and relevant Source update or status changes invalidate Material searches. Pattern Set mutations invalidate Pattern Set searches. One family does not invalidate the other family.
+1. `implementation-exists`
+2. `product-unavailable`
+3. `variant-inactive`
+4. `eligible`
 
-## Draft and Reference Safety
+An in-scope candidate remains visible when it is not selectable. The outcome explains the constraint.
 
-Each BOM Line response returns `materialId` and `patternSetId` independently from the nullable Material and Pattern Set details. The [BOM reader](apps/api/app/modules/bills_of_materials/services/read_bills_of_materials.ts) resolves public identities in two batched reads: one Material read and one Pattern Set read. The internal [BOM Line serializer](apps/api/app/modules/bills_of_materials/services/bill_of_materials_line_serializer.ts) uses these identities and does not dereference a missing relation.
+## Deterministic Catalog Search
 
-A retained deleted Material shows its name, ID, and **Unavailable**. A retained Retired Pattern Set shows the same clear state. A reference with missing details shows its ID and **Details unavailable**. The User can remove either state. An unchanged retained reference remains saveable.
+Search ignores case, accents, and extra whitespace. All terms must match across Product Variant ID, Product Variant Name, Product ID, or Product Name. Term order does not affect matching.
 
-If a newly selected Material becomes deleted before Save, the API returns a field error for that BOM Line. It does the same when a newly selected Pattern Set becomes Retired. The Bill of Materials Builder keeps the Bill of Materials draft and shows the reason on the affected field.
+Product Variant relevance controls the primary order. Exact and prefix matches rank before partial matches. A match in Product Variant identity ranks before Product-only context. Eligibility breaks ties only when relevance is equal. Product Variant Name and Product Variant ID provide stable final tie-breaks.
 
-The [Bill of Materials Builder default-values module](apps/web/src/features/bills-of-materials/bom-builder-default-values.ts) owns the form initialization policy. Editing preserves BOM Line Verification. Copy and application workflows reset verification. New Templates and Implementations receive the correct Product or Product Variant scope. Retained Material and Pattern Set IDs do not depend on expanded details.
+The query reads at most 26 ordered rows. The response returns at most 25 candidates and `hasMore`. It does not calculate a total.
 
-## Recoverable and Accessible Dialogs
+The [performance test setup and assertion](apps/api/tests/functional/catalog_search_performance.spec.ts#L13-L160) creates at least 10,000 active Product Variants and measures the authenticated server response separately from Web Application debounce. The acceptance threshold is p95 at or below 500 milliseconds.
 
-The current selection stays present during idle, debounce, loading, results, more-matches, empty, recoverable failure, authentication failure, authorization failure, retained-unavailable, and details-unavailable states.
+## Selection Preserves the Creation Context
 
-A recoverable search failure offers **Try again**. Authentication and authorization failures do not offer a retry action. A successful selection closes the dialog, returns focus to the trigger, and announces the result. Native controls support Tab, Enter, Space, and Escape. A discreet live region announces loading, result counts, more matches, empty results, failures, selection, and removal.
+The [candidate dialog state and selection flow](apps/web/src/features/bills-of-materials/components/product-variant-candidate-dialog.tsx#L50-L225) represents idle, loading, background refresh, empty, more-matches, recoverable failure, authentication failure, authorization failure, and ineligible-result states.
 
-On a narrow screen, each [Material picker](apps/web/src/features/bills-of-materials/components/material-picker.tsx) and [Pattern Set picker](apps/web/src/features/bills-of-materials/components/pattern-set-picker.tsx) uses a near-full-screen vertical dialog. The workflow and search rules do not change with screen size.
+An ineligible Product Variant remains operable. Activation keeps the dialog open and announces the canonical reason. Dismissal clears the reason. An eligible selection closes the dialog, restores focus to the trigger, announces the selection, and then continues to the BOM Builder.
+
+The dialog suppresses cached rows while a request is active. This behavior prevents selection from eligibility data that is known to be stale.
+
+The [BOM workflow selection handoff](apps/web/src/features/bills-of-materials/bills-of-materials-workflow.tsx#L55-L142) owns the selected Product and Product Variant context for the current mount. It passes that context to the [manual BOM Implementation Builder](apps/web/src/features/bills-of-materials/builder/implementation-builder.tsx#L5-L18) or the [BOM Template application Builder](apps/web/src/features/bills-of-materials/builder/apply-template-builder.tsx#L8-L51). The Builder does not make a second candidate request.
+
+A direct, reloaded, or stale Builder URL has no trusted selected context. The workflow returns the User to the BOM catalog.
+
+## Candidate Cache Follows Catalog Changes
+
+The [candidate query hook](apps/web/src/features/bills-of-materials/api/bills-of-materials.ts#L139-L169) keys each candidate search by User session, creation scope, and normalized search text. An identical search can reuse data for 30 seconds in the same session.
+
+Product, Product Variant, BOM Implementation, and relevant BOM Template mutations use the [candidate-affecting invalidation boundary](apps/web/src/features/bills-of-materials/api/bills-of-materials.ts#L272-L282). Active candidate results refresh after these mutations. Cached rows remain hidden until the current response arrives.
+
+A `401` candidate response ends the current User session and does not retry. A `403` response remains in the dialog and does not retry. A recoverable server failure preserves the creation context and offers **Try again**.
+
+## Save Remains the Authority
+
+Candidate search gives guidance. It does not reserve a Product Variant.
+
+Manual creation and BOM Template application use the existing atomic Save path. The destination service locks and revalidates the Product, Product Variant, BOM Template scope, and active BOM Implementation occupancy before creation.
+
+If another User occupies the Product Variant first, Save creates no partial BOM Implementation. The response identifies the conflicting BOM Implementation. The BOM Builder keeps the User's BOM Typification and BOM Line draft. The workflow does not select another Product Variant.
 
 ## Architecture Views
-
-These views show only the domain relationships and runtime collaboration changed by Issue 16.
 
 ### UML — Domain Relationships
 
@@ -42,26 +68,17 @@ These views show only the domain relationships and runtime collaboration changed
 classDiagram
     direction LR
 
-    class BillOfMaterials["Bill of Materials"]
-    class BomLine["BOM Line"] {
-        +materialId
-        +patternSetId
-    }
-    class Material
-    class Source
-    class PatternSet["Pattern Set"] {
-        +status
-    }
-    class PatternSetQuantityProposal["Pattern Set Quantity Proposal"]
+    class Product
+    class ProductVariant["Product Variant"]
+    class BomTemplate["BOM Template"]
+    class BomImplementation["BOM Implementation"]
 
-    BillOfMaterials "1" *-- "0..*" BomLine : owns ordered lines
-    BomLine "0..*" --> "0..1" Material : retains optional identity
-    BomLine "0..*" --> "0..1" PatternSet : retains optional identity
-    Material "0..*" --> "0..1" Source : current or retained Preferred Source
-    PatternSet "1" *-- "0..*" PatternSetQuantityProposal : owns
+    Product "1" *-- "0..*" ProductVariant : owns
+    Product "0..1" -- "0..1" BomTemplate : permanent association
+    ProductVariant "1" -- "0..1" BomImplementation : permanent destination
 
-    note for BomLine "A retained unavailable reference stays identifiable and removable"
-    note for PatternSetQuantityProposal "Count is display context only and is not searchable"
+    note for ProductVariant "Eligibility uses Product Status, Product Variant Status, and active BOM Implementation occupancy"
+    note for BomImplementation "Atomic Save revalidates the destination"
 ```
 
 ### C4 Level 3 — Web Application
@@ -72,20 +89,24 @@ flowchart LR
     api["API Application"]
 
     subgraph web["Web Application · React"]
-        builder["Bill of Materials Builder<br/>Owns and preserves the Bill of Materials draft"]
-        materialPicker["Material Picker<br/>Renders bounded Material search states"]
-        patternPicker["Pattern Set Picker<br/>Renders bounded Pattern Set search states"]
+        catalog["BOM Catalog Page<br/>Starts manual or BOM Template-derived creation"]
+        dialog["Candidate Dialog<br/>Shows search, eligibility, and recovery states"]
+        workflow["BOM Workflow<br/>Owns selected context for the current mount"]
+        manual["Manual BOM Implementation Builder<br/>Opens a new draft"]
+        derived["BOM Template Application Builder<br/>Opens a derived draft"]
+        builder["BOM Builder<br/>Keeps the local draft and submits Save"]
 
-        builder -->|"Provide current selection"| materialPicker
-        builder -->|"Provide current selection"| patternPicker
-        materialPicker -->|"Return Material or remove reference"| builder
-        patternPicker -->|"Return Pattern Set or remove reference"| builder
+        catalog --> dialog
+        dialog -->|"Selected Product and Product Variant"| workflow
+        workflow --> manual
+        workflow --> derived
+        manual --> builder
+        derived --> builder
     end
 
-    user -->|"Search and select"| materialPicker
-    user -->|"Search and select"| patternPicker
-    materialPicker -->|"Search current Materials"| api
-    patternPicker -->|"Search Active Pattern Sets"| api
+    user --> catalog
+    dialog -->|"Scoped candidate request"| api
+    builder -->|"Atomic Save request"| api
 ```
 
 ### C4 Level 3 — API Application
@@ -93,153 +114,104 @@ flowchart LR
 ```mermaid
 flowchart LR
     web["Web Application"]
-    database[("PostgreSQL<br/>unaccent")]
+    db[("PostgreSQL")]
 
     subgraph api["API Application · AdonisJS"]
-        searchEndpoints["Catalog Search Endpoints<br/>Validate normalized search"]
-        materialSearch["Material Search Service<br/>Rank Material and visible Source context"]
-        patternSearch["Pattern Set Search Service<br/>Rank Pattern Set ID and name"]
-        bomEndpoint["Bill of Materials Endpoint<br/>Return authenticated BOM detail"]
-        bomReader["BOM Reader<br/>Batch public identity resolution"]
-        lineSerializer["BOM Line Serializer<br/>Keep identity independent from nullable details"]
+        controller["BOM Controller<br/>Validates scope and maps responses"]
+        search["Candidate Search Service<br/>Matches, ranks, and explains candidates"]
+        create["Create or Apply Service<br/>Runs the transaction"]
+        destination["Destination Service<br/>Locks and revalidates eligibility"]
 
-        searchEndpoints -->|"Material search"| materialSearch
-        searchEndpoints -->|"Pattern Set search"| patternSearch
-        bomEndpoint -->|"Read one Bill of Materials"| bomReader
-        bomReader -->|"Resolved identities and nullable details"| lineSerializer
+        controller --> search
+        controller --> create
+        create --> destination
     end
 
-    web -->|"Authenticated requests"| searchEndpoints
-    web -->|"Authenticated detail request"| bomEndpoint
-    materialSearch -->|"Read at most 26 ordered matches"| database
-    patternSearch -->|"Read at most 26 ordered matches"| database
-    bomReader -->|"Batch Material identities"| database
-    bomReader -->|"Batch Pattern Set identities"| database
+    web --> controller
+    search -->|"Read at most 26 ordered rows"| db
+    destination -->|"Lock Product and Product Variant"| db
+    create -->|"Commit complete BOM Implementation"| db
 ```
 
-### C4 Dynamic — Search and Select
+### C4 Dynamic — Search, Select, and Save
 
 ```mermaid
 sequenceDiagram
     actor User
 
     box Frontend
-        participant Builder as Bill of Materials Builder
-        participant Picker as Material or Pattern Set Picker
+        participant Dialog as Candidate Dialog
+        participant Workflow as BOM Workflow
+        participant Builder as BOM Builder
     end
 
     box Backend
-        participant Endpoint as Catalog Search Endpoint
-        participant Service as Catalog Search Service
+        participant Search as Candidate Search Service
+        participant Save as Create or Apply Service
+        participant Destination as Destination Service
         participant DB as PostgreSQL
     end
 
-    User->>Builder: Edit a BOM Line reference
-    Builder->>Picker: Open with the current selection
-    User->>Picker: Enter search text
-    Picker->>Picker: Normalize text and wait about 250 ms
-    Picker->>Picker: Cancel or supersede the prior request
-    Picker->>Endpoint: GET normalized search
-    Endpoint->>Service: Search current catalog
-    Service->>DB: Read at most 26 ordered matches with unaccent
-    DB-->>Service: Return ordered matches
-    Service-->>Endpoint: Return at most 25 items and hasMore
-    Endpoint-->>Picker: Return current results
-    Picker-->>User: Show results or ask for a refined search
-    User->>Picker: Select one result
-    Picker-->>Builder: Return selected reference
-    Builder->>Builder: Update the Bill of Materials draft
-    Picker-->>User: Close dialog, restore focus, and announce selection
-```
+    User->>Dialog: Search for a Product Variant
+    Dialog->>Search: Send normalized text and creation scope
+    Search->>DB: Read current Product, Product Variant, and occupancy data
+    DB-->>Search: Return ordered matches
+    Search-->>Dialog: Return candidates and hasMore
 
-### C4 Dynamic — Load and Preserve a Retained Reference
+    alt Product Variant is not selectable
+        User->>Dialog: Activate candidate
+        Dialog-->>User: Keep open and announce the reason
+    else Product Variant is selectable
+        User->>Dialog: Select candidate
+        Dialog-->>User: Close, restore focus, and announce selection
+        Dialog->>Workflow: Pass selected Product and Product Variant
+        Workflow->>Builder: Open the draft without a second candidate request
+        User->>Builder: Edit and Save
+        Builder->>Save: Submit manual creation or BOM Template application
+        Save->>Destination: Revalidate the destination
+        Destination->>DB: Lock and inspect current state
 
-```mermaid
-sequenceDiagram
-    actor User
-
-    box Frontend
-        participant Builder as Bill of Materials Builder
+        alt Another User occupied the Product Variant
+            DB-->>Save: Return conflicting BOM Implementation
+            Save-->>Builder: Create nothing and return the conflict
+            Builder-->>User: Keep the local draft
+        else Destination remains eligible
+            Save->>DB: Commit the BOM Implementation
+            Save-->>Builder: Return success
+        end
     end
-
-    box Backend
-        participant Endpoint as Bill of Materials Endpoint
-        participant Reader as BOM Reader
-        participant Serializer as BOM Line Serializer
-        participant DB as PostgreSQL
-    end
-
-    User->>Builder: Open an existing Bill of Materials
-    Builder->>Endpoint: GET /bills-of-materials/:id
-    Endpoint->>Reader: Load Bill of Materials detail
-    Reader->>DB: Load BOM Lines and available relation details
-    Reader->>DB: Batch Material and Pattern Set public identities
-    DB-->>Reader: Return identities and nullable details
-    Reader->>Serializer: Serialize each BOM Line with resolved identities
-    Serializer-->>Reader: Return the serialized BOM Line
-    Reader-->>Endpoint: Return Bill of Materials detail
-    Endpoint-->>Builder: Return validated Bill of Materials detail
-    Builder-->>User: Show Unavailable or Details unavailable without changing the draft
-    User->>Builder: Keep or remove the retained reference
 ```
 
 ## Focused Coverage
 
-- Database-backed tests cover normalization, general diacritic folding, order-independent AND matching, stable-ID and name ranking, identity-before-Source ranking, deterministic tie-breaks, active-catalog rules, the 25-item bound, and `hasMore` from the twenty-sixth match.
-- Material tests cover Material ID, color, Material Use, and all visible Preferred Source fields. Pattern Set tests cover Pattern Set ID and name matching. The implementation keeps Pattern Set Quantity Proposal count as display context.
-- Web tests cover empty-input idle behavior, about-250-millisecond debounce, normalized requests, late-response protection, clearing, and 30-second cache reuse. The search query passes an abort signal, but focused tests do not assert direct request abortion.
-- Colocated query tests cover Material relationship invalidation, Source mutation invalidation, Pattern Set invalidation, and isolation between search families.
-- API and route tests cover retained deleted Materials, retained Retired Pattern Sets, missing detail fallback, removal, unchanged Save, and field errors for stale new selections.
-- Builder default-value unit tests cover existing Templates, existing Implementations, Template copies, Template application, empty Templates, and empty Implementations.
-- Dialog tests cover loading, results, more matches, empty results, recoverable failure, authentication failure, authorization failure, retry rules, and draft preservation.
-- Accessibility tests cover focus restoration, Tab, Enter, Space, Escape, and selection announcements. The component layout implements the narrow-screen dialog structure, but focused tests do not assert viewport layout.
-- The repeatable performance test creates at least 10,000 active records in each catalog and checks each server-response p95 separately from debounce.
+- Database-backed API tests cover global, Product, and BOM Template scope; invalid mixed scope; outcome precedence; normalized AND matching; Variant-first ranking; stable tie-breaks; the 25-item bound; and `hasMore`.
+- Concurrency tests cover atomic revalidation, active occupancy, no partial creation, conflict identity, and local draft preservation.
+- Dialog tests cover request supersession, stale-result suppression, empty and more-matches states, recoverable and authorization failures, session expiry, ineligible activation, focus restoration, and live announcements.
+- Query tests cover 30-second same-session reuse, session separation, and invalidation after candidate-affecting mutations.
+- Route tests cover manual and BOM Template-derived selection, no second candidate request, and safe recovery from missing selected context.
+- The performance test covers at least 10,000 active Product Variants.
 
 ## Focused Verification
 
-- Focused API functional tests — 32 of 32 pass.
-- Internal BOM Line serializer unit test — 1 of 1 passes.
-- Bill of Materials Builder default-value unit tests — 6 of 6 pass.
-- Focused Web Application route and query tests — 39 of 39 pass.
-- Repeatable 10,000-record catalog performance test — 1 of 1 passes with a p95 threshold of at most 500 milliseconds for each catalog.
-- API Application and Web Application typechecks — pass.
-- Focused API Application, Web Application, Shared Types, and Shared Validation lint checks — pass.
-- Shared Types and Shared Validation build checks — pass.
-- Formatting and `git diff --check` — pass.
-- Independent Standards review — pass with zero findings.
-- Independent Spec review — pass with zero findings.
+- Earlier focused API tests — 24 of 24 passed.
+- Product relationship tests — 11 of 11 passed.
+- Performance test with 10,000 active Product Variants — 1 of 1 passed. The test asserts server-response p95 at or below 500 milliseconds.
+- API typecheck, focused lint, focused formatting, and `git diff --check` — passed.
+- Affected Web Application tests — 70 of 70 passed.
+- Candidate dialog, cache, and BOM route tests — 49 of 49 passed.
+- Final candidate dialog and BOM route tests — 45 of 45 passed.
+- Web Application typecheck, focused lint, focused formatting, and `git diff --check` — passed.
+- Independent Standards review — zero findings.
+- Independent Spec review — zero findings.
 
-The complete `pnpm quality` gate did not run. The final quality gate belongs to the User and CI.
+The complete `pnpm quality` gate did not run. This is an environment boundary, not a focused product failure.
 
 ## Scope Boundaries
 
-- The dialogs do not add pagination or **Load more**.
-- Pattern Set Quantity Proposal count is display-only. It does not affect search matching.
-- A deleted Material and a Retired Pattern Set are unavailable for a new selection.
-- Retained unavailable history does not return to the active selection catalog.
-- This issue does not change Material Quantity, BOM Line Verification, or Pattern Set Quantity Proposal rules.
-- This issue does not add catalog management or a Product workspace.
-- Search cache data is session-local. It is not shared or persistent.
-
-## Review Closure
-
-The independent Standards review passed with zero findings. The independent Spec review passed with zero findings. No review action remains for Issue 16.
-
-## Remaining Risk
-
-The performance evidence is local. Production concurrency telemetry is not available in this issue.
-
-The deployment PostgreSQL role must be able to enable `unaccent`. Migration rollback leaves the extension installed because another schema or application can share it.
-
-The complete quality gate did not run.
-
-## Commit State
-
-The Issue 16 implementation and this `changes.md` handoff are uncommitted and not pushed. The current `HEAD` is `cb5625d`, the completed Issue 15 commit.
-
-These unrelated dirty paths remain protected and are not part of Issue 16:
-
-- `.gitignore`
-- `apps/api/AGENTS.md`
-- `apps/web/vite.config.ts`
-- `docs/architecture/framework-abstraction-decision.md`
+- Candidate search does not reserve a Product Variant.
+- The response contains at most 25 candidates and `hasMore`. It does not add a total, pagination, incremental loading, or virtualization.
+- Ranking does not use recency or personalization.
+- The cache is limited to one User session and a 30-second fresh window.
+- Selected candidate context is limited to the current mounted workflow.
+- An occupancy conflict does not cause automatic reassignment.
+- This change does not add a Product-page creation workflow.

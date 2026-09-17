@@ -1,50 +1,34 @@
 import { Button } from '@/components/ui/button'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import {
-  useBillOfMaterials,
-  useProductVariantCandidates,
-} from './api/bills-of-materials'
-import { BomBuilderPage } from './create-bom-template-page'
+import type { ProductVariantCandidate } from '@guardiola-foundry/shared-types'
+
+import { useBillOfMaterials } from '../api/bills-of-materials'
+import { BomBuilderPage } from './bom-builder-page'
 
 export function ApplyTemplateBuilder({
   onExit,
-  productVariantId,
+  productVariant,
   templateId,
 }: {
   onExit: () => void
-  productVariantId: string
+  productVariant: Pick<ProductVariantCandidate, 'id' | 'name' | 'product'>
   templateId: string
 }) {
   const { session } = useAppShell()
   const template = useBillOfMaterials(session.token, templateId)
-  const candidates = useProductVariantCandidates(
-    session.token,
-    productVariantId,
-    templateId,
-  )
-  const candidate = candidates.data?.items.find(
-    (item) => item.id === productVariantId,
-  )
 
-  if (template.isLoading || candidates.isLoading) {
+  if (template.isLoading) {
     return (
       <p className="text-sm text-muted-foreground">
         Loading Template application...
       </p>
     )
   }
-  if (
-    template.error ||
-    candidates.error ||
-    !template.data ||
-    !candidate ||
-    !candidate.selectable
-  ) {
+  if (template.error || !template.data) {
     return (
       <div className="space-y-4">
         <p role="alert">
           {template.error?.message ??
-            candidates.error?.message ??
             'Template application details are unavailable.'}
         </p>
         <Button onClick={onExit} type="button" variant="link">
@@ -58,7 +42,7 @@ export function ApplyTemplateBuilder({
     <BomBuilderPage
       context={{
         kind: 'implementation',
-        productVariant: candidate,
+        productVariant,
         sourceTemplate: template.data,
       }}
       onCancel={onExit}
