@@ -12,6 +12,7 @@ import type {
   MaterialPreferredSourceSummary,
   MaterialSourceRelationshipSummary,
   MaterialSummary,
+  SearchMaterialsResponse,
   ReplacePreferredSourceRequest,
   ReplacePreferredSourceResponse,
   UnlinkMaterialSourceResponse,
@@ -51,6 +52,143 @@ export async function listMaterials(): Promise<ListMaterialsResponse> {
 
   return {
     materials: materials.map(serializeMaterialSummary),
+  }
+}
+
+const MATERIAL_SEARCH_LIMIT = 25
+const NORMALIZED_MATERIAL_ID = `lower(materials.public_id)`
+const NORMALIZED_MATERIAL_NAME = `
+  regexp_replace(
+    unaccent(lower(materials.name)),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
+const NORMALIZED_MATERIAL_IDENTITY_DOCUMENT = `
+  regexp_replace(
+    unaccent(
+      lower(concat_ws(' ',
+        materials.public_id,
+        materials.name,
+        materials.material_color,
+        replace(materials.material_use, '-', ' ')
+      ))
+    ),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
+const NORMALIZED_MATERIAL_SEARCH_DOCUMENT = `
+  regexp_replace(
+    unaccent(
+      lower(concat_ws(' ',
+        materials.public_id,
+        materials.name,
+        materials.material_color,
+        replace(materials.material_use, '-', ' '),
+        preferred_source.public_id,
+        preferred_source.name,
+        preferred_source.vendor,
+        vendor_shade.name_or_code,
+        preferred_source.description,
+        preferred_source.width_centimeters::text
+      ))
+    ),
+    '\\s+',
+    ' ',
+    'g'
+  )
+`
+
+export async function searchMaterials(search: string): Promise<SearchMaterialsResponse> {
+  const terms = search.split(' ')
+  const identityWordMatch = terms
+    .map(
+      () =>
+        `position((' ' || ? || ' ') in (' ' || ${NORMALIZED_MATERIAL_IDENTITY_DOCUMENT} || ' ')) > 0`
+    )
+    .join(' AND ')
+  const query = db
+    .from('materials')
+    .join('material_source_links as preferred_link', function () {
+      this.on('preferred_link.material_id', '=', 'materials.id').andOnVal(
+        'preferred_link.is_preferred',
+        true
+      )
+    })
+    .join(
+      'material_sources as preferred_source',
+      'preferred_source.id',
+      'preferred_link.material_source_id'
+    )
+    .leftJoin(
+      'material_source_vendor_shades as vendor_shade',
+      'vendor_shade.id',
+      'preferred_link.vendor_shade_id'
+    )
+    .whereNull('materials.deleted_at')
+    .select([
+      'materials.public_id as material_public_id',
+      'materials.name as material_name',
+      'materials.material_color',
+      'materials.material_use',
+      'preferred_source.public_id as source_public_id',
+      'preferred_source.name as source_name',
+      'preferred_source.vendor as source_vendor',
+      'vendor_shade.name_or_code as vendor_shade',
+      'preferred_source.description as source_description',
+      'preferred_source.width_centimeters',
+      'preferred_source.source_status',
+      'preferred_source.deleted_at as source_deleted_at',
+      'preferred_source.landed_unit_cost_cents',
+    ])
+    .orderByRaw(
+      `CASE
+        WHEN ${NORMALIZED_MATERIAL_ID} = ? THEN 0
+        WHEN ${NORMALIZED_MATERIAL_NAME} = ? THEN 1
+        WHEN ${NORMALIZED_MATERIAL_ID} LIKE ? THEN 2
+        WHEN ${NORMALIZED_MATERIAL_NAME} LIKE ? THEN 3
+        WHEN ${identityWordMatch} THEN 4
+        WHEN position(? in ${NORMALIZED_MATERIAL_IDENTITY_DOCUMENT}) > 0 THEN 5
+        ELSE 6
+      END`,
+      [search, search, `${search}%`, `${search}%`, ...terms, search]
+    )
+    .orderByRaw(`${NORMALIZED_MATERIAL_NAME} asc`)
+    .orderBy('materials.public_id', 'asc')
+    .limit(MATERIAL_SEARCH_LIMIT + 1)
+
+  terms.forEach((term) => {
+    query.whereRaw(`position(? in ${NORMALIZED_MATERIAL_SEARCH_DOCUMENT}) > 0`, [term])
+  })
+
+  const rows = await query
+
+  return {
+    items: rows.slice(0, MATERIAL_SEARCH_LIMIT).map((row) => ({
+      id: row.material_public_id,
+      name: row.material_name,
+      materialColor: row.material_color,
+      materialUse: row.material_use,
+      preferredSource: {
+        id: row.source_public_id,
+        name: row.source_name,
+        vendor: row.source_vendor,
+        vendorShadeOrDetail: row.vendor_shade ?? row.source_description,
+        description: row.source_description,
+        widthCentimeters: row.width_centimeters === null ? null : Number(row.width_centimeters),
+        landedUnitCostCents: row.landed_unit_cost_cents,
+      },
+      attention:
+        row.source_deleted_at !== null ||
+        row.source_status !== 'active' ||
+        row.landed_unit_cost_cents === null
+          ? ['source-needs-attention' as const]
+          : [],
+    })),
+    hasMore: rows.length > MATERIAL_SEARCH_LIMIT,
   }
 }
 

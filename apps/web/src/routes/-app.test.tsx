@@ -85,6 +85,7 @@ describe('authenticated app shell routes', () => {
       screen.getByRole('link', { name: 'Products' }).textContent,
       screen.getByRole('link', { name: 'Materials' }).textContent,
       screen.getByRole('link', { name: 'Inventory' }).textContent,
+      screen.getByRole('link', { name: 'Pattern Sets' }).textContent,
       screen.getByRole('link', { name: 'Bills of Materials' }).textContent,
     ]
 
@@ -93,6 +94,7 @@ describe('authenticated app shell routes', () => {
       'Products',
       'Materials',
       'Inventory',
+      'Pattern Sets',
       'Bills of Materials',
     ])
 

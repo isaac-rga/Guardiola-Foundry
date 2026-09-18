@@ -5,6 +5,7 @@ import {
   listMaterialsResponseSchema,
   replacePreferredSourceRequestSchema,
   replacePreferredSourceResponseSchema,
+  searchMaterialsResponseSchema,
   unlinkMaterialSourceResponseSchema,
 } from '@guardiola-foundry/shared-validation'
 import type {
@@ -14,12 +15,19 @@ import type {
   ListMaterialsResponse,
   ReplacePreferredSourceRequest,
   ReplacePreferredSourceResponse,
+  SearchMaterialsResponse,
   UnlinkMaterialSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
-export async function listMaterials(token: string): Promise<ListMaterialsResponse> {
+export async function listMaterials(
+  token: string,
+): Promise<ListMaterialsResponse> {
   const response = await fetch(resolveApiUrl('/materials'), {
     method: 'GET',
     headers: {
@@ -34,6 +42,33 @@ export async function listMaterials(token: string): Promise<ListMaterialsRespons
   }
 
   return listMaterialsResponseSchema.parse(body)
+}
+
+export async function searchMaterials(
+  token: string,
+  search: string,
+  signal?: AbortSignal,
+): Promise<SearchMaterialsResponse> {
+  const url = new URL(
+    resolveApiUrl('/materials/search'),
+    window.location.origin,
+  )
+  url.searchParams.set('search', search)
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new ApiRequestError(
+      getResponseErrorMessage(body, 'Unable to search Materials.'),
+      response.status,
+    )
+  }
+
+  return searchMaterialsResponseSchema.parse(body)
 }
 
 export async function getMaterial(
@@ -118,7 +153,9 @@ export async function replacePreferredSource(
   payload: ReplacePreferredSourceRequest,
 ): Promise<ReplacePreferredSourceResponse> {
   const response = await fetch(
-    resolveApiUrl(`/materials/${encodeURIComponent(materialId)}/preferred-source`),
+    resolveApiUrl(
+      `/materials/${encodeURIComponent(materialId)}/preferred-source`,
+    ),
     {
       method: 'PUT',
       headers: {

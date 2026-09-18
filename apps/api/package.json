@@ -57,6 +57,7 @@
   "dependencies": {
     "@adonisjs/core": "^7.3.3",
     "@adonisjs/lucid": "^22.4.2",
+    "@guardiola-foundry/bom-cost-projection": "workspace:*",
     "@guardiola-foundry/shared-types": "workspace:*",
     "@guardiola-foundry/shared-validation": "workspace:*",
     "luxon": "^3.7.2",

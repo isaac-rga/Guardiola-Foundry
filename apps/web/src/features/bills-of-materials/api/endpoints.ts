@@ -1,0 +1,329 @@
+import {
+  associateBillOfMaterialsTemplateProductRequestSchema,
+  applyBillOfMaterialsTemplateRequestSchema,
+  billOfMaterialsDetailSchema,
+  billOfMaterialsRestoreConflictResponseSchema,
+  createBillOfMaterialsRequestSchema,
+  deriveBillOfMaterialsTemplateRequestSchema,
+  listBillsOfMaterialsResponseSchema,
+  searchProductVariantCandidatesResponseSchema,
+  updateBillOfMaterialsRequestSchema,
+} from '@guardiola-foundry/shared-validation'
+import type {
+  AssociateBillOfMaterialsTemplateProductRequest,
+  ApplyBillOfMaterialsTemplateRequest,
+  BillOfMaterialsDetail,
+  BillOfMaterialsRestoreConflictResponse,
+  CreateBillOfMaterialsRequest,
+  DeriveBillOfMaterialsTemplateRequest,
+  ListBillsOfMaterialsQuery,
+  ListBillsOfMaterialsResponse,
+  SearchProductVariantCandidatesResponse,
+  UpdateBillOfMaterialsRequest,
+} from '@guardiola-foundry/shared-types'
+
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
+
+export class BillOfMaterialsRequestError extends Error {
+  readonly fieldErrors: Record<string, string[]>
+  readonly status: number
+  readonly deleted: boolean
+
+  constructor(
+    message: string,
+    fieldErrors: Record<string, string[]>,
+    status: number,
+    deleted = false,
+  ) {
+    super(message)
+    this.name = 'BillOfMaterialsRequestError'
+    this.fieldErrors = fieldErrors
+    this.status = status
+    this.deleted = deleted
+  }
+}
+
+export class BillOfMaterialsRestoreConflictError extends Error {
+  readonly conflictingBillOfMaterials: BillOfMaterialsRestoreConflictResponse['conflictingBillOfMaterials']
+
+  constructor(
+    conflictingBillOfMaterials: BillOfMaterialsRestoreConflictResponse['conflictingBillOfMaterials'],
+  ) {
+    super(`Restore blocked by ${conflictingBillOfMaterials.name}.`)
+    this.conflictingBillOfMaterials = conflictingBillOfMaterials
+  }
+}
+
+export async function listBillsOfMaterials(
+  token: string,
+  filters: ListBillsOfMaterialsQuery = {},
+): Promise<ListBillsOfMaterialsResponse> {
+  const url = new URL(
+    resolveApiUrl('/bills-of-materials'),
+    window.location.origin,
+  )
+  if (filters.search) url.searchParams.set('search', filters.search)
+  if (filters.kind) url.searchParams.set('kind', filters.kind)
+  if (filters.includeDeleted) url.searchParams.set('includeDeleted', 'true')
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to load Bills of Materials.'),
+    )
+  }
+  return listBillsOfMaterialsResponseSchema.parse(body)
+}
+
+export async function deleteBillOfMaterials(
+  token: string,
+  id: string,
+): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/bills-of-materials/${id}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const body = await response.json()
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to delete the Bill of Materials.'),
+    )
+  }
+}
+
+export async function restoreBillOfMaterials(
+  token: string,
+  id: string,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${id}/restore`),
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    const conflict =
+      billOfMaterialsRestoreConflictResponseSchema.safeParse(body)
+    if (response.status === 409 && conflict.success) {
+      throw new BillOfMaterialsRestoreConflictError(
+        conflict.data.conflictingBillOfMaterials,
+      )
+    }
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to restore the Bill of Materials.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function associateBillOfMaterialsTemplateProduct(
+  token: string,
+  billOfMaterialsId: string,
+  payload: AssociateBillOfMaterialsTemplateProductRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}/product`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        associateBillOfMaterialsTemplateProductRequestSchema.parse(payload),
+      ),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to associate the Product.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function createBillOfMaterials(
+  token: string,
+  payload: CreateBillOfMaterialsRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(resolveApiUrl('/bills-of-materials'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(createBillOfMaterialsRequestSchema.parse(payload)),
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to save the Bill of Materials.'),
+      readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function applyBillOfMaterialsTemplate(
+  token: string,
+  templateId: string,
+  payload: ApplyBillOfMaterialsTemplateRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${templateId}/implementations`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        applyBillOfMaterialsTemplateRequestSchema.parse(payload),
+      ),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to create the Implementation.'),
+      readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function deriveBillOfMaterialsTemplate(
+  token: string,
+  originId: string,
+  payload: DeriveBillOfMaterialsTemplateRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${originId}/templates`),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        deriveBillOfMaterialsTemplateRequestSchema.parse(payload),
+      ),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to derive the BOM Template.'),
+      readFieldErrors(body),
+      response.status,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function getBillOfMaterials(
+  token: string,
+  billOfMaterialsId: string,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}`),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      getResponseErrorMessage(body, 'Unable to load the Bill of Materials.'),
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function updateBillOfMaterials(
+  token: string,
+  billOfMaterialsId: string,
+  payload: UpdateBillOfMaterialsRequest,
+): Promise<BillOfMaterialsDetail> {
+  const response = await fetch(
+    resolveApiUrl(`/bills-of-materials/${billOfMaterialsId}`),
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updateBillOfMaterialsRequestSchema.parse(payload)),
+    },
+  )
+  const body = await response.json()
+  if (!response.ok) {
+    throw new BillOfMaterialsRequestError(
+      getResponseErrorMessage(body, 'Unable to save the Bill of Materials.'),
+      readFieldErrors(body),
+      response.status,
+      body?.deleted === true,
+    )
+  }
+  return billOfMaterialsDetailSchema.parse(body)
+}
+
+export async function searchProductVariantCandidates(
+  token: string,
+  search: string,
+  scope: { productId?: string; templateId?: string } = {},
+  signal?: AbortSignal,
+): Promise<SearchProductVariantCandidatesResponse> {
+  const url = new URL(
+    resolveApiUrl('/bills-of-materials/product-variant-candidates'),
+  )
+  url.searchParams.set('search', search)
+  if (scope.productId) url.searchParams.set('productId', scope.productId)
+  if (scope.templateId) url.searchParams.set('templateId', scope.templateId)
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new ApiRequestError(
+      getResponseErrorMessage(body, 'Unable to search Product Variants.'),
+      response.status,
+    )
+  }
+  return searchProductVariantCandidatesResponseSchema.parse(body)
+}
+
+function readFieldErrors(body: unknown): Record<string, string[]> {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('errors' in body) ||
+    typeof body.errors !== 'object' ||
+    body.errors === null
+  ) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(body.errors).filter(
+      (entry): entry is [string, string[]] =>
+        Array.isArray(entry[1]) &&
+        entry[1].every((message) => typeof message === 'string'),
+    ),
+  )
+}

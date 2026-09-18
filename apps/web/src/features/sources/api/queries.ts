@@ -62,7 +62,10 @@ export function useUpdateSource(token: string, sourceId: string) {
       updateSource(token, sourceId, payload),
     onSuccess: async (response) => {
       queryClient.setQueryData(sourceDetailQueryKey(sourceId), response)
-      await queryClient.invalidateQueries({ queryKey: sourceListQueryKey })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sourceListQueryKey }),
+        queryClient.invalidateQueries({ queryKey: ['materials'] }),
+      ])
     },
   })
 }

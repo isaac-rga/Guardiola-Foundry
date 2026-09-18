@@ -1,82 +1,151 @@
-# Finish the Bearer Authentication Seam
+# One Destination Seam for BOM Implementation Rules
 
-This refactor makes the existing bearer middleware the single authentication implementation for ordinary protected API routes. It preserves ADR-0001, keeps Admin and Operator authorization in controllers, and leaves Logout and Password Change as explicit credential-lifecycle operations.
+Candidate search, manual creation, BOM Template application, rename, and restore now use one focused destination seam. This is a structural refactor. It does not change domain relationships, HTTP contracts, the database schema, or Web Application behavior.
 
-## Authentication Boundary
+## Advisory Search and Authoritative Reservation
 
-[apps/api/start/routes.ts](apps/api/start/routes.ts) now defines one bearer-protected route group containing:
+The [destination seam](apps/api/app/modules/bills_of_materials/services/implementation_destination/index.ts) gives each caller a specific operation. Candidate search asks for an advisory eligibility outcome. Manual creation and BOM Template application ask the seam to reserve a destination before they write.
 
-- `GET /auth/me`;
-- all Material routes;
-- all Product routes;
-- all Source routes;
-- `GET /currency-conversion-rate`.
+The [candidate search service](apps/api/app/modules/bills_of_materials/services/search_product_variant_candidates.ts) keeps the existing search, ranking, and 25-result limit. It classifies each visible Product Variant in this order:
 
-The group uses the existing [bearer authentication middleware](apps/api/app/middleware/bearer_auth_middleware.ts). Route URLs and response contracts are unchanged.
+1. `implementation-exists`
+2. `product-unavailable`
+3. `variant-inactive`
+4. `eligible`
 
-The following routes remain outside the group:
+Search does not reserve a Product Variant. An ineligible Product Variant remains a normal search result with its current outcome.
 
-- `GET /health` is public;
-- `POST /auth/login` is public;
-- `POST /auth/logout` remains responsible for revoking only the presented token;
-- `POST /auth/change-password` remains responsible for validating the current password and revoking all active tokens for the User.
+The write service starts and owns the transaction. It passes the same Lucid transaction to destination reservation. The destination seam does not start a nested transaction.
 
-Future classification of public and credential-lifecycle routes for integration with other apps is deferred. This change introduces no alternate guard, client type, claim model, or speculative integration seam.
+Reservation locks the Product first and the Product Variant second. It then repeats the authoritative checks. The Product and Product Variant must be active and not deleted. A BOM Template application must select a Product Variant that belongs to the BOM Template Product. The Product Variant must not have a non-deleted BOM Implementation. The BOM Typification must be unique, without case sensitivity, across non-deleted BOM Implementations for the Product.
 
-## Controller and Service Changes
+If a check fails, the existing typed business error leaves the transaction. The caller rolls back. No BOM Implementation or BOM Line is created. If all checks pass, the caller creates the complete result and commits once.
 
-[AuthController](apps/api/app/modules/auth/controllers/auth_controller.ts) now returns the middleware-provided `authenticatedSession` from `/auth/me`. It no longer parses or validates that route's bearer token itself.
+## Existing Implementation Rename, Restore, and Lifecycle
 
-[MaterialsController](apps/api/app/modules/materials/controllers/materials_controller.ts) no longer authenticates the Material list request inside the controller.
+The [whole-BOM update service](apps/api/app/modules/bills_of_materials/services/update_bill_of_materials.ts) uses the same Product-scoped BOM Typification rule for rename. A case-insensitive duplicate name is rejected before line or metadata changes. The complete saved BOM Implementation remains unchanged.
 
-[ProductsController](apps/api/app/modules/products/controllers/products_controller.ts) now consumes `authenticatedSession.user`. Existing role-based decisions remain in the controller:
+An existing BOM Implementation remains editable when its Product or Product Variant is inactive. It becomes read-only when its Product or Product Variant is deleted. These lifecycle rules are separate from the active-record rules for a new destination.
 
-- only an Admin may include deleted Products in the list;
-- only an Admin may restore a deleted Product.
+The [restore service](apps/api/app/modules/bills_of_materials/services/delete_and_restore_bill_of_materials.ts) can restore a BOM Implementation when its related Product or Product Variant is deleted. The restored BOM Implementation then remains read-only. Restore uses the same Product-to-Product Variant lock order. It repeats Product Variant occupancy and Product-scoped, case-insensitive BOM Typification checks. Concurrent restore attempts still allow only one valid winner.
 
-[products_service.ts](apps/api/app/modules/products/products_service.ts) now receives the authenticated User ID needed for `Created By`. It no longer requires a database-backed `User` model, which removes the redundant User lookup previously performed by the Products controller.
+## Architecture Views
 
-Existing Source authorization remains unchanged, including Admin-only Retired Source listing and restoration.
+Domain relationships did not change. Therefore, this walkthrough omits a UML domain relationship view.
 
-## Inactive User Sessions
+### C4 Level 3 — API Application
 
-[auth_service.ts](apps/api/app/modules/auth/auth_service.ts) now rejects a valid, unexpired token while its User is inactive. The response from ordinary protected routes remains the generic `401 { message: "Unauthorized" }`.
+```mermaid
+flowchart LR
+    client["HTTP Client"]
+    database[("PostgreSQL")]
 
-The token is not revoked by this check. If the User becomes active again before the token expires, the same token may authenticate successfully. Explicit token revocation remains part of Logout and Password Change.
+    subgraph api["API Application · AdonisJS"]
+        controller["BOM HTTP Controller<br/>Validates requests and maps responses"]
+        search["Candidate Search<br/>Reads, matches, ranks, and limits results"]
+        eligibility["Candidate Eligibility<br/>Returns advisory outcomes"]
+        create["Manual Creation<br/>Transaction owner"]
+        apply["BOM Template Application<br/>Transaction owner"]
+        update["Whole-BOM Update<br/>Transaction owner"]
+        restore["BOM Restore<br/>Transaction owner"]
+        reservation["Destination Reservation<br/>Locks and repeats final checks"]
+        existing["Existing Implementation Rules<br/>Checks rename, edit, and restore"]
+        lucid["Lucid Persistence<br/>Queries, locks, and writes"]
 
-## ADR-0001 Correction
+        controller --> search
+        controller --> create
+        controller --> apply
+        controller --> update
+        controller --> restore
+        search --> eligibility
+        search --> lucid
+        create --> reservation
+        apply --> reservation
+        update --> existing
+        restore --> existing
+        reservation --> lucid
+        existing --> lucid
+    end
 
-[docs/adr/0001-token-based-auth.md](docs/adr/0001-token-based-auth.md) now matches the established API contract:
+    client --> controller
+    lucid --> database
+```
 
-- Login returns `token`, `expiresAt`, and `user`;
-- `/auth/me` returns `expiresAt` and `user` without echoing the presented bearer token;
-- bearer authentication remains independent of Admin and Operator authorization.
+### C4 Dynamic — Advisory Search and Final Save
 
-No `CONTEXT.md` change was needed because the existing User, Active User, Admin, Operator, and Password Change terms already cover this work.
+```mermaid
+sequenceDiagram
+    actor Client as HTTP Client
+    participant Controller as BOM HTTP Controller
+    participant Search as Candidate Search
+    participant Eligibility as Candidate Eligibility
+    participant Write as Create or Apply Service<br/>Transaction owner
+    participant Destination as Destination Reservation
+    participant DB as Lucid / PostgreSQL
 
-## Test-Driven Development
+    Client->>Controller: Search for a Product Variant
+    Controller->>Search: Send normalized search and scope
+    Search->>DB: Read Product, Product Variant, and occupancy data
+    DB-->>Search: Return current matches
+    Search->>Search: Rank and limit results
+    Search->>Eligibility: Classify each candidate
+    Eligibility-->>Search: Return advisory outcomes
+    Search-->>Controller: Return candidates without reservation
+    Controller-->>Client: Show current choices
 
-The Inactive User behavior followed a red-to-green cycle:
+    Client->>Controller: Save a manual or Template-derived BOM Implementation
+    Controller->>Write: Send validated Save request
+    Write->>DB: Begin transaction
+    Write->>Destination: Reserve destination with the same transaction
+    Destination->>DB: Lock Product
+    Destination->>DB: Lock Product Variant
+    Destination->>DB: Repeat availability, Product, occupancy, and typification checks
 
-1. Added an HTTP test that signs in an Active User, makes the User inactive, and calls `/auth/me` with the existing token.
-2. Confirmed the red state: the API returned `200` instead of the required `401`.
-3. Added the Active User check to the shared current-session lookup.
-4. Confirmed the green state: all 18 focused authentication tests passed.
-5. The same test reactivates the User and confirms that the non-revoked token works again.
+    alt Destination conflict or validation failure
+        DB-->>Destination: Return current conflicting state
+        Destination-->>Write: Return typed business error
+        Write->>DB: Roll back transaction
+        Write-->>Controller: Return existing HTTP error
+        Controller-->>Client: Nothing was created
+    else Destination remains valid
+        Destination-->>Write: Return reserved destination
+        Write->>DB: Create BOM Implementation and BOM Lines
+        Write->>DB: Commit transaction
+        Write-->>Controller: Return complete BOM Implementation
+        Controller-->>Client: Save succeeded
+    end
+```
 
-[protected_routes.spec.ts](apps/api/tests/functional/auth/protected_routes.spec.ts) is a behavior-preserving characterization test. It checks every route in the protected group and requires a missing bearer token to produce the same generic `401 Unauthorized` response before and after the controller refactor.
+## Focused Coverage
 
-## Verification
+These three behavior-characterization cases were added. Each case passed against the baseline implementation, so there was no behavioral red state.
 
-- The protected-route characterization test passed before and after the refactor.
-- The focused authentication, Product, Material, and Source authorization suites passed: 48 tests.
-- The final protected-route test passed after improving its route-specific failure labels.
-- API strict TypeScript checking passed.
-- API lint passed.
-- Focused lint for the new protected-route test passed.
-- `git diff --check` passed.
-- The route group structure was checked against the AdonisJS v7 routing documentation.
+- Manual BOM Implementation creation rejects an inactive Product and persists nothing.
+- Direct BOM Template application rejects a Product Variant from another Product and persists nothing.
+- Rename rejects a case-insensitive duplicate BOM Typification in the same Product and preserves the complete saved BOM Implementation.
 
-The complete test suite and the human/CI-owned `pnpm quality` gate were not run, as agreed.
+## Focused Verification
 
-All changes remain uncommitted for review.
+- Focused BOM functional tests — 42 of 42 passed, including concurrency and forced rollback coverage.
+- API typecheck — passed.
+- Full API lint — passed.
+- `git diff --check` — passed.
+- Standards review — PASS with no findings.
+- Spec review — PASS with no findings.
+
+The first focused test attempt could not bind `0.0.0.0:3333` in the sandbox. The same test passed when test access was enabled. This was an environment limit, not a product failure.
+
+The complete `pnpm quality` gate and full repository test suites did not run.
+
+## Scope Boundaries
+
+- Domain relationships did not change.
+- HTTP contracts, database schema, and Web Application behavior did not change.
+- This refactor does not add new behavior.
+- Candidate search remains advisory and does not reserve a destination.
+- The destination seam does not own transactions.
+- Existing unrelated working-tree changes remain preserved.
+
+## Commit State
+
+The feature is uncommitted and ready for review.

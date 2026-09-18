@@ -29,6 +29,28 @@ export interface ListMaterialsResponse {
   materials: MaterialSummary[]
 }
 
+export interface MaterialSearchItem {
+  id: string
+  name: string
+  materialColor: MaterialColor
+  materialUse: MaterialUse
+  preferredSource: {
+    id: string
+    name: string
+    vendor: string
+    vendorShadeOrDetail: string | null
+    description: string | null
+    widthCentimeters: number | null
+    landedUnitCostCents: number | null
+  }
+  attention: Array<'source-needs-attention'>
+}
+
+export interface SearchMaterialsResponse {
+  items: MaterialSearchItem[]
+  hasMore: boolean
+}
+
 export interface MaterialSourceRelationshipSummary {
   id: string
   name: string

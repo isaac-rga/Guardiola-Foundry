@@ -9,12 +9,14 @@ import {
   linkMaterialSource,
   listMaterials,
   replacePreferredSource,
+  searchMaterials,
   unlinkMaterialSource,
 } from '@/features/materials/api/endpoints'
 import {
   materialDetailQueryKey,
   materialListQueryKey,
 } from '@/features/materials/query-keys'
+import { ApiRequestError } from '@/lib/api/transport'
 
 export function useMaterialList(token: string) {
   return useQuery({
@@ -28,6 +30,26 @@ export function useMaterialDetail(token: string, materialId: string) {
     queryKey: materialDetailQueryKey(materialId),
     queryFn: () => getMaterial(token, materialId),
   })
+}
+
+export function useMaterialSearch(token: string, search: string) {
+  const query = useQuery({
+    queryKey: ['materials', 'search', search],
+    queryFn: ({ signal }) => searchMaterials(token, search, signal),
+    enabled: search.length > 0,
+    staleTime: 30_000,
+  })
+
+  return {
+    ...query,
+    isErrorRetryable: isCatalogSearchErrorRetryable(query.error),
+  }
+}
+
+function isCatalogSearchErrorRetryable(error: Error | null) {
+  return !(
+    error instanceof ApiRequestError && [401, 403].includes(error.status)
+  )
 }
 
 export function useLinkMaterialSource(token: string, materialId: string) {

@@ -19,6 +19,9 @@ import type {
 import { z } from 'zod'
 
 export * from './materials.js'
+export * from './bills-of-materials.js'
+export * from './pattern-sets.js'
+export * from './product-variants.js'
 export * from './sources.js'
 
 export const healthResponseSchema = z.object({

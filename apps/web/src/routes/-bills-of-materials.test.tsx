@@ -1,0 +1,3038 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { AUTH_SESSION_STORAGE_KEY } from '@/lib/auth/session-storage'
+import { routeTree } from '../routeTree.gen'
+
+describe('Bills of Materials route', () => {
+  afterEach(() => {
+    cleanup()
+    localStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('redirects an unauthenticated visitor to the existing sign-in flow', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    renderBillsOfMaterialsRoute()
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to guardiola foundry/i,
+      }),
+    ).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns an Implementation route without selected candidate state to the catalog', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials?screen=builder&kind=implementation&productVariantId=PV-STALE2',
+    )
+
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Include deleted' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create Template' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create Implementation' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'BOM Name' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('expires the current session without retrying a candidate search 401', async () => {
+    const user = userEvent.setup()
+    let candidateRequests = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
+        return jsonResponse(
+          { message: 'Your session has expired.' },
+          { status: 401 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute('/app/bills-of-materials', 2)
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to guardiola foundry/i,
+      }),
+    ).toBeInTheDocument()
+    expect(candidateRequests).toBe(1)
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+  })
+
+  it('keeps candidate authorization failures in context without retrying', async () => {
+    const user = userEvent.setup()
+    let candidateRequests = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
+        return jsonResponse(
+          { message: 'Candidate search is not allowed.' },
+          { status: 403 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute('/app/bills-of-materials', 2)
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Candidate search is not allowed.',
+    )
+    expect(candidateRequests).toBe(1)
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    expect(
+      screen.getByRole('heading', { name: 'Select a Product Variant' }),
+    ).toBeInTheDocument()
+  })
+
+  it('abandons without creating, then validates, saves, and reloads a Template', async () => {
+    const user = userEvent.setup()
+    let billsOfMaterials: unknown[] = []
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+        if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+          return jsonResponse(catalogResponse(billsOfMaterials))
+        }
+        if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+          const created = billOfMaterialsFixture()
+          billsOfMaterials = [created]
+          return jsonResponse(
+            {
+              ...created,
+              lines: [],
+              costProjection: unavailableProjection(),
+            },
+            { status: 201 },
+          )
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+    seedStoredSession()
+    const view = renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Unsaved draft',
+    )
+    await user.click(screen.getByRole('button', { name: 'Back to catalog' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Discard draft' }),
+    )
+    await screen.findByText('No Bills of Materials registered yet.')
+    expect(
+      fetchSpy.mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(await screen.findByText('BOM name is required.')).toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(0)
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Jackie base construction',
+    )
+    await user.type(
+      screen.getByLabelText('Description'),
+      'Reusable starting point',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3333/bills-of-materials',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            kind: 'template',
+            name: 'Jackie base construction',
+            description: 'Reusable starting point',
+            productId: null,
+            lines: [],
+          }),
+        }),
+      )
+    })
+    const row = (await screen.findByText('Jackie base construction')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(row).getByText('Template')).toBeInTheDocument()
+    expect(within(row).getByText('BOM-ABC234')).toBeInTheDocument()
+    expect(within(row).getByText('No Product associated')).toBeInTheDocument()
+    expect(
+      within(row).getByText('Product relationship is optional'),
+    ).toBeInTheDocument()
+    expect(
+      within(row).queryByText('Reusable starting point'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Kind' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Product context' }),
+    ).toBeInTheDocument()
+
+    view.unmount()
+    renderBillsOfMaterialsRoute()
+    expect(
+      await screen.findByText('Jackie base construction'),
+    ).toBeInTheDocument()
+  })
+
+  it('selects an eligible Product Variant before preserving and saving a manual Implementation draft', async () => {
+    const user = userEvent.setup()
+    let saveAttempts = 0
+    let candidateRequests = 0
+    let billsOfMaterials: unknown[] = []
+    const postedBodies: unknown[] = []
+    const eligibleCandidate = {
+      id: 'PV-JACKIE',
+      name: 'Jackie Showroom',
+      status: 'active' as const,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      selectable: true,
+      outcome: 'eligible' as const,
+      existingImplementation: null,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse(billsOfMaterials))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests += 1
+        return jsonResponse({
+          items: [
+            eligibleCandidate,
+            {
+              ...eligibleCandidate,
+              id: 'PV-OCCUP2',
+              name: 'Jackie Editorial',
+              selectable: false,
+              outcome: 'implementation-exists',
+              existingImplementation: {
+                id: 'BOM-USED24',
+                name: 'Existing construction',
+              },
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse(
+            {
+              message: 'Product Variant already has Existing construction.',
+              conflictingImplementation: {
+                id: 'BOM-USED24',
+                name: 'Existing construction',
+              },
+            },
+            { status: 409 },
+          )
+        }
+        const created = {
+          ...billOfMaterialsFixture(),
+          kind: 'implementation' as const,
+          name: 'Jackie - Blush',
+          product: eligibleCandidate.product,
+          productVariant: {
+            id: eligibleCandidate.id,
+            name: eligibleCandidate.name,
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [created]
+        return jsonResponse(
+          { ...created, lines: [], costProjection: unavailableProjection() },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    const { router } = renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    const createBomTrigger = screen.getByRole('button', { name: 'Create BOM' })
+    const focusSpy = vi.spyOn(createBomTrigger, 'focus')
+    await user.click(createBomTrigger)
+    await user.click(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Select a Product Variant' }),
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'jackie',
+    )
+
+    const occupied = await screen.findByRole('button', {
+      name: /Jackie Editorial.*Existing construction.*BOM-USED24/i,
+    })
+    expect(occupied).toHaveAttribute('aria-disabled', 'true')
+    expect(occupied).not.toBeDisabled()
+    const focusCallCountBeforeSelection = focusSpy.mock.calls.length
+    const candidateRequestsBeforeSelection = candidateRequests
+    await user.click(
+      screen.getByRole('button', { name: /Jackie Showroom.*PV-JACKIE/i }),
+    )
+
+    await waitFor(() =>
+      expect(focusSpy.mock.calls.length).toBeGreaterThan(
+        focusCallCountBeforeSelection,
+      ),
+    )
+    expect(
+      await screen.findByRole('textbox', { name: 'BOM Typification' }),
+    ).toBeInTheDocument()
+    expect(router.state.location.search).toMatchObject({
+      screen: 'builder',
+      kind: 'implementation',
+      productVariantId: eligibleCandidate.id,
+    })
+    expect(candidateRequests).toBe(candidateRequestsBeforeSelection)
+    expect(screen.getByText('Jackie Showroom')).toBeInTheDocument()
+    expect(screen.getByText('PV-JACKIE')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Fixed for this Implementation/),
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Typification' }),
+      'Jackie - Blush',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => {
+      expect(postedBodies[0]).toEqual({
+        kind: 'implementation',
+        name: 'Jackie - Blush',
+        description: null,
+        productVariantId: 'PV-JACKIE',
+        lines: [],
+      })
+    })
+    expect(
+      await screen.findByText(
+        'Product Variant already has Existing construction.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('textbox', { name: 'BOM Typification' }),
+    ).toHaveValue('Jackie - Blush')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    const row = (await screen.findByText('Jackie - Blush')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(row).getByText('Implementation')).toBeInTheDocument()
+    expect(
+      within(row).getByText(/Jackie Showroom.*PV-JACKIE/),
+    ).toBeInTheDocument()
+  })
+
+  it('creates an Implementation from an associated Template catalog action', async () => {
+    const user = userEvent.setup()
+    const template = {
+      ...billOfMaterialsFixture(),
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+    }
+    const candidate = {
+      id: 'PV-JACKIE',
+      name: 'Jackie Showroom',
+      status: 'active' as const,
+      product: template.product,
+      selectable: true,
+      outcome: 'eligible' as const,
+      existingImplementation: null,
+    }
+    const postedBodies: unknown[] = []
+    const candidateRequests: string[] = []
+    let saveAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([template]))
+      }
+      if (url.pathname === '/bills-of-materials/product-variant-candidates') {
+        candidateRequests.push(url.toString())
+        expect(url.searchParams.get('templateId')).toBe(template.id)
+        return jsonResponse({ items: [candidate], hasMore: false })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse({
+          ...billOfMaterialsDetailFixture(),
+          ...template,
+        })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}/implementations` &&
+        init?.method === 'POST'
+      ) {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse(
+            {
+              message:
+                'BOM typification already exists for this Product Variant.',
+              errors: {
+                name: [
+                  'BOM typification already exists for this Product Variant.',
+                ],
+              },
+            },
+            { status: 409 },
+          )
+        }
+        return jsonResponse(
+          {
+            ...billOfMaterialsDetailFixture(),
+            id: 'BOM-DER234',
+            kind: 'implementation',
+            name: 'Jackie - Blush',
+            product: template.product,
+            productVariant: {
+              id: candidate.id,
+              name: candidate.name,
+              availability: 'available',
+            },
+            origin: {
+              id: template.id,
+              name: template.name,
+              kind: 'template',
+              availability: 'available',
+            },
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    const { router } = renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    const actionTrigger = screen.getByRole('button', {
+      name: `Actions for ${template.name}`,
+    })
+    const focusSpy = vi.spyOn(actionTrigger, 'focus')
+    await user.click(actionTrigger)
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Create Implementation' }),
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search Product Variants' }),
+      'showroom',
+    )
+    const focusCallCountBeforeSelection = focusSpy.mock.calls.length
+    const eligibleCandidateButton = await screen.findByRole('button', {
+      name: /Jackie Showroom.*PV-JACKIE/i,
+    })
+    const candidateRequestsBeforeSelection = [...candidateRequests]
+    await user.click(eligibleCandidateButton)
+
+    await waitFor(() =>
+      expect(focusSpy.mock.calls.length).toBeGreaterThan(
+        focusCallCountBeforeSelection,
+      ),
+    )
+    const typification = await screen.findByRole('textbox', {
+      name: 'BOM Typification',
+    })
+    expect(router.state.location.search).toMatchObject({
+      screen: 'builder',
+      kind: 'implementation',
+      productVariantId: candidate.id,
+      templateId: template.id,
+    })
+    expect(candidateRequests).toEqual(candidateRequestsBeforeSelection)
+    await user.type(typification, 'Jackie - Blush')
+    expect(screen.getByText('Construction Board')).toBeInTheDocument()
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    expect(
+      screen.getByText(`Copied from ${template.name} when you save`),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText(
+        'BOM typification already exists for this Product Variant.',
+      ),
+    ).toBeInTheDocument()
+    expect(typification).toHaveValue('Jackie - Blush')
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() =>
+      expect(postedBodies).toEqual([
+        { name: 'Jackie - Blush', productVariantId: candidate.id },
+        { name: 'Jackie - Blush', productVariantId: candidate.id },
+      ]),
+    )
+  })
+
+  it('opens a saved Template, protects its draft, and offers deliberate stale recovery', async () => {
+    const user = userEvent.setup()
+    const saved = billOfMaterialsDetailFixture()
+    const current = {
+      ...saved,
+      name: 'Current saved construction',
+      updatedAt: '2026-09-08T13:00:00.000Z',
+    }
+    let detailLoads = 0
+    const putBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([saved]))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${saved.id}` &&
+        init?.method === 'GET'
+      ) {
+        detailLoads += 1
+        return jsonResponse(detailLoads === 1 ? saved : current)
+      }
+      if (
+        url.pathname === `/bills-of-materials/${saved.id}` &&
+        init?.method === 'PUT'
+      ) {
+        putBodies.push(JSON.parse(String(init.body)))
+        return jsonResponse(
+          {
+            message:
+              'This Bill of Materials changed after you opened it. Your draft was not saved.',
+            currentUpdatedAt: current.updatedAt,
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(saved.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${saved.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+
+    const name = await screen.findByRole('textbox', { name: 'BOM Name' })
+    expect(name).toHaveValue(saved.name)
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    await user.clear(name)
+    await user.type(name, 'My unsaved construction')
+    await user.click(screen.getByRole('button', { name: 'Back to catalog' }))
+    expect(
+      await screen.findByRole('heading', { name: 'Discard unsaved changes?' }),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue editing' }))
+    expect(name).toHaveValue('My unsaved construction')
+
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+    expect(
+      await screen.findByText(
+        'This Bill of Materials changed after you opened it. Your draft was not saved.',
+      ),
+    ).toBeInTheDocument()
+    expect(name).toHaveValue('My unsaved construction')
+    expect(putBodies).toEqual([
+      {
+        updatedAt: saved.updatedAt,
+        name: 'My unsaved construction',
+        description: saved.description,
+        lines: [
+          {
+            id: 'BML-SKRT23',
+            constructionPiece: 'Outer skirt',
+            materialId: 'M-0001',
+            materialQuantity: 3.125,
+            patternSetId: null,
+            lineNote: 'Cut on grain',
+            verified: true,
+          },
+        ],
+      },
+    ])
+
+    await user.click(
+      screen.getByRole('button', { name: 'Reload current saved version' }),
+    )
+    expect(
+      await screen.findByRole('textbox', { name: 'BOM Name' }),
+    ).toHaveValue('Current saved construction')
+  })
+
+  it('shows and removes retained Material and Pattern Set IDs when details are unavailable', async () => {
+    const user = userEvent.setup()
+    const saved = {
+      ...billOfMaterialsDetailFixture(),
+      lines: [
+        {
+          ...billOfMaterialsDetailFixture().lines[0],
+          materialId: 'M-0099',
+          material: null,
+          patternSetId: 'PS-MISSNG',
+          patternSet: null,
+          attention: [
+            'material-needs-attention' as const,
+            'pattern-needs-attention' as const,
+          ],
+        },
+      ],
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([saved]))
+      }
+      if (url.pathname === `/bills-of-materials/${saved.id}`) {
+        return jsonResponse(saved)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(saved.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${saved.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+
+    const materialTrigger = await screen.findByRole('combobox', {
+      name: 'Choose Material',
+    })
+    expect(materialTrigger).toHaveTextContent('M-0099 · Details unavailable')
+    const patternSetTrigger = screen.getByRole('combobox', {
+      name: 'Choose Pattern Set',
+    })
+    expect(patternSetTrigger).toHaveTextContent(
+      'PS-MISSNG · Details unavailable',
+    )
+
+    await user.click(materialTrigger)
+    await user.click(screen.getByRole('button', { name: 'No Material' }))
+    expect(materialTrigger).toHaveTextContent('Choose Material')
+    await user.click(patternSetTrigger)
+    await user.click(screen.getByRole('button', { name: 'No Pattern Set' }))
+    expect(patternSetTrigger).toHaveTextContent('Choose Pattern Set')
+  })
+
+  it('distinguishes retained deleted Materials and retired Pattern Sets from missing details', async () => {
+    const user = userEvent.setup()
+    const saved = {
+      ...billOfMaterialsDetailFixture(),
+      lines: [
+        {
+          ...billOfMaterialsDetailFixture().lines[0],
+          material: {
+            ...billOfMaterialsDetailFixture().lines[0].material!,
+          },
+          patternSetId: 'PS-RET234',
+          patternSet: {
+            id: 'PS-RET234',
+            name: 'Retired skirt patterns',
+            status: 'retired' as const,
+            quantityProposalCount: 1,
+          },
+          attention: [
+            'material-needs-attention' as const,
+            'pattern-needs-attention' as const,
+          ],
+        },
+      ],
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([saved]))
+      }
+      if (url.pathname === `/bills-of-materials/${saved.id}`) {
+        return jsonResponse(saved)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(saved.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${saved.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+
+    const materialTrigger = await screen.findByRole('combobox', {
+      name: 'Choose Material',
+    })
+    expect(materialTrigger).toHaveTextContent(
+      'Ivory Silk Crepe · M-0001 · Unavailable',
+    )
+    const patternSetTrigger = screen.getByRole('combobox', {
+      name: 'Choose Pattern Set',
+    })
+    expect(patternSetTrigger).toHaveTextContent(
+      'Retired skirt patterns · PS-RET234 · Unavailable',
+    )
+
+    await user.click(materialTrigger)
+    await user.click(screen.getByRole('button', { name: 'No Material' }))
+    await user.click(patternSetTrigger)
+    await user.click(screen.getByRole('button', { name: 'No Pattern Set' }))
+    expect(materialTrigger).toHaveTextContent('Choose Material')
+    expect(patternSetTrigger).toHaveTextContent('Choose Pattern Set')
+  })
+
+  it('derives a Template from either BOM kind while retaining the local draft on save failure', async () => {
+    const user = userEvent.setup()
+    const origin = {
+      ...billOfMaterialsDetailFixture(),
+      id: 'BOM-ORIG24',
+      kind: 'implementation' as const,
+      name: 'Jackie atelier sample',
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      productVariant: {
+        id: 'PV-JACKIE',
+        name: 'Jackie Showroom',
+        availability: 'available' as const,
+      },
+    }
+    let billsOfMaterials: unknown[] = [origin]
+    const postedBodies: unknown[] = []
+    let saveAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse(billsOfMaterials))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${origin.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse(origin)
+      }
+      if (
+        url.pathname === `/bills-of-materials/${origin.id}/templates` &&
+        init?.method === 'POST'
+      ) {
+        postedBodies.push(JSON.parse(String(init.body)))
+        saveAttempts += 1
+        if (saveAttempts === 1) {
+          return jsonResponse(
+            { message: 'Unable to derive this Template.' },
+            { status: 500 },
+          )
+        }
+        const derived = {
+          ...origin,
+          id: 'BOM-COPY24',
+          kind: 'template' as const,
+          name: 'Jackie working copy',
+          product: null,
+          productVariant: null,
+          origin: {
+            id: origin.id,
+            name: origin.name,
+            kind: origin.kind,
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [derived, origin]
+        return jsonResponse(derived, { status: 201 })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(origin.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${origin.name}` }),
+    )
+    await user.click(screen.getByRole('menuitem', { name: 'Derive Template' }))
+
+    const name = await screen.findByRole('textbox', { name: 'BOM Name' })
+    expect(name).toHaveValue(`${origin.name} — copy`)
+    expect(screen.getByLabelText('Description')).toBeDisabled()
+    expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
+    expect(
+      screen.getByText(
+        `Origin: Implementation · ${origin.name} · ${origin.id}`,
+      ),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: 'Continue without Product' }),
+    )
+    await user.clear(name)
+    await user.type(name, 'Jackie working copy')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText('Unable to derive this Template.'),
+    ).toBeInTheDocument()
+    expect(name).toHaveValue('Jackie working copy')
+    expect(screen.getByText('Outer skirt')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() =>
+      expect(postedBodies).toEqual([
+        { name: 'Jackie working copy', productId: null },
+        { name: 'Jackie working copy', productId: null },
+      ]),
+    )
+    expect(await screen.findByText('Jackie working copy')).toBeInTheDocument()
+    expect(screen.getAllByText('Jackie atelier sample')).toHaveLength(2)
+  })
+
+  it('preserves the local draft when the open Bill of Materials was deleted', async () => {
+    const user = userEvent.setup()
+    const saved = billOfMaterialsDetailFixture()
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+        if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+          return jsonResponse(catalogResponse([saved]))
+        }
+        if (
+          url.pathname === `/bills-of-materials/${saved.id}` &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse(saved)
+        }
+        if (
+          url.pathname === `/bills-of-materials/${saved.id}` &&
+          init?.method === 'PUT'
+        ) {
+          return jsonResponse(
+            {
+              message:
+                'This Bill of Materials was deleted while it was open. Your draft was not saved.',
+              deleted: true,
+            },
+            { status: 409 },
+          )
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(saved.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${saved.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+
+    const name = await screen.findByRole('textbox', { name: 'BOM Name' })
+    await user.clear(name)
+    await user.type(name, 'Unsaved deleted-record draft')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText(
+        'This Bill of Materials was deleted while it was open. Your draft was not saved.',
+      ),
+    ).toBeInTheDocument()
+    expect(name).toHaveValue('Unsaved deleted-record draft')
+    expect(name).not.toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Reload current saved version' }),
+    ).not.toBeInTheDocument()
+    expect(
+      fetchSpy.mock.calls.some(([input, init]) => {
+        const url = new URL(String(input))
+        return url.pathname.endsWith('/restore') && init?.method === 'POST'
+      }),
+    ).toBe(false)
+  })
+
+  it('saves an existing Implementation and replaces previews with canonical projections', async () => {
+    const user = userEvent.setup()
+    const saved = {
+      ...billOfMaterialsDetailFixture(),
+      kind: 'implementation' as const,
+      name: 'Jackie - Showroom',
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      productVariant: {
+        id: 'PV-JACKIE',
+        name: 'Jackie Showroom',
+        availability: 'available' as const,
+      },
+    }
+    const canonical = {
+      ...saved,
+      description: 'Updated construction context',
+      updatedAt: '2026-09-08T13:00:00.000Z',
+      lines: saved.lines.map((line) => ({
+        ...line,
+        material: {
+          ...line.material!,
+          preferredSource: {
+            ...line.material!.preferredSource!,
+            landedUnitCostCents: 5000,
+          },
+        },
+        costProjection: { amountCents: 15625, exclusionReason: null },
+      })),
+      costProjection: {
+        availability: 'complete' as const,
+        amountCents: 15625,
+        excludedLineCount: 0,
+      },
+    }
+    const putBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([saved]))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${saved.id}` &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse(saved)
+      }
+      if (
+        url.pathname === `/bills-of-materials/${saved.id}` &&
+        init?.method === 'PUT'
+      ) {
+        putBodies.push(JSON.parse(String(init.body)))
+        return jsonResponse(canonical)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(saved.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${saved.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    )
+    expect(await screen.findByText('Jackie Showroom')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Fixed for this Implementation/),
+    ).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Description'))
+    await user.type(
+      screen.getByLabelText('Description'),
+      'Updated construction context',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    expect(putBodies[0]).not.toHaveProperty('kind')
+    expect(putBodies[0]).not.toHaveProperty('productVariantId')
+    expect(await screen.findAllByText('$156.25')).toHaveLength(2)
+    expect(screen.queryByText('$131.25')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue(
+      'Updated construction context',
+    )
+  })
+
+  it('recommends Product scope without blocking an unassociated Template', async () => {
+    const user = userEvent.setup()
+    const postedBodies: unknown[] = []
+    let billsOfMaterials: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse(billsOfMaterials))
+      }
+      if (url.pathname === '/products') {
+        return jsonResponse({
+          products: [
+            {
+              id: 'P-JACKIE',
+              name: 'Jackie',
+              lifecycleStatus: 'finished',
+              productStatus: 'active',
+              productCategory: 'dress',
+              collection: null,
+              createdAt: '2026-09-08T12:00:00.000Z',
+              createdBy: { id: 1, email: 'operator@example.com' },
+            },
+          ],
+          collections: [],
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        const created = {
+          ...billOfMaterialsFixture(),
+          name: 'Jackie base',
+          product: {
+            id: 'P-JACKIE',
+            name: 'Jackie',
+            availability: 'available' as const,
+          },
+        }
+        billsOfMaterials = [created]
+        return jsonResponse(
+          {
+            ...created,
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+
+    expect(
+      screen.getByText('Product association recommended'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('BOM Template · No Product association'),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Choose Product' }))
+    await user.click(
+      await screen.findByRole('button', { name: /Jackie.*P-JACKIE/ }),
+    )
+    expect(
+      screen.getByText('BOM Template · Jackie · P-JACKIE'),
+    ).toBeInTheDocument()
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Jackie base',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(postedBodies).toHaveLength(1))
+    expect(postedBodies[0]).toEqual({
+      kind: 'template',
+      name: 'Jackie base',
+      description: null,
+      productId: 'P-JACKIE',
+      lines: [],
+    })
+    const row = (await screen.findByText('Jackie base')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(row).getByText('Jackie').closest('p')).toHaveTextContent(
+      'Jackie · P-JACKIE',
+    )
+    expect(within(row).queryByText(/Available/)).not.toBeInTheDocument()
+  })
+
+  it('visibly distinguishes Templates from Implementations in the catalog', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials') {
+        return jsonResponse(
+          catalogResponse([
+            billOfMaterialsFixture(),
+            {
+              ...billOfMaterialsFixture(),
+              id: 'BOM-DEF567',
+              kind: 'implementation',
+              name: 'Jackie sample implementation',
+            },
+          ]),
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+
+    const templateRow = (
+      await screen.findByText('Jackie base construction')
+    ).closest('tr') as HTMLTableRowElement
+    const implementationRow = screen
+      .getByText('Jackie sample implementation')
+      .closest('tr') as HTMLTableRowElement
+    expect(within(templateRow).getByText('Template')).toHaveAttribute(
+      'data-variant',
+      'secondary',
+    )
+    expect(
+      within(implementationRow).getByText('Implementation'),
+    ).toHaveAttribute('data-variant', 'outline')
+
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    expect(
+      screen.getByRole('menuitem', { name: /BOM Template/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: /BOM Implementation/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the operational summary and compact projection and line-review context', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials') {
+        return jsonResponse({
+          billsOfMaterials: [
+            {
+              ...billOfMaterialsFixture(),
+              lineCount: 2,
+              verifiedLineCount: 1,
+              attentionCount: 1,
+              costProjection: {
+                availability: 'partial',
+                amountCents: 8400,
+                excludedLineCount: 1,
+              },
+            },
+            {
+              ...billOfMaterialsFixture(),
+              id: 'BOM-DEF567',
+              kind: 'implementation',
+              name: 'Jackie sample implementation',
+              product: {
+                id: 'P-JACKIE',
+                name: 'Jackie',
+                availability: 'available',
+              },
+              productVariant: {
+                id: 'PV-SAMPLE',
+                name: 'Jackie Showroom',
+                availability: 'available',
+              },
+              origin: {
+                id: 'BOM-ORIGIN',
+                name: 'Archived base',
+                kind: 'template',
+                availability: 'unavailable',
+              },
+              lineCount: 1,
+              verifiedLineCount: 1,
+              costProjection: {
+                availability: 'complete',
+                amountCents: 4200,
+                excludedLineCount: 0,
+              },
+            },
+          ],
+          summary: {
+            totalAvailable: 2,
+            templateCount: 1,
+            implementationCount: 1,
+            withoutProductVariantCount: 1,
+            withUnverifiedLinesCount: 1,
+          },
+        })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+
+    const summary = await screen.findByRole('region', {
+      name: 'Bills of Materials summary',
+    })
+    expect(within(summary).getByText('Available BOMs')).toBeInTheDocument()
+    expect(within(summary).getByText('2')).toBeInTheDocument()
+    expect(
+      within(summary).getByText('1 Templates · 1 Implementations'),
+    ).toBeInTheDocument()
+    expect(
+      within(summary).getByText('BOMs without an associated Product Variant'),
+    ).toBeInTheDocument()
+    expect(within(summary).getAllByText('1')).toHaveLength(2)
+    expect(
+      within(summary).getByText('BOMs pending line verification'),
+    ).toBeInTheDocument()
+
+    const table = screen.getByRole('table')
+    expect(table.parentElement).toHaveClass('overflow-x-auto')
+    for (const column of [
+      'Bill of Materials',
+      'Kind',
+      'Product context',
+      'Origin',
+      'Cost projection',
+      'Lines',
+      'Actions',
+    ]) {
+      expect(
+        within(table).getByRole('columnheader', { name: column }),
+      ).toBeInTheDocument()
+    }
+    expect(
+      screen.queryByRole('columnheader', { name: 'Availability' }),
+    ).not.toBeInTheDocument()
+
+    const templateRow = screen
+      .getByText('Jackie base construction')
+      .closest('tr') as HTMLTableRowElement
+    expect(
+      within(templateRow).getByRole('button', {
+        name: 'Jackie base construction',
+      }),
+    ).toHaveAttribute('data-variant', 'link')
+    expect(within(templateRow).getByText('2')).toBeInTheDocument()
+    expect(within(templateRow).getByText('1 verified')).toBeInTheDocument()
+    expect(within(templateRow).getByText('1 needs review')).toBeInTheDocument()
+    expect(
+      within(templateRow).getByText('1 needs attention'),
+    ).toBeInTheDocument()
+    expect(
+      within(templateRow).getByLabelText(
+        /Partial projection:.*84\.00.*1 line excluded/,
+      ),
+    ).toBeInTheDocument()
+
+    const implementationRow = screen
+      .getByText('Jackie sample implementation')
+      .closest('tr') as HTMLTableRowElement
+    expect(
+      within(implementationRow).getByText('Archived base'),
+    ).toBeInTheDocument()
+    expect(implementationRow).toHaveTextContent('Template · Unavailable origin')
+    expect(
+      within(implementationRow).getByLabelText(/Complete projection:.*42\.00/),
+    ).toBeInTheDocument()
+  })
+
+  it('hydrates catalog filters from the URL and keeps server requests synchronized', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture('admin'))
+        if (url.pathname === '/bills-of-materials') {
+          return jsonResponse({
+            billsOfMaterials: [],
+            summary: {
+              totalAvailable: 3,
+              templateCount: 2,
+              implementationCount: 1,
+              withoutProductVariantCount: 2,
+              withUnverifiedLinesCount: 1,
+            },
+          })
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+    seedStoredSession('admin')
+    const { router } = renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials?search=Jackie&catalogKind=implementation&includeDeleted=true',
+    )
+
+    expect(
+      await screen.findByRole('searchbox', {
+        name: 'Search Bills of Materials',
+      }),
+    ).toHaveValue('Jackie')
+    expect(
+      screen.getByRole('button', { name: 'Implementations' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('button', { name: 'Including deleted' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.some(([input]) => {
+          const url = new URL(String(input))
+          return (
+            url.pathname === '/bills-of-materials' &&
+            url.searchParams.get('search') === 'Jackie' &&
+            url.searchParams.get('kind') === 'implementation' &&
+            url.searchParams.get('includeDeleted') === 'true'
+          )
+        }),
+      ).toBe(true)
+    })
+    expect(
+      screen.getByText('No Bills of Materials match this view.'),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Clear catalog filters' }),
+    )
+
+    await waitFor(() => {
+      expect(router.state.location.search.search).toBeUndefined()
+      expect(router.state.location.search.catalogKind).toBeUndefined()
+      expect(router.state.location.search.includeDeleted).toBeUndefined()
+    })
+  })
+
+  it('assigns a previously unassociated Template once from the catalog', async () => {
+    const user = userEvent.setup()
+    let template = {
+      ...billOfMaterialsFixture(),
+      product: null as null | {
+        id: string
+        name: string
+        availability: 'available' | 'unavailable'
+      },
+    }
+    const associationBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([template]))
+      }
+      if (url.pathname === '/products') {
+        return jsonResponse({
+          products: [productFixture()],
+          collections: [],
+        })
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}/product` &&
+        init?.method === 'POST'
+      ) {
+        associationBodies.push(JSON.parse(String(init.body)))
+        template = {
+          ...template,
+          product: {
+            id: 'P-JACKIE',
+            name: 'Jackie',
+            availability: 'available',
+          },
+        }
+        return jsonResponse({
+          ...template,
+          lines: [],
+          costProjection: unavailableProjection(),
+        })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('Jackie base construction')
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Actions for Jackie base construction',
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Associate Product' }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: /Jackie.*P-JACKIE/ }),
+    )
+
+    await waitFor(() =>
+      expect(associationBodies).toEqual([{ productId: 'P-JACKIE' }]),
+    )
+    const row = screen
+      .getByText('Jackie base construction')
+      .closest('tr') as HTMLTableRowElement
+    expect(within(row).getByText('Jackie').closest('p')).toHaveTextContent(
+      'Jackie · P-JACKIE',
+    )
+    expect(within(row).queryByText(/Available/)).not.toBeInTheDocument()
+    await user.click(
+      within(row).getByRole('button', {
+        name: 'Actions for Jackie base construction',
+      }),
+    )
+    expect(
+      screen.queryByRole('menuitem', { name: 'Associate Product' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: 'Edit Bill of Materials' }),
+    ).toBeInTheDocument()
+  })
+
+  it('composes, repeats, reorders, and atomically saves BOM Lines from the Construction Board', async () => {
+    const user = userEvent.setup()
+    const postedBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture())
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        return jsonResponse(
+          {
+            ...billOfMaterialsFixture(),
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Layered skirt',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+    expect(
+      await screen.findByText('Construction Piece is required.'),
+    ).toBeInTheDocument()
+    expect(postedBodies).toHaveLength(0)
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    expect(
+      screen.getByText('Type to search the Material catalog.'),
+    ).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search Material'), 'ivory casa')
+    const materialResult = await screen.findByRole('button', {
+      name: /Ivory Silk Crepe M-0001/i,
+    })
+    expect(materialResult).toHaveTextContent('S-0001')
+    expect(materialResult).toHaveTextContent(
+      'Description: Silk crepe for bridal base fabric.',
+    )
+    await user.click(materialResult)
+    await user.type(screen.getByLabelText('Final meters'), '1.2345')
+    await user.type(screen.getByLabelText('Line Note'), 'Cut on grain')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+    expect(
+      await screen.findByText(
+        'Final meters must have at most three decimal places.',
+      ),
+    ).toBeInTheDocument()
+    expect(postedBodies).toHaveLength(0)
+
+    await user.clear(screen.getByLabelText('Final meters'))
+    await user.type(screen.getByLabelText('Final meters'), '1.234')
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          'Final meters must have at most three decimal places.',
+        ),
+      ).not.toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('button', { name: 'Duplicate line' }))
+    await user.clear(screen.getByLabelText('Construction Piece'))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Lining')
+    await user.click(screen.getByLabelText('Reorder Lining'))
+    await user.keyboard('{ArrowUp}')
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(postedBodies).toHaveLength(1))
+    expect(postedBodies[0]).toEqual({
+      kind: 'template',
+      name: 'Layered skirt',
+      description: null,
+      productId: null,
+      lines: [
+        {
+          constructionPiece: 'Lining',
+          materialId: 'M-0001',
+          materialQuantity: 1.234,
+          patternSetId: null,
+          lineNote: 'Cut on grain',
+          verified: false,
+        },
+        {
+          constructionPiece: 'Outer skirt',
+          materialId: 'M-0001',
+          materialQuantity: 1.234,
+          patternSetId: null,
+          lineNote: 'Cut on grain',
+          verified: false,
+        },
+      ],
+    })
+  })
+
+  it('normalizes delayed Material searches and announces a focused successful selection', async () => {
+    const user = userEvent.setup()
+    const materialSearches: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        materialSearches.push(url.searchParams.get('search') ?? '')
+        return jsonResponse(materialSearchFixture())
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    const trigger = screen.getByRole('combobox', { name: 'Choose Material' })
+    await user.click(trigger)
+    await user.type(
+      screen.getByLabelText('Search Material'),
+      '  ÍVORY   casa  ',
+    )
+
+    expect(materialSearches).toHaveLength(0)
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+
+    expect(materialSearches).toEqual(['ivory casa'])
+    expect(trigger).toHaveFocus()
+    expect(
+      screen.getByText('Ivory Silk Crepe selected.', {
+        selector: '[role="status"]',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the Material selection through loading, more, empty, authentication, and authorization states', async () => {
+    const user = userEvent.setup()
+    let resolveLoading!: (response: Response) => void
+    let loadingStarted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        const search = url.searchParams.get('search')
+        if (search === 'silk') return jsonResponse(materialSearchFixture())
+        if (search === 'loading') {
+          loadingStarted = true
+          return await new Promise<Response>((resolve) => {
+            resolveLoading = resolve
+          })
+        }
+        if (search === 'empty') {
+          return jsonResponse({ items: [], hasMore: false })
+        }
+        if (search === 'authentication') {
+          return jsonResponse(
+            { message: 'Your session has expired.' },
+            { status: 401 },
+          )
+        }
+        return jsonResponse(
+          { message: 'You cannot search Materials.' },
+          { status: 403 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    const input = screen.getByLabelText('Search Material')
+    await user.type(input, 'loading')
+    await waitFor(() => expect(loadingStarted).toBe(true))
+    expect(screen.getByText('Searching Materials...')).toBeInTheDocument()
+    resolveLoading(
+      jsonResponse({ ...materialSearchFixture(true), hasMore: true }),
+    )
+    expect(
+      await screen.findByText('More matches exist. Refine your search.'),
+    ).toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'empty')
+    expect(
+      await screen.findByText('No matches for “empty”. Check the name or ID.'),
+    ).toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'authentication')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your session has expired.',
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+
+    await user.clear(input)
+    await user.type(input, 'restricted')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You cannot search Materials.',
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    const trigger = screen.getByRole('combobox', { name: 'Choose Material' })
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveTextContent('Ivory Silk Crepe')
+  })
+
+  it('ignores a late superseded Material response and clearing returns to idle', async () => {
+    const user = userEvent.setup()
+    let resolveFirstSearch!: (response: Response) => void
+    let firstSearchStarted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        if (url.searchParams.get('search') === 'silk') {
+          firstSearchStarted = true
+          return await new Promise<Response>((resolve) => {
+            resolveFirstSearch = resolve
+          })
+        }
+        return jsonResponse(materialSearchFixture())
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    const input = screen.getByLabelText('Search Material')
+    await user.type(input, 'silk')
+    await waitFor(() => expect(firstSearchStarted).toBe(true))
+    await user.type(input, ' casa')
+    expect(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    ).toBeInTheDocument()
+
+    resolveFirstSearch(jsonResponse(materialSearchFixture(true)))
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', {
+          name: /Champagne Structure Satin M-0002/i,
+        }),
+      ).not.toBeInTheDocument()
+    })
+
+    await user.clear(input)
+    expect(
+      screen.getByText('Type to search the Material catalog.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('recovers Pattern Set search after superseding a late request and supports native keys', async () => {
+    const user = userEvent.setup()
+    let resolveFirstSearch!: (response: Response) => void
+    let resolveLoading!: (response: Response) => void
+    let firstSearchStarted = false
+    let loadingStarted = false
+    let currentSearchAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/pattern-sets/search') {
+        const search = url.searchParams.get('search')
+        if (search === 'skirt') {
+          firstSearchStarted = true
+          return await new Promise<Response>((resolve) => {
+            resolveFirstSearch = resolve
+          })
+        }
+        if (search === 'loading') {
+          loadingStarted = true
+          return await new Promise<Response>((resolve) => {
+            resolveLoading = resolve
+          })
+        }
+        if (search === 'empty') {
+          return jsonResponse({ items: [], hasMore: false })
+        }
+        if (search === 'authentication') {
+          return jsonResponse(
+            { message: 'Your session has expired.' },
+            { status: 401 },
+          )
+        }
+        currentSearchAttempts += 1
+        if (currentSearchAttempts === 1) {
+          return jsonResponse(
+            { message: 'Pattern Set search temporarily unavailable.' },
+            { status: 503 },
+          )
+        }
+        return jsonResponse({
+          items: [
+            {
+              id: 'PS-SKRT23',
+              name: 'Skirt cape patterns',
+              quantityProposalCount: 0,
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    const trigger = screen.getByRole('combobox', {
+      name: 'Choose Pattern Set',
+    })
+    await user.click(trigger)
+    const input = screen.getByLabelText('Search Pattern Set')
+    await user.type(input, 'skirt')
+    await waitFor(() => expect(firstSearchStarted).toBe(true))
+    await user.type(input, ' cape')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Pattern Set search temporarily unavailable.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    const result = await screen.findByRole('button', {
+      name: /Skirt cape patterns PS-SKRT23 0 proposals/i,
+    })
+    resolveFirstSearch(
+      jsonResponse({
+        items: [
+          {
+            id: 'PS-LATE24',
+            name: 'Late Pattern Set',
+            quantityProposalCount: 0,
+          },
+        ],
+        hasMore: false,
+      }),
+    )
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: /Late Pattern Set/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    await user.tab()
+    expect(input).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'No Pattern Set' })).toHaveFocus()
+    await user.tab()
+    expect(result).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveTextContent('Skirt cape patterns')
+    await user.click(trigger)
+    const reopenedInput = screen.getByLabelText('Search Pattern Set')
+    await user.type(reopenedInput, 'loading')
+    await waitFor(() => expect(loadingStarted).toBe(true))
+    expect(screen.getByText('Searching Pattern Sets...')).toBeInTheDocument()
+    resolveLoading(
+      jsonResponse({
+        items: [
+          {
+            id: 'PS-SKRT23',
+            name: 'Skirt cape patterns',
+            quantityProposalCount: 0,
+          },
+        ],
+        hasMore: true,
+      }),
+    )
+    expect(
+      await screen.findByText('More matches exist. Refine your search.'),
+    ).toBeInTheDocument()
+    await user.clear(reopenedInput)
+    await user.type(reopenedInput, 'empty')
+    expect(
+      await screen.findByText('No matches for “empty”. Check the name or ID.'),
+    ).toBeInTheDocument()
+    await user.clear(reopenedInput)
+    await user.type(reopenedInput, 'authentication')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your session has expired.',
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+    expect(trigger).toHaveTextContent('Skirt cape patterns')
+
+    const clear = screen.getByRole('button', { name: 'No Pattern Set' })
+    clear.focus()
+    await user.keyboard(' ')
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveTextContent('Choose Pattern Set')
+  })
+
+  it('verifies only Complete lines and resets only when reviewed construction facts change', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture(true))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+
+    const verification = screen.getByRole('checkbox', {
+      name: 'Manually verified',
+    })
+    expect(verification).toBeDisabled()
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '3.125')
+
+    expect(verification).toBeEnabled()
+    await user.click(verification)
+    expect(verification).toBeChecked()
+    const wholeBom = screen.getByText('Whole BOM').closest('[data-slot="card"]')
+    expect(
+      within(wholeBom as HTMLElement).getByText('Complete').parentElement,
+    ).toHaveTextContent('Complete1')
+    expect(
+      within(wholeBom as HTMLElement).getByText('Verified').parentElement,
+    ).toHaveTextContent('Verified1')
+
+    await user.type(screen.getByLabelText('Line Note'), 'Cut on grain')
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Reviewed',
+    )
+    await user.type(screen.getByLabelText('Description'), 'Stable context')
+    expect(verification).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Lining')
+    await user.click(screen.getByLabelText('Reorder Lining'))
+    await user.keyboard('{ArrowUp}')
+    await user.click(screen.getAllByText('Outer skirt')[0])
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate line' }))
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+    await user.click(screen.getAllByText('Outer skirt')[0])
+    await user.clear(screen.getByLabelText('Construction Piece'))
+    await user.type(
+      screen.getByLabelText('Construction Piece'),
+      'Outer overskirt',
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.clear(screen.getByLabelText('Final meters'))
+    await user.type(screen.getByLabelText('Final meters'), '3.25')
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'satin')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Champagne Structure Satin M-0002/i,
+      }),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).not.toBeChecked()
+  })
+
+  it('selects Pattern Sets and explicitly copies proposal evidence into Final meters', async () => {
+    const user = userEvent.setup()
+    const postedBodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture())
+      }
+      if (url.pathname === '/pattern-sets/search') {
+        return jsonResponse({
+          items: [
+            {
+              id: 'PS-SKRT23',
+              name: 'Skirt patterns',
+              quantityProposalCount: 2,
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/pattern-sets/PS-SKRT23') {
+        return jsonResponse(patternSetFixture())
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        postedBodies.push(JSON.parse(String(init.body)))
+        return jsonResponse(
+          {
+            ...billOfMaterialsFixture(),
+            lines: [],
+            costProjection: unavailableProjection(),
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(screen.getByLabelText('BOM Name'), 'Pattern-aware skirt')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '3.125')
+    await user.click(screen.getByLabelText('Manually verified'))
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    expect(
+      screen.getByText('Type to search the Pattern Set catalog.'),
+    ).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+
+    expect(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    ).toHaveFocus()
+    expect(
+      screen.getByText('Skirt patterns selected.', {
+        selector: '[role="status"]',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.125)
+    expect(screen.getByLabelText('Manually verified')).toBeChecked()
+    await user.click(screen.getByRole('button', { name: '2 proposals' }))
+    expect(await screen.findByText('Assumes 140 cm')).toBeInTheDocument()
+    expect(screen.getByText('Marker study')).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Use proposed quantity 3.25 meters',
+      }),
+    )
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.25)
+    expect(screen.getByLabelText('Manually verified')).not.toBeChecked()
+
+    await user.click(screen.getByLabelText('Manually verified'))
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'No Pattern Set' }))
+    expect(screen.getByLabelText('Final meters')).toHaveValue(3.25)
+    expect(screen.getByLabelText('Manually verified')).toBeChecked()
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    await waitFor(() => expect(postedBodies).toHaveLength(1))
+    expect(postedBodies[0]).toMatchObject({
+      lines: [
+        {
+          materialQuantity: 3.25,
+          patternSetId: 'PS-SKRT23',
+          verified: true,
+        },
+      ],
+    })
+  })
+
+  it('keeps a stale Pattern Set rejection on its field without discarding the draft', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/pattern-sets/search') {
+        return jsonResponse({
+          items: [
+            {
+              id: 'PS-SKRT23',
+              name: 'Skirt patterns',
+              quantityProposalCount: 2,
+            },
+          ],
+          hasMore: false,
+        })
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            errors: {
+              'lines.0.patternSetId': [
+                'The selected Pattern Set is no longer available.',
+              ],
+            },
+          },
+          { status: 422 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(screen.getByLabelText('BOM Name'), 'Preserved draft')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    )
+    await user.type(screen.getByLabelText('Search Pattern Set'), 'skirt')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Skirt patterns PS-SKRT23 2 proposals/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText(
+        'The selected Pattern Set is no longer available.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('BOM Name')).toHaveValue('Preserved draft')
+    expect(
+      screen.getByRole('combobox', { name: 'Choose Pattern Set' }),
+    ).toHaveTextContent('Skirt patterns')
+  })
+
+  it('keeps a stale Material rejection on its field without discarding the draft', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture())
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        return jsonResponse(
+          {
+            errors: {
+              'lines.0.materialId': [
+                'The selected Material is no longer available.',
+              ],
+            },
+          },
+          { status: 422 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(screen.getByLabelText('BOM Name'), 'Preserved draft')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(
+      await screen.findByText('The selected Material is no longer available.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('BOM Name')).toHaveValue('Preserved draft')
+    expect(
+      screen.getByRole('combobox', { name: 'Choose Material' }),
+    ).toHaveTextContent('Ivory Silk Crepe')
+  })
+
+  it('previews live line context, rounded BOM projections, exclusions, and sourcing attention', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture(true, true))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    const wholeBom = screen.getByText('Whole BOM').closest('[data-slot="card"]')
+    expect(wholeBom).toHaveTextContent('Material projectionUnavailable')
+
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.type(screen.getByLabelText('Construction Piece'), 'Outer skirt')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+
+    expect(
+      screen.getByText(/140 cm width · Italian Silk Crepe/),
+    ).toHaveTextContent('Casa Tessile · Ivory 100 · $42.00/m')
+    expect(wholeBom).toHaveTextContent('1 line excluded from projection.')
+
+    await user.type(screen.getByLabelText('Final meters'), '1.111')
+    expect(screen.getAllByText('$46.66')).toHaveLength(2)
+    expect(wholeBom).not.toHaveTextContent('excluded from projection')
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate line' }))
+    expect(wholeBom).toHaveTextContent('Material projection$93.32')
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    expect(wholeBom).toHaveTextContent('Material projection$93.32 · partial')
+    expect(wholeBom).toHaveTextContent('1 line excluded from projection.')
+
+    await user.type(screen.getByLabelText('Construction Piece'), 'Structure')
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'satin')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Champagne Structure Satin M-0002/i,
+      }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '1')
+    expect(screen.getAllByText('$0.00')).toHaveLength(1)
+    expect(wholeBom).toHaveTextContent('Material projection$93.32')
+
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'lace')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /White Chantilly Lace M-0003/i,
+      }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '1')
+    expect(screen.getByText('Source needs attention')).toBeInTheDocument()
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
+    expect(wholeBom).toHaveTextContent('Material projection$93.32 · partial')
+  })
+
+  it('clears Final meters when Material changes and supports removing a line', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/materials/search') {
+        return jsonResponse(materialSearchFixture(true))
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.click(screen.getByRole('button', { name: 'Add BOM line' }))
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'silk')
+    await user.click(
+      await screen.findByRole('button', { name: /Ivory Silk Crepe M-0001/i }),
+    )
+    await user.type(screen.getByLabelText('Final meters'), '2.5')
+
+    await user.click(screen.getByRole('combobox', { name: 'Choose Material' }))
+    await user.type(screen.getByLabelText('Search Material'), 'satin')
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Champagne Structure Satin M-0002/i,
+      }),
+    )
+    expect(screen.getByLabelText('Final meters')).toHaveValue(null)
+
+    await user.click(screen.getByRole('button', { name: 'Remove line' }))
+    expect(screen.getByText('No BOM Lines yet.')).toBeInTheDocument()
+  })
+
+  it('shows a recoverable catalog loading error', async () => {
+    const user = userEvent.setup()
+    let catalogLoads = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials') {
+        catalogLoads += 1
+        if (catalogLoads > 1) return jsonResponse(catalogResponse([]))
+        return jsonResponse(
+          { message: 'Catalog temporarily unavailable.' },
+          { status: 503 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Catalog temporarily unavailable.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('confirms deletion with Product context and descendant lineage', async () => {
+    const user = userEvent.setup()
+    const template = {
+      ...billOfMaterialsFixture(),
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+      descendantCount: 2,
+    }
+    let deleted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse(deleted ? [] : [template]))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'DELETE'
+      ) {
+        deleted = true
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${template.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Delete Bill of Materials' }),
+    )
+    expect(screen.getByRole('dialog')).toHaveTextContent('Template · Jackie')
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      '2 descendants retain this BOM as Origin.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete BOM' }))
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+  })
+
+  it('lets an Admin include and open a deleted Bill of Materials read-only', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsDetailFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(
+          catalogResponse(
+            url.searchParams.get('includeDeleted') === 'true'
+              ? [deletedTemplate]
+              : [],
+          ),
+        )
+      }
+      if (url.pathname === `/bills-of-materials/${deletedTemplate.id}`) {
+        return jsonResponse(deletedTemplate)
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await screen.findByText(deletedTemplate.name)
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'View Bill of Materials' }),
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This Bill of Materials is deleted. Restore it before editing.',
+    )
+    expect(screen.getByRole('button', { name: 'Read only' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add BOM line' })).toBeDisabled()
+  })
+
+  it.each([
+    {
+      reason: 'product-deleted' as const,
+      message:
+        'The assigned Product is deleted. Restore it before editing this Bill of Materials.',
+      kind: 'template' as const,
+      fieldName: 'BOM Name',
+      productVariant: null,
+    },
+    {
+      reason: 'product-variant-deleted' as const,
+      message:
+        'The assigned Product Variant is deleted. Restore it before editing this Bill of Materials.',
+      kind: 'implementation' as const,
+      fieldName: 'BOM Typification',
+      productVariant: {
+        id: 'PV-JACKIE',
+        name: 'Jackie Showroom',
+        availability: 'unavailable' as const,
+      },
+    },
+  ])('locks every Builder mutation for $reason', async (scenario) => {
+    const user = userEvent.setup()
+    const readOnlyBillOfMaterials = {
+      ...billOfMaterialsDetailFixture(),
+      kind: scenario.kind,
+      readOnlyReason: scenario.reason,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'unavailable' as const,
+      },
+      productVariant: scenario.productVariant,
+      lines: billOfMaterialsDetailFixture().lines.map((line) => ({
+        ...line,
+        patternSet: {
+          id: 'PS-SKRT23',
+          name: 'Skirt patterns',
+          status: 'active' as const,
+          quantityProposalCount: 1,
+        },
+      })),
+    }
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture('admin'))
+        if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+          return jsonResponse(catalogResponse([readOnlyBillOfMaterials]))
+        }
+        if (
+          url.pathname ===
+            `/bills-of-materials/${readOnlyBillOfMaterials.id}` &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse(readOnlyBillOfMaterials)
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(readOnlyBillOfMaterials.name)
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${readOnlyBillOfMaterials.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'View Bill of Materials' }),
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      scenario.message,
+    )
+    const name = screen.getByRole('textbox', { name: scenario.fieldName })
+    expect(name).toBeDisabled()
+    expect(screen.getByLabelText('Description')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add BOM line' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Reorder Outer skirt' }),
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: 'Duplicate line' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Remove line' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Construction Piece')).toBeDisabled()
+    expect(
+      screen.queryByRole('combobox', { name: 'Choose Material' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('combobox', { name: 'Choose Pattern Set' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Final meters')).toBeDisabled()
+    expect(
+      screen.getByRole('checkbox', { name: 'Manually verified' }),
+    ).toBeDisabled()
+    expect(screen.getByLabelText('Line Note')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Read only' })).toBeDisabled()
+    expect(fetchSpy.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(
+      false,
+    )
+  })
+
+  it('keeps a restore conflict in context and links to the occupying Bill of Materials', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+      product: {
+        id: 'P-JACKIE',
+        name: 'Jackie',
+        availability: 'available' as const,
+      },
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([deletedTemplate]))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            message: 'The original Product slot is occupied.',
+            conflictingBillOfMaterials: {
+              id: 'BOM-OCCUP2',
+              name: 'Jackie replacement',
+            },
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Restore Bill of Materials' }),
+    )
+    expect(screen.getByRole('dialog')).toHaveTextContent('Template · Jackie')
+    await user.click(screen.getByRole('button', { name: 'Restore BOM' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Restore blocked by Jackie replacement.',
+    )
+    expect(
+      screen.getByRole('button', { name: 'Open Jackie replacement' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not create a typed restore conflict from an invalid 409 response', async () => {
+    const user = userEvent.setup()
+    const deletedTemplate = {
+      ...billOfMaterialsFixture(),
+      deletedAt: '2026-09-11T12:00:00.000Z',
+      readOnlyReason: 'bom-deleted' as const,
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([deletedTemplate]))
+      }
+      if (
+        url.pathname === `/bills-of-materials/${deletedTemplate.id}/restore` &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          {
+            message: 'Restore conflict response was incomplete.',
+            conflictingBillOfMaterials: { id: 42, name: '' },
+          },
+          { status: 409 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await user.click(
+      await screen.findByRole('button', { name: 'Include deleted' }),
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: `Actions for ${deletedTemplate.name}`,
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Restore Bill of Materials' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Restore BOM' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Restore conflict response was incomplete.',
+    )
+    expect(
+      screen.queryByRole('button', { name: /^Open / }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the draft visible when authorization expires during Save', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (url.pathname === '/bills-of-materials' && init?.method === 'GET') {
+        return jsonResponse(catalogResponse([]))
+      }
+      if (url.pathname === '/bills-of-materials' && init?.method === 'POST') {
+        return jsonResponse(
+          { message: 'Authentication is required.' },
+          { status: 401 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession()
+    renderBillsOfMaterialsRoute()
+    await screen.findByText('No Bills of Materials registered yet.')
+    await user.click(screen.getByRole('button', { name: 'Create BOM' }))
+    await user.click(screen.getByRole('menuitem', { name: /BOM Template/ }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'BOM Name' }),
+      'Preserved draft',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save BOM' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Authentication is required.',
+    )
+    expect(screen.getByRole('textbox', { name: 'BOM Name' })).toHaveValue(
+      'Preserved draft',
+    )
+    expect(
+      screen.getByRole('heading', { name: 'Preserved draft' }),
+    ).toBeInTheDocument()
+  })
+})
+
+function renderBillsOfMaterialsRoute(
+  initialEntry = '/app/bills-of-materials',
+  queryRetry: boolean | number = false,
+) {
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({
+      initialEntries: [initialEntry],
+    }),
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: queryRetry, retryDelay: 0 },
+      mutations: { retry: false },
+    },
+  })
+  return {
+    router,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+  }
+}
+
+function seedStoredSession(role: 'admin' | 'operator' = 'operator') {
+  localStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify(sessionFixture(role)),
+  )
+}
+
+function sessionFixture(role: 'admin' | 'operator' = 'operator') {
+  return {
+    token: 'session-token',
+    tokenType: 'Bearer' as const,
+    expiresAt: '2026-09-09T12:00:00.000Z',
+    user: {
+      id: 1,
+      email: `${role}@example.com`,
+      role,
+      active: true,
+    },
+  }
+}
+
+function billOfMaterialsFixture() {
+  return {
+    id: 'BOM-ABC234',
+    kind: 'template' as const,
+    name: 'Jackie base construction',
+    description: 'Reusable starting point',
+    product: null,
+    productVariant: null,
+    origin: null,
+    deletedAt: null,
+    descendantCount: 0,
+    readOnlyReason: null,
+    lineCount: 0,
+    verifiedLineCount: 0,
+    costProjection: unavailableProjection(),
+    createdBy: { id: 1, email: 'operator@example.com' },
+    createdAt: '2026-09-08T12:00:00.000Z',
+    updatedAt: '2026-09-08T12:00:00.000Z',
+    attentionCount: 0,
+  }
+}
+
+function billOfMaterialsDetailFixture() {
+  return {
+    ...billOfMaterialsFixture(),
+    lines: [
+      {
+        id: 'BML-SKRT23',
+        constructionPiece: 'Outer skirt',
+        materialId: 'M-0001',
+        material: {
+          id: 'M-0001',
+          name: 'Ivory Silk Crepe',
+          preferredSource: {
+            id: 'S-0001',
+            name: 'Italian Silk Crepe',
+            vendor: 'Casa Tessile',
+            vendorShadeOrDetail: 'Ivory 100',
+            widthCentimeters: 140,
+            landedUnitCostCents: 4200,
+          },
+        },
+        materialQuantity: 3.125,
+        patternSetId: null,
+        patternSet: null,
+        lineNote: 'Cut on grain',
+        order: 0,
+        completeness: 'complete' as const,
+        verification: {
+          status: 'verified' as const,
+          verifiedBy: { id: 1, email: 'operator@example.com' },
+          verifiedAt: '2026-09-08T12:00:00.000Z',
+        },
+        attention: [],
+        costProjection: { amountCents: 13125, exclusionReason: null },
+      },
+    ],
+    costProjection: {
+      availability: 'complete' as const,
+      amountCents: 13125,
+      excludedLineCount: 0,
+    },
+  }
+}
+
+function productFixture() {
+  return {
+    id: 'P-JACKIE',
+    name: 'Jackie',
+    lifecycleStatus: 'finished' as const,
+    productStatus: 'active' as const,
+    productCategory: 'dress' as const,
+    collection: null,
+    createdAt: '2026-09-08T12:00:00.000Z',
+    createdBy: { id: 1, email: 'operator@example.com' },
+  }
+}
+
+function materialSearchFixture(
+  includeSecond = false,
+  includeUnavailable = false,
+) {
+  const items: Array<{
+    id: string
+    name: string
+    materialColor: 'ivory' | 'champagne' | 'white'
+    materialUse: 'base-fabric' | 'structure' | 'lace'
+    preferredSource: {
+      id: string
+      name: string
+      vendor: string
+      vendorShadeOrDetail: string | null
+      description: string | null
+      widthCentimeters: number | null
+      landedUnitCostCents: number | null
+    }
+    attention: Array<'source-needs-attention'>
+  }> = [
+    {
+      id: 'M-0001',
+      name: 'Ivory Silk Crepe',
+      materialColor: 'ivory',
+      materialUse: 'base-fabric',
+      preferredSource: {
+        id: 'S-0001',
+        name: 'Italian Silk Crepe',
+        vendor: 'Casa Tessile',
+        vendorShadeOrDetail: 'Ivory 100',
+        description: 'Silk crepe for bridal base fabric.',
+        widthCentimeters: 140,
+        landedUnitCostCents: 4200,
+      },
+      attention: [],
+    },
+  ]
+  if (includeSecond) {
+    items.push({
+      id: 'M-0002',
+      name: 'Champagne Structure Satin',
+      materialColor: 'champagne',
+      materialUse: 'structure',
+      preferredSource: {
+        id: 'S-0003',
+        name: 'Structured Satin',
+        vendor: 'Atelier Supply',
+        vendorShadeOrDetail: null,
+        description: null,
+        widthCentimeters: 150,
+        landedUnitCostCents: 0,
+      },
+      attention: [],
+    })
+  }
+  if (includeUnavailable) {
+    items.push({
+      id: 'M-0003',
+      name: 'White Chantilly Lace',
+      materialColor: 'white',
+      materialUse: 'lace',
+      preferredSource: {
+        id: 'S-0004',
+        name: 'White Chantilly Lace',
+        vendor: 'Dentelle House',
+        vendorShadeOrDetail: null,
+        description: null,
+        widthCentimeters: 120,
+        landedUnitCostCents: null,
+      },
+      attention: ['source-needs-attention'],
+    })
+  }
+  return { items, hasMore: false }
+}
+
+function patternSetFixture() {
+  return {
+    id: 'PS-SKRT23',
+    name: 'Skirt patterns',
+    description: 'Floor-length configuration',
+    status: 'active' as const,
+    quantityProposals: [
+      {
+        assumedWidthCm: 140,
+        quantityMeters: 3.25,
+        evidenceNote: 'Marker study',
+      },
+      {
+        assumedWidthCm: 150,
+        quantityMeters: 2.875,
+        evidenceNote: null,
+      },
+    ],
+    createdBy: { id: 1, email: 'operator@example.com' },
+    createdAt: '2026-09-08T15:00:00.000Z',
+  }
+}
+
+function unavailableProjection() {
+  return {
+    availability: 'unavailable' as const,
+    amountCents: null,
+    excludedLineCount: 0,
+  }
+}
+
+function catalogResponse(billsOfMaterials: unknown[]) {
+  const available = billsOfMaterials.filter(
+    (item) =>
+      typeof item === 'object' &&
+      item !== null &&
+      'deletedAt' in item &&
+      item.deletedAt === null,
+  )
+  const read = (item: unknown, key: string) =>
+    typeof item === 'object' && item !== null && key in item
+      ? item[key as keyof typeof item]
+      : undefined
+
+  return {
+    billsOfMaterials,
+    summary: {
+      totalAvailable: available.length,
+      templateCount: available.filter(
+        (item) => read(item, 'kind') === 'template',
+      ).length,
+      implementationCount: available.filter(
+        (item) => read(item, 'kind') === 'implementation',
+      ).length,
+      withoutProductVariantCount: available.filter(
+        (item) => read(item, 'productVariant') === null,
+      ).length,
+      withUnverifiedLinesCount: available.filter((item) => {
+        const lineCount = read(item, 'lineCount')
+        const verifiedLineCount = read(item, 'verifiedLineCount')
+        return (
+          typeof lineCount === 'number' &&
+          typeof verifiedLineCount === 'number' &&
+          verifiedLineCount < lineCount
+        )
+      }).length,
+    },
+  }
+}
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+}

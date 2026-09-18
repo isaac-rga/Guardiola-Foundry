@@ -26,6 +26,66 @@ export class AccessTokenSchema extends BaseModel {
   declare userId: number
 }
 
+export class BillOfMaterialsLineSchema extends BaseModel {
+  static $columns = ['billOfMaterialsId', 'constructionPiece', 'createdAt', 'displayOrder', 'id', 'lineNote', 'materialId', 'materialQuantity', 'patternSetId', 'publicId', 'updatedAt', 'verifiedAt', 'verifiedByUserId'] as const
+  $columns = BillOfMaterialsLineSchema.$columns
+  @column()
+  declare billOfMaterialsId: number
+  @column()
+  declare constructionPiece: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare displayOrder: number
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare lineNote: string | null
+  @column()
+  declare materialId: number | null
+  @column()
+  declare materialQuantity: string | null
+  @column()
+  declare patternSetId: number | null
+  @column()
+  declare publicId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+  @column.dateTime()
+  declare verifiedAt: DateTime | null
+  @column()
+  declare verifiedByUserId: number | null
+}
+
+export class BillsOfMaterialSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdByUserId', 'deletedAt', 'description', 'id', 'kind', 'name', 'originBillOfMaterialsId', 'productId', 'productVariantId', 'publicId', 'updatedAt'] as const
+  $columns = BillsOfMaterialSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdByUserId: number
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare kind: string
+  @column()
+  declare name: string
+  @column()
+  declare originBillOfMaterialsId: number | null
+  @column()
+  declare productId: number | null
+  @column()
+  declare productVariantId: number | null
+  @column()
+  declare publicId: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
 export class CollectionSchema extends BaseModel {
   static $columns = ['createdAt', 'id', 'name', 'updatedAt'] as const
   $columns = CollectionSchema.$columns
@@ -104,7 +164,7 @@ export class MaterialSourceVendorShadeSchema extends BaseModel {
 }
 
 export class MaterialSourceSchema extends BaseModel {
-  static $columns = ['comments', 'composition', 'countryOfOrigin', 'createdAt', 'deletedAt', 'description', 'estimatedShippingUsdPerKilogramCents', 'fiber', 'finish', 'fixedPieceLength', 'gsmGramsPerSquareMeter', 'id', 'igiPercentage', 'landedUnitCostCents', 'legacySourceId', 'manufacturer', 'minimumPurchaseQuantity', 'name', 'normalizedUnit', 'presentationNotes', 'priceDate', 'publicId', 'purchasePresentation', 'purchasePriceCents', 'purchaseUnit', 'sourceStatus', 'textileFamily', 'updatedAt', 'url', 'vendor', 'vendorCurrency', 'vendorSku', 'weave', 'widthCentimeters'] as const
+  static $columns = ['comments', 'composition', 'countryOfOrigin', 'createdAt', 'deletedAt', 'description', 'estimatedShippingUsdPerKilogramCents', 'fiber', 'finish', 'fixedPieceLength', 'gsmGramsPerSquareMeter', 'id', 'igiPercentage', 'landedUnitCostCents', 'legacySourceId', 'manufacturer', 'minimumPurchaseQuantity', 'name', 'normalizedUnit', 'presentationNotes', 'priceDate', 'publicId', 'purchasePresentation', 'purchasePriceCents', 'purchaseUnit', 'sourceImportSnapshot', 'sourceStatus', 'textileFamily', 'updatedAt', 'url', 'vendor', 'vendorCurrency', 'vendorSku', 'weave', 'widthCentimeters'] as const
   $columns = MaterialSourceSchema.$columns
   @column()
   declare comments: string | null
@@ -157,6 +217,8 @@ export class MaterialSourceSchema extends BaseModel {
   @column()
   declare purchaseUnit: string
   @column()
+  declare sourceImportSnapshot: any | null
+  @column()
   declare sourceStatus: string
   @column()
   declare textileFamily: string
@@ -177,7 +239,7 @@ export class MaterialSourceSchema extends BaseModel {
 }
 
 export class MaterialSchema extends BaseModel {
-  static $columns = ['comments', 'createdAt', 'deletedAt', 'id', 'legacyMaterialId', 'materialColor', 'materialUnit', 'materialUse', 'name', 'publicId', 'updatedAt'] as const
+  static $columns = ['comments', 'createdAt', 'deletedAt', 'id', 'legacyMaterialId', 'materialColor', 'materialUnit', 'materialUse', 'name', 'publicId', 'sourceLinksImportSnapshot', 'updatedAt'] as const
   $columns = MaterialSchema.$columns
   @column()
   declare comments: string | null
@@ -199,6 +261,65 @@ export class MaterialSchema extends BaseModel {
   declare name: string
   @column()
   declare publicId: string
+  @column()
+  declare sourceLinksImportSnapshot: any | null
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class PatternSetQuantityProposalSchema extends BaseModel {
+  static $columns = ['assumedWidthCm', 'evidenceNote', 'id', 'patternSetId', 'quantityMeters'] as const
+  $columns = PatternSetQuantityProposalSchema.$columns
+  @column()
+  declare assumedWidthCm: string
+  @column()
+  declare evidenceNote: string | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare patternSetId: number
+  @column()
+  declare quantityMeters: string
+}
+
+export class PatternSetSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdByUserId', 'description', 'id', 'name', 'publicId', 'status', 'updatedAt'] as const
+  $columns = PatternSetSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdByUserId: number
+  @column()
+  declare description: string | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare name: string
+  @column()
+  declare publicId: string
+  @column()
+  declare status: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class ProductVariantSchema extends BaseModel {
+  static $columns = ['createdAt', 'deletedAt', 'id', 'name', 'productId', 'publicId', 'status', 'updatedAt'] as const
+  $columns = ProductVariantSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare name: string
+  @column()
+  declare productId: number
+  @column()
+  declare publicId: string
+  @column()
+  declare status: string
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 }

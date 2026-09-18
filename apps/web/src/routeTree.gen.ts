@@ -16,6 +16,7 @@ import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppUserSettingsRouteImport } from './routes/app.user-settings'
 import { Route as AppSourcesRouteImport } from './routes/app.sources'
 import { Route as AppProductsRouteImport } from './routes/app.products'
+import { Route as AppPatternSetsRouteImport } from './routes/app.pattern-sets'
 import { Route as AppMaterialsRouteImport } from './routes/app.materials'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppBillsOfMaterialsRouteImport } from './routes/app.bills-of-materials'
@@ -59,6 +60,11 @@ const AppSourcesRoute = AppSourcesRouteImport.update({
 const AppProductsRoute = AppProductsRouteImport.update({
   id: '/products',
   path: '/products',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPatternSetsRoute = AppPatternSetsRouteImport.update({
+  id: '/pattern-sets',
+  path: '/pattern-sets',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMaterialsRoute = AppMaterialsRouteImport.update({
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
+  '/app/pattern-sets': typeof AppPatternSetsRoute
   '/app/products': typeof AppProductsRouteWithChildren
   '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
@@ -131,6 +138,7 @@ export interface FileRoutesByTo {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
+  '/app/pattern-sets': typeof AppPatternSetsRoute
   '/app/user-settings': typeof AppUserSettingsRoute
   '/app': typeof AppIndexRoute
   '/app/products/$productId': typeof AppProductsProductIdRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/app/bills-of-materials': typeof AppBillsOfMaterialsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/materials': typeof AppMaterialsRoute
+  '/app/pattern-sets': typeof AppPatternSetsRoute
   '/app/products': typeof AppProductsRouteWithChildren
   '/app/sources': typeof AppSourcesRouteWithChildren
   '/app/user-settings': typeof AppUserSettingsRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
+    | '/app/pattern-sets'
     | '/app/products'
     | '/app/sources'
     | '/app/user-settings'
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
+    | '/app/pattern-sets'
     | '/app/user-settings'
     | '/app'
     | '/app/products/$productId'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/app/bills-of-materials'
     | '/app/inventory'
     | '/app/materials'
+    | '/app/pattern-sets'
     | '/app/products'
     | '/app/sources'
     | '/app/user-settings'
@@ -268,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/products'
       fullPath: '/app/products'
       preLoaderRoute: typeof AppProductsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/pattern-sets': {
+      id: '/app/pattern-sets'
+      path: '/pattern-sets'
+      fullPath: '/app/pattern-sets'
+      preLoaderRoute: typeof AppPatternSetsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/materials': {
@@ -372,6 +391,7 @@ interface AppRouteChildren {
   AppBillsOfMaterialsRoute: typeof AppBillsOfMaterialsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppMaterialsRoute: typeof AppMaterialsRoute
+  AppPatternSetsRoute: typeof AppPatternSetsRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
   AppSourcesRoute: typeof AppSourcesRouteWithChildren
   AppUserSettingsRoute: typeof AppUserSettingsRoute
@@ -382,6 +402,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBillsOfMaterialsRoute: AppBillsOfMaterialsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppMaterialsRoute: AppMaterialsRoute,
+  AppPatternSetsRoute: AppPatternSetsRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
   AppSourcesRoute: AppSourcesRouteWithChildren,
   AppUserSettingsRoute: AppUserSettingsRoute,

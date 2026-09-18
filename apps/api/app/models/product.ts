@@ -1,10 +1,11 @@
 import Collection from '#models/collection'
+import ProductVariant from '#models/product_variant'
 import { SoftDelete } from '#mixins/soft_delete'
 import User from '#models/user'
 import { compose } from '@adonisjs/core/helpers'
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type {
   ProductCategory,
   ProductLifecycleStatus,
@@ -73,4 +74,9 @@ export default class Product extends compose(BaseModel, SoftDelete) {
     foreignKey: 'createdByUserId',
   })
   declare createdBy: BelongsTo<typeof User>
+
+  @hasMany(() => ProductVariant, {
+    foreignKey: 'productId',
+  })
+  declare variants: HasMany<typeof ProductVariant>
 }
