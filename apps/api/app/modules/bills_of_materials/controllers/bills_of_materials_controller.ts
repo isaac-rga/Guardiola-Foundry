@@ -25,7 +25,7 @@ import {
 import {
   ImplementationDestinationTypificationConflictError,
   ImplementationDestinationVariantConflictError,
-} from '#modules/bills_of_materials/services/implementation_destination'
+} from '#modules/bills_of_materials/services/implementation_destination/index'
 import {
   applyBillOfMaterialsTemplateRequestSchema,
   associateBillOfMaterialsTemplateProductRequestSchema,

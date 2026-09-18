@@ -5,8 +5,8 @@ import {
   ImplementationDestinationTypificationConflictError,
   ImplementationDestinationValidationError,
   ImplementationDestinationVariantConflictError,
-  resolveImplementationDestination,
-} from '#modules/bills_of_materials/services/implementation_destination'
+  reserveManualImplementationDestination,
+} from '#modules/bills_of_materials/services/implementation_destination/index'
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import { lockTemplateProductSlot } from '#modules/bills_of_materials/services/template_product_slot'
@@ -145,7 +145,7 @@ async function resolveImplementationRelationship(
 ) {
   let destination
   try {
-    destination = await resolveImplementationDestination(productVariantPublicId, name, trx)
+    destination = await reserveManualImplementationDestination(productVariantPublicId, name, trx)
   } catch (error) {
     if (error instanceof ImplementationDestinationValidationError) {
       throw new BillOfMaterialsValidationError('productVariantId', error.message)

@@ -1,6 +1,9 @@
 import Product from '#models/product'
-import ProductVariant from '#models/product_variant'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
+import {
+  findImplementationRestorationConflict,
+  lockImplementationDestinationForRestoration,
+} from '#modules/bills_of_materials/services/implementation_destination/index'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -37,14 +40,7 @@ export async function restoreBillOfMaterials(
       await lockProduct(candidate.productId, trx)
     }
     if (candidate.kind === 'implementation') {
-      const variantCandidateQuery = ProductVariant.query({ client: trx }).where(
-        'id',
-        candidate.productVariantId!
-      )
-      ProductVariant.includeDeleted(variantCandidateQuery)
-      const variantCandidate = await variantCandidateQuery.firstOrFail()
-      await lockProduct(variantCandidate.productId, trx)
-      await lockVariant(variantCandidate.id, trx)
+      await lockImplementationDestinationForRestoration(candidate, trx)
     }
 
     const billOfMaterialsQuery = BillOfMaterial.query({ client: trx })
@@ -68,12 +64,6 @@ async function lockProduct(id: number, trx: TransactionClientContract) {
   await query.firstOrFail()
 }
 
-async function lockVariant(id: number, trx: TransactionClientContract) {
-  const query = ProductVariant.query({ client: trx }).where('id', id).forUpdate()
-  ProductVariant.includeDeleted(query)
-  await query.firstOrFail()
-}
-
 async function findRestoreConflict(
   billOfMaterials: BillOfMaterial,
   trx: TransactionClientContract
@@ -88,26 +78,5 @@ async function findRestoreConflict(
     return occupant ? { id: occupant.publicId, name: occupant.name } : null
   }
 
-  const variantQuery = ProductVariant.query({ client: trx }).where(
-    'id',
-    billOfMaterials.productVariantId!
-  )
-  ProductVariant.includeDeleted(variantQuery)
-  const variant = await variantQuery.firstOrFail()
-  const slotOccupant = await BillOfMaterial.query({ client: trx })
-    .where('productVariantId', variant.id)
-    .whereNot('id', billOfMaterials.id)
-    .first()
-  if (slotOccupant) return { id: slotOccupant.publicId, name: slotOccupant.name }
-
-  const typificationOccupant = await BillOfMaterial.query({ client: trx })
-    .join('product_variants', 'product_variants.id', 'bills_of_materials.product_variant_id')
-    .where('product_variants.product_id', variant.productId)
-    .whereNot('bills_of_materials.id', billOfMaterials.id)
-    .whereRaw('lower(bills_of_materials.name) = lower(?)', [billOfMaterials.name])
-    .select('bills_of_materials.public_id', 'bills_of_materials.name')
-    .first()
-  return typificationOccupant
-    ? { id: typificationOccupant.publicId, name: typificationOccupant.name }
-    : null
+  return findImplementationRestorationConflict(billOfMaterials, trx)
 }

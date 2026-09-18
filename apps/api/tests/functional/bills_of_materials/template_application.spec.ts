@@ -340,6 +340,33 @@ test.group('Bills of Materials', (group) => {
     assert.isNull(destination)
   })
 
+  test('rejects direct Template application to a Variant belonging to another Product', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const jackieId = await createProduct(client, session.token, 'Jackie')
+    const palomaId = await createProduct(client, session.token, 'Paloma')
+    const palomaVariantId = await createProductVariant(client, session.token, palomaId, 'Showroom')
+    const source = await createTemplate(client, session.token, 'Jackie base', {
+      productId: jackieId,
+    })
+
+    const response = await client
+      .post(`/bills-of-materials/${source.id}/implementations`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ name: 'Must remain unsaved', productVariantId: palomaVariantId })
+
+    response.assertStatus(422)
+    response.assertBodyContains({
+      errors: {
+        productVariantId: ['Select a Product Variant belonging to the Template Product.'],
+      },
+    })
+    const count = await BillOfMaterial.query().where('kind', 'implementation').count('* as total')
+    assert.equal(Number(count[0].$extras.total), 0)
+  })
+
   test('restricts Template candidates to its Product and blocks applying an unassociated Template', async ({
     assert,
     client,

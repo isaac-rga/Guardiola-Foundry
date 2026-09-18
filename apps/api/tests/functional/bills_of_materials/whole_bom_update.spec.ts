@@ -182,6 +182,69 @@ test.group('Bills of Materials', (group) => {
     assert.isAbove(Date.parse(updated.body().updatedAt), Date.parse(created.body().updatedAt))
   })
 
+  test('rejects an Implementation rename to a case-insensitive duplicate typification', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const showroomId = await createProductVariant(client, session.token, productId, 'Showroom')
+    const editorialId = await createProductVariant(client, session.token, productId, 'Editorial')
+    const existing = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'Blush construction',
+        description: null,
+        productVariantId: showroomId,
+        lines: [],
+      })
+    existing.assertStatus(201)
+    const created = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'Editorial construction',
+        description: 'Stable saved description',
+        productVariantId: editorialId,
+        lines: [
+          {
+            constructionPiece: 'Original line',
+            materialId: null,
+            materialQuantity: null,
+            patternSetId: null,
+            lineNote: 'Stable saved note',
+            verified: false,
+          },
+        ],
+      })
+    created.assertStatus(201)
+
+    const response = await client
+      .put(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        updatedAt: created.body().updatedAt,
+        name: 'BLUSH CONSTRUCTION',
+        description: 'Must not be saved',
+        lines: [],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({
+      errors: {
+        name: ['Another BOM Implementation in this Product already uses this typification.'],
+      },
+    })
+    const reloaded = await client
+      .get(`/bills-of-materials/${created.body().id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+    reloaded.assertStatus(200)
+    assert.deepEqual(reloaded.body(), created.body())
+  })
+
   test('allows only the first concurrent whole-BOM Save and leaves no losing line changes', async ({
     assert,
     client,

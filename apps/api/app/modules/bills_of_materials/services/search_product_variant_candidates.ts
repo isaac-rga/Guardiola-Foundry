@@ -1,5 +1,6 @@
 import db from '@adonisjs/lucid/services/db'
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
+import { evaluateImplementationCandidate } from '#modules/bills_of_materials/services/implementation_destination/index'
 import type {
   ProductVariantCandidate,
   SearchProductVariantCandidatesResponse,
@@ -134,6 +135,9 @@ function serializeCandidate(row: {
   implementation_name: string | null
   product_status: 'active' | 'inactive'
 }): ProductVariantCandidate {
+  if (row.implementation_public_id !== null && row.implementation_name === null) {
+    throw new Error('Occupied Product Variant is missing its Implementation name.')
+  }
   const candidate = {
     id: row.variant_public_id,
     name: row.variant_name,
@@ -145,41 +149,15 @@ function serializeCandidate(row: {
         row.product_status === 'active' ? ('available' as const) : ('unavailable' as const),
     },
   }
-
-  if (row.implementation_public_id !== null) {
-    if (row.implementation_name === null) {
-      throw new Error('Occupied Product Variant is missing its Implementation name.')
-    }
-    return {
-      ...candidate,
-      selectable: false,
-      outcome: 'implementation-exists',
-      existingImplementation: {
-        id: row.implementation_public_id,
-        name: row.implementation_name,
-      },
-    }
-  }
-  if (row.product_status !== 'active') {
-    return {
-      ...candidate,
-      selectable: false,
-      outcome: 'product-unavailable',
-      existingImplementation: null,
-    }
-  }
-  if (row.variant_status !== 'active') {
-    return {
-      ...candidate,
-      selectable: false,
-      outcome: 'variant-inactive',
-      existingImplementation: null,
-    }
-  }
   return {
     ...candidate,
-    selectable: true,
-    outcome: 'eligible',
-    existingImplementation: null,
+    ...evaluateImplementationCandidate({
+      productStatus: row.product_status,
+      variantStatus: row.variant_status,
+      existingImplementation:
+        row.implementation_public_id === null
+          ? null
+          : { id: row.implementation_public_id, name: row.implementation_name! },
+    }),
   }
 }

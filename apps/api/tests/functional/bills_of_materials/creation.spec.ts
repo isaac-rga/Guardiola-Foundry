@@ -3,6 +3,7 @@ import {
   authenticateAs,
   createProduct,
   createProductVariant,
+  updateProduct,
   updateProductVariant,
   createImplementation,
 } from '#tests/functional/bills_of_materials/support/bom_test_support'
@@ -116,6 +117,36 @@ test.group('Bills of Materials', (group) => {
     const persisted = await BillOfMaterial.findByOrFail('publicId', response.body().id)
     assert.isNull(persisted.productId)
     assert.isNumber(persisted.productVariantId)
+  })
+
+  test('rejects manual Implementation creation when the Product is inactive', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Inactive Jackie')
+    const variantId = await createProductVariant(client, session.token, productId, 'Showroom')
+    await updateProduct(client, session.token, productId, 'Inactive Jackie', 'inactive')
+
+    const response = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({
+        kind: 'implementation',
+        name: 'Must remain unsaved',
+        description: null,
+        productVariantId: variantId,
+        lines: [],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({
+      errors: {
+        productVariantId: ['The selected Product is no longer available.'],
+      },
+    })
+    const count = await BillOfMaterial.query().where('kind', 'implementation').count('* as total')
+    assert.equal(Number(count[0].$extras.total), 0)
   })
 
   test('scopes case-insensitive BOM Typification uniqueness to one Product', async ({

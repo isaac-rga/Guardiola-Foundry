@@ -6,8 +6,8 @@ import {
 } from '#modules/bills_of_materials/services/create_bill_of_materials'
 import {
   ImplementationDestinationValidationError,
-  resolveImplementationDestination,
-} from '#modules/bills_of_materials/services/implementation_destination'
+  reserveTemplateApplicationDestination,
+} from '#modules/bills_of_materials/services/implementation_destination/index'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import { deriveTemplateApplicationSnapshot } from '#modules/bills_of_materials/services/template_application_snapshot'
 import db from '@adonisjs/lucid/services/db'
@@ -40,11 +40,11 @@ export async function applyBillOfMaterialsTemplate(
 
     let destination
     try {
-      destination = await resolveImplementationDestination(
+      destination = await reserveTemplateApplicationDestination(
         payload.productVariantId,
         payload.name,
-        trx,
-        template.productId
+        template.productId,
+        trx
       )
     } catch (error) {
       if (error instanceof ImplementationDestinationValidationError) {

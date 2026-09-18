@@ -1,6 +1,5 @@
 import Material from '#models/material'
 import Product from '#models/product'
-import ProductVariant from '#models/product_variant'
 import {
   BillOfMaterialsUpdateValidationError,
   planBillOfMaterialsLineReplacement,
@@ -8,6 +7,12 @@ import {
 import BillOfMaterial from '#modules/bills_of_materials/models/bill_of_material'
 import BillOfMaterialLine from '#modules/bills_of_materials/models/bill_of_material_line'
 import { generateBillOfMaterialsLineId } from '#modules/bills_of_materials/services/create_bill_of_materials'
+import {
+  assertImplementationDestinationEditable,
+  assertImplementationTypificationAvailableForRename,
+  ImplementationDestinationEditUnavailableError,
+  ImplementationDestinationTypificationConflictError,
+} from '#modules/bills_of_materials/services/implementation_destination/index'
 import { loadBillOfMaterialsDetail } from '#modules/bills_of_materials/services/read_bills_of_materials'
 import PatternSet from '#modules/pattern_sets/models/pattern_set'
 import db from '@adonisjs/lucid/services/db'
@@ -172,15 +177,10 @@ async function assertRelatedStructureIsEditable(
   }
 
   if (billOfMaterials.productVariantId !== null) {
-    const variantQuery = ProductVariant.query({ client: trx })
-      .where('id', billOfMaterials.productVariantId)
-      .forUpdate()
-    ProductVariant.includeDeleted(variantQuery)
-    const variant = await variantQuery.firstOrFail()
-    const productQuery = Product.query({ client: trx }).where('id', variant.productId).forUpdate()
-    Product.includeDeleted(productQuery)
-    const product = await productQuery.firstOrFail()
-    if (variant.deletedAt || product.deletedAt) {
+    try {
+      await assertImplementationDestinationEditable(billOfMaterials, trx)
+    } catch (error) {
+      if (!(error instanceof ImplementationDestinationEditUnavailableError)) throw error
       throw new BillOfMaterialsUpdateValidationError(
         'updatedAt',
         'Restore the Product and Product Variant before editing this Bill of Materials.'
@@ -194,18 +194,10 @@ async function assertImplementationTypificationIsAvailable(
   name: string,
   trx: TransactionClientContract
 ) {
-  if (billOfMaterials.productVariantId === null) return
-  const variant = await ProductVariant.query({ client: trx })
-    .where('id', billOfMaterials.productVariantId)
-    .firstOrFail()
-  const duplicate = await BillOfMaterial.query({ client: trx })
-    .join('product_variants', 'product_variants.id', 'bills_of_materials.product_variant_id')
-    .where('product_variants.product_id', variant.productId)
-    .whereNot('bills_of_materials.id', billOfMaterials.id)
-    .whereRaw('lower(bills_of_materials.name) = lower(?)', [name])
-    .select('bills_of_materials.public_id', 'bills_of_materials.name')
-    .first()
-  if (duplicate) {
+  try {
+    await assertImplementationTypificationAvailableForRename(billOfMaterials, name, trx)
+  } catch (error) {
+    if (!(error instanceof ImplementationDestinationTypificationConflictError)) throw error
     throw new BillOfMaterialsUpdateValidationError(
       'name',
       'Another BOM Implementation in this Product already uses this typification.'
