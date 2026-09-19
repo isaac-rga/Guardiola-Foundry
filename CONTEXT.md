@@ -33,7 +33,7 @@ A separate flow for a User who cannot authenticate because they no longer know t
 _Avoid_: Password Change, Login Help
 
 **Product**:
-A bridal design record that moves through the product-development lifecycle from concept to finished manufacturing readiness. A Product is distinct from the Materials consumed to produce it and from any later sellable SKU.
+A bridal design record that moves through the product-development lifecycle from concept to finished manufacturing readiness. Every non-deleted Product owns at least one non-deleted Product Variant and is distinct from the Materials consumed to produce it and from any later sellable SKU.
 _Avoid_: Item, SKU
 
 **Collection**:
@@ -69,7 +69,7 @@ The current stage of a Product within bridal design and manufacturing preparatio
 _Avoid_: Progress, Phase Flag
 
 **Product Status**:
-The availability state of a Product record for ordinary use in the system. Product Status is limited to `Active` or `Inactive`, defaults to `Active` for new Products, and is distinct from Lifecycle Status.
+The availability state of a Product record for ordinary use in the system. Product Status is limited to `Active` or `Inactive`, defaults to `Active`, and is changed through explicit availability actions rather than Product detail editing; activating a Product does not activate its Product Variants.
 _Avoid_: Progress, Phase
 
 **Material**:
@@ -249,7 +249,7 @@ The non-blocking condition of a BOM Line whose selected Pattern Set is Retired. 
 _Avoid_: Incomplete BOM Line, Pattern Error, BOM Status
 
 **Product Variant**:
-A commercially named, constructively distinct realization that belongs permanently to one Product, such as Jackie Showroom. Its name is unique among that Product's non-deleted Variants; it may exist without a BOM Implementation and is not a historical revision.
+A commercially named, constructively distinct realization that belongs permanently to one Product, such as Jackie Showroom. A Product begins with an Active Product Variant named `Base`; `Base` is an initial, renamable name rather than a separate Variant type, names are unique among that Product's non-deleted Variants, and a Variant may exist without a BOM Implementation and is not a historical revision.
 _Avoid_: Product Version, Product Revision, SKU
 
 **Product Variant Status**:
