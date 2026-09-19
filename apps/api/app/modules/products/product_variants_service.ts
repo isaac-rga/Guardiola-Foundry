@@ -96,6 +96,21 @@ export async function createProductVariant(
   }
 }
 
+export async function createInitialProductVariant(
+  productId: number,
+  trx: TransactionClientContract
+) {
+  return ProductVariant.create(
+    {
+      publicId: await generateProductVariantId(trx),
+      productId,
+      name: 'Base',
+      status: 'active',
+    },
+    { client: trx }
+  )
+}
+
 export async function updateProductVariant(
   productPublicId: string,
   variantPublicId: string,

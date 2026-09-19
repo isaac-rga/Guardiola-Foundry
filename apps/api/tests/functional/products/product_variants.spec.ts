@@ -9,12 +9,34 @@ test.group('Product Variants', (group) => {
     await testUtils.db('postgres_test').truncate()
   })
 
-  test('registers and lists active Product Variants in Product context', async ({
+  test('treats the initial Base as a normal renamable Product Variant', async ({
     assert,
     client,
   }) => {
     const session = await authenticateAs(client, 'operator')
     const productId = await createProduct(client, session.token, 'Jackie')
+    const initialListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    initialListResponse.assertStatus(200)
+    initialListResponse.assertBodyContains({
+      variants: [{ productId, name: 'Base', status: 'active', deletedAt: null }],
+    })
+    const initialVariant = initialListResponse.body().variants[0]
+
+    const updateResponse = await client
+      .put(`/products/${productId}/variants/${initialVariant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ name: 'Jackie Foundation', status: 'inactive' })
+
+    updateResponse.assertStatus(200)
+    updateResponse.assertBodyContains({
+      id: initialVariant.id,
+      productId,
+      name: 'Jackie Foundation',
+      status: 'inactive',
+    })
 
     const createResponse = await client
       .post(`/products/${productId}/variants`)
@@ -46,7 +68,7 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
 
     listResponse.assertStatus(200)
-    listResponse.assertBody({ variants: [createResponse.body()] })
+    listResponse.assertBody({ variants: [updateResponse.body(), createResponse.body()] })
   })
 
   test('renames and changes Variant status without changing identity or Product ownership', async ({
@@ -218,6 +240,10 @@ test.group('Product Variants', (group) => {
     const session = await authenticateAs(client, 'operator')
     const productId = await createProduct(client, session.token, 'Jackie')
     const variant = await createVariant(client, session.token, productId, 'Jackie Showroom')
+    const initialListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const baseVariant = initialListResponse.body().variants[0]
 
     const deleteResponse = await client
       .delete(`/products/${productId}/variants/${variant.id}`)
@@ -230,14 +256,14 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
 
     ordinaryListResponse.assertStatus(200)
-    ordinaryListResponse.assertBody({ variants: [] })
+    ordinaryListResponse.assertBody({ variants: [baseVariant] })
 
     const operatorRecoveryListResponse = await client
       .get(`/products/${productId}/variants?includeDeleted=true`)
       .header('Authorization', `Bearer ${session.token}`)
 
     operatorRecoveryListResponse.assertStatus(200)
-    operatorRecoveryListResponse.assertBody({ variants: [] })
+    operatorRecoveryListResponse.assertBody({ variants: [baseVariant] })
 
     const adminSession = await authenticateAs(client, 'admin')
     const recoveryListResponse = await client
@@ -245,17 +271,16 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${adminSession.token}`)
 
     recoveryListResponse.assertStatus(200)
-    recoveryListResponse.assertBodyContains({
-      variants: [
-        {
-          id: variant.id,
-          productId,
-          name: 'Jackie Showroom',
-          status: 'active',
-        },
-      ],
+    const deletedVariant = recoveryListResponse
+      .body()
+      .variants.find((candidate: { id: string }) => candidate.id === variant.id)
+    assert.deepInclude(deletedVariant, {
+      id: variant.id,
+      productId,
+      name: 'Jackie Showroom',
+      status: 'active',
     })
-    assert.isString(recoveryListResponse.body().variants[0].deletedAt)
+    assert.isString(deletedVariant.deletedAt)
   })
 
   test('allows only an Admin to restore a Product Variant without changing its ownership', async ({

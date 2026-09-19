@@ -81,7 +81,6 @@ const productCategoryOptions: Array<{
 const defaultFormValues: CreateProductRequest = {
   name: '',
   lifecycleStatus: 'concept',
-  productStatus: 'active',
 }
 
 export function ProductManagementPage({
@@ -475,7 +474,7 @@ export function ProductManagementPage({
                 )}
               />
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-5">
                 <FormField
                   control={form.control}
                   name="lifecycleStatus"
@@ -505,34 +504,6 @@ export function ProductManagementPage({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="productStatus"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Product Status</FormLabel>
-                      <Select
-                        disabled={isCreatePending}
-                        value={field.value}
-                        onValueChange={(value) => field.onChange(value as ProductStatus)}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="h-11 w-full rounded-xl">
-                            <SelectValue placeholder="Select product status" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {productStatusOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
 
               {submissionError ? (

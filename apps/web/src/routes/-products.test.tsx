@@ -79,6 +79,9 @@ describe('products route', () => {
 
     await user.click(screen.getByRole('button', { name: 'Create product' }))
     const createDialog = screen.getByRole('dialog')
+    expect(
+      within(createDialog).queryByRole('combobox', { name: 'Product Status' })
+    ).not.toBeInTheDocument()
     await user.type(within(createDialog).getByLabelText('Product name'), 'Valencia Gown')
     await user.click(screen.getByRole('button', { name: /^Create product$/i }))
 
@@ -118,14 +121,14 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'Valencia Gown',
             lifecycleStatus: 'concept',
-            productStatus: 'active',
           }),
         })
       )
     })
 
     expect(await screen.findByText('Created Valencia Gown.')).toBeInTheDocument()
-    expect(await screen.findByText('Valencia Gown')).toBeInTheDocument()
+    const createdProductRow = await screen.findByRole('row', { name: /Valencia Gown/ })
+    expect(within(createdProductRow).getByText('Active')).toBeInTheDocument()
     expect(screen.queryByText('P-AB12CD')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -217,7 +220,6 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'valencia gown',
             lifecycleStatus: 'concept',
-            productStatus: 'active',
           }),
         })
       )
@@ -226,7 +228,7 @@ describe('products route', () => {
     expect(await screen.findByText('Created valencia gown.')).toBeInTheDocument()
   })
 
-  it('submits explicit lifecycle and product status overrides from the modal', async () => {
+  it('submits an explicit lifecycle override without Product Status', async () => {
     const user = userEvent.setup()
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
@@ -257,7 +259,7 @@ describe('products route', () => {
             id: 'P-ZX98QP',
             name: 'Mila Cape',
             lifecycleStatus: 'testing',
-            productStatus: 'inactive',
+            productStatus: 'active',
             productCategory: null,
             collection: null,
             createdAt: '2026-07-01T18:33:00.000Z',
@@ -285,8 +287,6 @@ describe('products route', () => {
       await user.type(within(createDialog).getByLabelText('Product name'), 'Mila Cape')
       await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
       await user.click(await screen.findByRole('option', { name: 'Testing' }))
-      await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
-      await user.click(await screen.findByRole('option', { name: 'Inactive' }))
       await user.click(screen.getByRole('button', { name: /^Create product$/i }))
     })
 
@@ -298,7 +298,6 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'Mila Cape',
             lifecycleStatus: 'testing',
-            productStatus: 'inactive',
           }),
         })
       )

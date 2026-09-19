@@ -101,7 +101,6 @@ export type GetProductResponse =
 export interface CreateProductRequest {
   name: string
   lifecycleStatus?: ProductLifecycleStatus
-  productStatus?: ProductStatus
   collectionId?: number | null
 }
 

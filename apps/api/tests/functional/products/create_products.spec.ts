@@ -17,7 +17,7 @@ test.group('Products create flow', (group) => {
     await Promise.all(COLLECTION_NAMES.map((name) => Collection.firstOrCreate({ name })))
   })
 
-  test('creates a product with persisted defaults and returns it in the newest-first list', async ({
+  test('creates an Active product with an owned Active Base Variant', async ({
     assert,
     client,
   }) => {
@@ -28,12 +28,14 @@ test.group('Products create flow', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
       .json({
         name: '  Valencia Gown  ',
+        lifecycleStatus: 'testing',
+        productStatus: 'inactive',
       })
 
     createResponse.assertStatus(201)
     createResponse.assertBodyContains({
       name: 'Valencia Gown',
-      lifecycleStatus: 'concept',
+      lifecycleStatus: 'testing',
       productStatus: 'active',
       productCategory: null,
       createdBy: {
@@ -45,6 +47,23 @@ test.group('Products create flow', (group) => {
     assert.match(createResponse.body().id, /^P-[A-Z2-9]{6}$/)
     assert.exists(createResponse.body().createdAt)
 
+    const variantsResponse = await client
+      .get(`/products/${createResponse.body().id}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    variantsResponse.assertStatus(200)
+    variantsResponse.assertBodyContains({
+      variants: [
+        {
+          productId: createResponse.body().id,
+          name: 'Base',
+          status: 'active',
+          deletedAt: null,
+        },
+      ],
+    })
+    assert.match(variantsResponse.body().variants[0].id, /^PV-[A-Z2-9]{6}$/)
+
     const listResponse = await client
       .get('/products')
       .header('Authorization', `Bearer ${session.token}`)
@@ -55,7 +74,7 @@ test.group('Products create flow', (group) => {
         {
           id: createResponse.body().id,
           name: 'Valencia Gown',
-          lifecycleStatus: 'concept',
+          lifecycleStatus: 'testing',
           productStatus: 'active',
           productCategory: null,
         },
@@ -64,9 +83,7 @@ test.group('Products create flow', (group) => {
     })
   })
 
-  test('allows lifecycle status, product status, and collection overrides during creation', async ({
-    client,
-  }) => {
+  test('allows lifecycle status and collection overrides during creation', async ({ client }) => {
     const session = await authenticateAs(client, 'operator')
     const collection = await Collection.findByOrFail('name', '2026')
 
@@ -76,7 +93,6 @@ test.group('Products create flow', (group) => {
       .json({
         name: 'Mila Cape',
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         collectionId: collection.id,
       })
 
@@ -84,7 +100,7 @@ test.group('Products create flow', (group) => {
     response.assertBodyContains({
       name: 'Mila Cape',
       lifecycleStatus: 'testing',
-      productStatus: 'inactive',
+      productStatus: 'active',
       productCategory: null,
       collection: {
         id: collection.id,
@@ -94,6 +110,47 @@ test.group('Products create flow', (group) => {
         email: 'operator@example.com',
       },
     })
+  })
+
+  test('leaves no Product when initial Base Variant creation fails', async ({ assert, client }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    await db.rawQuery(`
+      CREATE FUNCTION reject_initial_base_variant() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.name = 'Base' THEN
+          RAISE EXCEPTION 'forced initial Product Variant failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      CREATE TRIGGER reject_initial_base_variant
+      BEFORE INSERT ON product_variants
+      FOR EACH ROW EXECUTE FUNCTION reject_initial_base_variant();
+    `)
+
+    try {
+      const response = await client
+        .post('/products')
+        .header('Authorization', `Bearer ${session.token}`)
+        .json({ name: 'Must roll back' })
+
+      response.assertStatus(500)
+    } finally {
+      await db.rawQuery('DROP TRIGGER reject_initial_base_variant ON product_variants')
+      await db.rawQuery('DROP FUNCTION reject_initial_base_variant()')
+    }
+
+    const listResponse = await client
+      .get('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    listResponse.assertStatus(200)
+    assert.notInclude(
+      listResponse.body().products.map((product: { name: string }) => product.name),
+      'Must roll back'
+    )
   })
 
   test('lists products newest first', async ({ assert, client }) => {

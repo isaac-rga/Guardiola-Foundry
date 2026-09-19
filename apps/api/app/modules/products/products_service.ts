@@ -1,7 +1,9 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import Product from '#models/product'
+import { createInitialProductVariant } from '#modules/products/product_variants_service'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
+import db from '@adonisjs/lucid/services/db'
 import type {
   CreateProductRequest,
   DeletedProductDetail,
@@ -51,20 +53,26 @@ export async function createProduct(
     }
   }
 
-  const product = await Product.create({
-    publicId: await generateProductId(),
-    name: payload.name,
-    lifecycleStatus: payload.lifecycleStatus ?? DEFAULT_LIFECYCLE_STATUS,
-    productStatus: payload.productStatus ?? DEFAULT_PRODUCT_STATUS,
-    productCategory: null,
-    shortDescription: null,
-    collectionId,
-    createdByUserId,
+  return db.transaction(async (trx) => {
+    const product = await Product.create(
+      {
+        publicId: await generateProductId(),
+        name: payload.name,
+        lifecycleStatus: payload.lifecycleStatus ?? DEFAULT_LIFECYCLE_STATUS,
+        productStatus: DEFAULT_PRODUCT_STATUS,
+        productCategory: null,
+        shortDescription: null,
+        collectionId,
+        createdByUserId,
+      },
+      { client: trx }
+    )
+
+    await createInitialProductVariant(product.id, trx)
+    await preloadProductRelations(product)
+
+    return serializeProductSummary(product)
   })
-
-  await preloadProductRelations(product)
-
-  return serializeProductSummary(product)
 }
 
 export async function getProduct(productId: string): Promise<GetProductResponse | 'not-found'> {

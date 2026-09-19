@@ -127,7 +127,6 @@ export const getProductResponseSchema = z.discriminatedUnion('state', [
 export const createProductRequestSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required.'),
   lifecycleStatus: productLifecycleStatusSchema.optional(),
-  productStatus: productStatusSchema.optional(),
   collectionId: z.number().int().positive().nullable().optional(),
 }) satisfies z.ZodType<CreateProductRequest>
 
