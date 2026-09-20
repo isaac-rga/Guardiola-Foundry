@@ -37,6 +37,12 @@ export default class ProductVariantsController {
       return response.notFound({ message: 'Product Variant not found.' })
     }
 
+    if (result === 'last-variant') {
+      return response.unprocessableEntity({
+        message: 'Create another Product Variant before deleting this one.',
+      })
+    }
+
     return response.noContent()
   }
 

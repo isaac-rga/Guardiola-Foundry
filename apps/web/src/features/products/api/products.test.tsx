@@ -6,6 +6,7 @@ import { createQueryClientWrapper } from '@/test/query-client-wrapper'
 import {
   deleteProduct,
   getProduct,
+  listProductVariants,
   listProducts,
   restoreProduct,
   updateProduct,
@@ -17,6 +18,7 @@ import {
   useRestoreProduct,
   useUpdateProduct,
 } from './products'
+import { useProductVariants } from './product-variants'
 
 vi.mock('./endpoints', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./endpoints')>()
@@ -24,6 +26,7 @@ vi.mock('./endpoints', async (importOriginal) => {
     ...actual,
     deleteProduct: vi.fn(),
     getProduct: vi.fn(),
+    listProductVariants: vi.fn(),
     listProducts: vi.fn(),
     restoreProduct: vi.fn(),
     updateProduct: vi.fn(),
@@ -119,6 +122,24 @@ describe('Product mutations', () => {
     await waitFor(() => expect(candidateRequests).toHaveLength(3))
     await act(() => result.current.restore.restoreProduct())
     await waitFor(() => expect(candidateRequests).toHaveLength(4))
+  })
+
+  it('refreshes Product Variants after Product restoration can recover Base', async () => {
+    vi.mocked(listProductVariants).mockResolvedValue({ variants: [] })
+    vi.mocked(restoreProduct).mockResolvedValue()
+    const { result } = renderHook(
+      () => ({
+        variants: useProductVariants('token', 'P-JACKIE', true, false),
+        restore: useRestoreProduct('token', 'P-JACKIE'),
+      }),
+      { wrapper: createQueryClientWrapper() },
+    )
+
+    await waitFor(() => expect(listProductVariants).toHaveBeenCalledTimes(1))
+
+    await act(() => result.current.restore.restoreProduct())
+
+    await waitFor(() => expect(listProductVariants).toHaveBeenCalledTimes(2))
   })
 })
 

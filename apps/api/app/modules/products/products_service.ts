@@ -1,7 +1,9 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import Product from '#models/product'
+import ProductVariant from '#models/product_variant'
 import { createInitialProductVariant } from '#modules/products/product_variants_service'
+import { lockProductIncludingDeleted } from '#modules/products/lock_product'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import db from '@adonisjs/lucid/services/db'
 import type {
@@ -165,17 +167,28 @@ export async function softDeleteProduct(productId: string): Promise<'not-found' 
 }
 
 export async function restoreProduct(productId: string): Promise<'not-found' | 'restored'> {
-  const product = await Product.queryWithDeleted().where('publicId', productId).first()
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
 
-  if (!product || !product.deletedAt) {
-    return 'not-found'
-  }
+    if (!product || !product.deletedAt) {
+      return 'not-found'
+    }
 
-  await product.restore()
-  product.productStatus = 'inactive'
-  await product.save()
+    const existingVariant = await ProductVariant.query({ client: trx })
+      .where('productId', product.id)
+      .forUpdate()
+      .first()
 
-  return 'restored'
+    if (!existingVariant) {
+      await createInitialProductVariant(product.id, trx)
+    }
+
+    await product.restore()
+    product.productStatus = 'inactive'
+    await product.save()
+
+    return 'restored'
+  })
 }
 
 function serializeProductSummary(product: Product): ProductSummary {

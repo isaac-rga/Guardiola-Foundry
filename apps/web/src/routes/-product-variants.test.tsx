@@ -232,8 +232,89 @@ describe('Product Variants on the product route', () => {
     ).toHaveLength(0)
   })
 
+  it('explains why the last Product Variant cannot be deleted and enables deletion after replacement', async () => {
+    const user = userEvent.setup()
+    let variants = [variantFixture({ id: 'PV-BASE01', name: 'Base' })]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return jsonResponse(sessionFixture('operator'))
+      }
+
+      if (url.pathname === '/products/P-JACKIE' && init?.method === 'GET') {
+        return jsonResponse(productDetailFixture())
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({ products: [productDetailFixture().product], collections: [] })
+      }
+
+      if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'GET') {
+        return jsonResponse({ variants })
+      }
+
+      if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'POST') {
+        const replacement = variantFixture({ id: 'PV-SHOW01', name: 'Jackie Showroom' })
+        variants = [...variants, replacement]
+        return jsonResponse(replacement, { status: 201 })
+      }
+
+      if (
+        url.pathname === '/products/P-JACKIE/variants/PV-BASE01' &&
+        init?.method === 'DELETE'
+      ) {
+        variants = variants.filter((variant) => variant.id !== 'PV-BASE01')
+        return new Response(null, { status: 204 })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession('operator')
+    renderProductRoute()
+
+    const baseRow = (await screen.findByText('Base')).closest('tr')
+    expect(baseRow).not.toBeNull()
+    expect(
+      within(baseRow as HTMLTableRowElement).getByRole('button', { name: 'Delete' })
+    ).toBeDisabled()
+    expect(
+      within(baseRow as HTMLTableRowElement).getByText(
+        'Create another Product Variant before deleting this one.'
+      )
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add Product Variant' }))
+    await user.type(screen.getByLabelText('Product Variant name'), 'Jackie Showroom')
+    await user.click(screen.getByRole('button', { name: 'Add Variant' }))
+
+    const updatedBaseRow = (await screen.findByText('Base')).closest('tr')
+    const deleteButton = within(updatedBaseRow as HTMLTableRowElement).getByRole('button', {
+      name: 'Delete',
+    })
+    expect(deleteButton).toBeEnabled()
+    expect(
+      within(updatedBaseRow as HTMLTableRowElement).queryByText(
+        'Create another Product Variant before deleting this one.'
+      )
+    ).not.toBeInTheDocument()
+
+    await user.click(deleteButton)
+    const confirmationDialog = screen.getByRole('dialog')
+    await user.click(
+      within(confirmationDialog).getByRole('button', { name: 'Delete Product Variant' })
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Base')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('Jackie Showroom')).toBeInTheDocument()
+  })
+
   it('confirms deletion with Product context and lets an Admin include and restore the Variant', async () => {
     const user = userEvent.setup()
+    const baseVariant = variantFixture({ id: 'PV-BASE01', name: 'Base' })
     let variant = variantFixture({ id: 'PV-SHOW01', name: 'Jackie Showroom' })
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
@@ -252,7 +333,10 @@ describe('Product Variants on the product route', () => {
 
       if (url.pathname === '/products/P-JACKIE/variants' && init?.method === 'GET') {
         return jsonResponse({
-          variants: url.searchParams.get('includeDeleted') === 'true' || !variant.deletedAt ? [variant] : []
+          variants:
+            url.searchParams.get('includeDeleted') === 'true' || !variant.deletedAt
+              ? [baseVariant, variant]
+              : [baseVariant]
         })
       }
 

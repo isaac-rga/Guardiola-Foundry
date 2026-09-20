@@ -1,6 +1,6 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
-import User from '#models/user'
+import { authenticateAs } from '#tests/functional/products/support/product_test_support'
 import db from '@adonisjs/lucid/services/db'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -514,70 +514,6 @@ test.group('Products create flow', (group) => {
     )
   })
 
-  test('restores a deleted Product for admins and rejects non-admin recovery', async ({
-    assert,
-    client,
-  }) => {
-    const adminSession = await authenticateAs(client, 'admin')
-
-    const createResponse = await client
-      .post('/products')
-      .header('Authorization', `Bearer ${adminSession.token}`)
-      .json({
-        name: 'Recoverable Sample',
-        lifecycleStatus: 'approved',
-        productStatus: 'active',
-      })
-
-    createResponse.assertStatus(201)
-
-    const deleteResponse = await client
-      .delete(`/products/${createResponse.body().id}`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    deleteResponse.assertStatus(204)
-
-    const operatorSession = await authenticateAs(client, 'operator')
-    const forbiddenRestoreResponse = await client
-      .post(`/products/${createResponse.body().id}/restore`)
-      .header('Authorization', `Bearer ${operatorSession.token}`)
-
-    forbiddenRestoreResponse.assertStatus(403)
-    forbiddenRestoreResponse.assertBodyContains({
-      message: 'Only admins can restore deleted Products.',
-    })
-
-    const restoreResponse = await client
-      .post(`/products/${createResponse.body().id}/restore`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    restoreResponse.assertStatus(204)
-
-    const restoredProduct = await db
-      .from('products')
-      .select(['lifecycle_status', 'product_status', 'deleted_at'])
-      .where('public_id', createResponse.body().id)
-      .firstOrFail()
-
-    assert.equal(restoredProduct.lifecycle_status, 'approved')
-    assert.equal(restoredProduct.product_status, 'inactive')
-    assert.isNull(restoredProduct.deleted_at)
-
-    const showResponse = await client
-      .get(`/products/${createResponse.body().id}`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    showResponse.assertStatus(200)
-    showResponse.assertBodyContains({
-      state: 'active',
-      product: {
-        id: createResponse.body().id,
-        lifecycleStatus: 'approved',
-        productStatus: 'inactive',
-      },
-    })
-  })
-
   test('returns a deleted Product state for deleted records and 404 for nonexistent Product IDs', async ({
     client,
   }) => {
@@ -622,28 +558,6 @@ test.group('Products create flow', (group) => {
     })
   })
 })
-
-async function authenticateAs(client: any, role: 'admin' | 'operator') {
-  await User.firstOrCreate(
-    {
-      email: `${role}@example.com`,
-    },
-    {
-      password: 'Password123',
-      role,
-      active: true,
-    }
-  )
-
-  const response = await client.post('/auth/login').json({
-    email: `${role}@example.com`,
-    password: 'Password123',
-  })
-
-  response.assertStatus(200)
-
-  return response.body() as { token: string }
-}
 
 async function clearStoredProductImages() {
   await mkdir(PRODUCT_IMAGE_DIRECTORY, { recursive: true })
