@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useProductVariantCandidates } from '@/features/bills-of-materials/api/bills-of-materials'
 import { createQueryClientWrapper } from '@/test/query-client-wrapper'
 import {
+  activateProduct,
   deleteProduct,
   getProduct,
+  inactivateProduct,
   listProductVariants,
   listProducts,
   restoreProduct,
@@ -13,6 +15,7 @@ import {
 } from './endpoints'
 import {
   useDeleteProduct,
+  useProductAvailability,
   useProductDetail,
   useProductList,
   useRestoreProduct,
@@ -24,8 +27,10 @@ vi.mock('./endpoints', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./endpoints')>()
   return {
     ...actual,
+    activateProduct: vi.fn(),
     deleteProduct: vi.fn(),
     getProduct: vi.fn(),
+    inactivateProduct: vi.fn(),
     listProductVariants: vi.fn(),
     listProducts: vi.fn(),
     restoreProduct: vi.fn(),
@@ -35,6 +40,7 @@ vi.mock('./endpoints', async (importOriginal) => {
 
 describe('Product mutations', () => {
   afterEach(() => {
+    vi.clearAllMocks()
     vi.restoreAllMocks()
   })
 
@@ -66,7 +72,7 @@ describe('Product mutations', () => {
         detail: useProductDetail('token', 'P-JACKIE'),
         list: useProductList('token'),
       }),
-      { wrapper: createQueryClientWrapper() },
+      { wrapper: createQueryClientWrapper() }
     )
 
     await waitFor(() => {
@@ -92,19 +98,30 @@ describe('Product mutations', () => {
       })
     })
     vi.mocked(updateProduct).mockResolvedValue(updatedProductFixture())
+    vi.mocked(activateProduct).mockResolvedValue(updatedProductFixture())
+    vi.mocked(inactivateProduct).mockResolvedValue({
+      ...updatedProductFixture(),
+      productStatus: 'inactive',
+    })
     vi.mocked(deleteProduct).mockResolvedValue()
     vi.mocked(restoreProduct).mockResolvedValue()
+    vi.mocked(listProductVariants).mockResolvedValue({ variants: [] })
     const { result } = renderHook(
       () => ({
         candidates: useProductVariantCandidates('token', 'jackie'),
+        variants: useProductVariants('token', 'P-JACKIE', true, false),
+        availability: useProductAvailability('token', 'P-JACKIE'),
         update: useUpdateProduct('token', 'P-JACKIE'),
         delete: useDeleteProduct('token', 'P-JACKIE'),
         restore: useRestoreProduct('token', 'P-JACKIE'),
       }),
-      { wrapper: createQueryClientWrapper() },
+      { wrapper: createQueryClientWrapper() }
     )
 
-    await waitFor(() => expect(result.current.candidates.isSuccess).toBe(true))
+    await waitFor(() => {
+      expect(result.current.candidates.isSuccess).toBe(true)
+      expect(listProductVariants).toHaveBeenCalledTimes(1)
+    })
     expect(candidateRequests).toHaveLength(1)
 
     await act(() =>
@@ -112,16 +129,28 @@ describe('Product mutations', () => {
         name: 'Renamed Jackie',
         shortDescription: null,
         lifecycleStatus: 'approved',
-        productStatus: 'active',
         productCategory: null,
         collectionId: null,
-      }),
+      })
     )
     await waitFor(() => expect(candidateRequests).toHaveLength(2))
     await act(() => result.current.delete.deleteProduct())
     await waitFor(() => expect(candidateRequests).toHaveLength(3))
     await act(() => result.current.restore.restoreProduct())
     await waitFor(() => expect(candidateRequests).toHaveLength(4))
+    await act(() =>
+      result.current.availability.changeAvailability({
+        type: 'inactivate',
+        inactivateVariants: true,
+      })
+    )
+    await waitFor(() => {
+      expect(candidateRequests).toHaveLength(5)
+      expect(listProductVariants).toHaveBeenCalledTimes(4)
+    })
+    await act(() => result.current.availability.changeAvailability({ type: 'activate' }))
+    await waitFor(() => expect(candidateRequests).toHaveLength(6))
+    expect(listProductVariants).toHaveBeenCalledTimes(4)
   })
 
   it('refreshes Product Variants after Product restoration can recover Base', async () => {
@@ -132,7 +161,7 @@ describe('Product mutations', () => {
         variants: useProductVariants('token', 'P-JACKIE', true, false),
         restore: useRestoreProduct('token', 'P-JACKIE'),
       }),
-      { wrapper: createQueryClientWrapper() },
+      { wrapper: createQueryClientWrapper() }
     )
 
     await waitFor(() => expect(listProductVariants).toHaveBeenCalledTimes(1))

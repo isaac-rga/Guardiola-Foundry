@@ -10,6 +10,7 @@ import type {
   CreateProductRequest,
   DeletedProductDetail,
   GetProductResponse,
+  InactivateProductRequest,
   ListProductsResponse,
   ProductDetail,
   ProductSummary,
@@ -136,7 +137,6 @@ export async function updateProduct(
     name: payload.name,
     shortDescription: payload.shortDescription,
     lifecycleStatus: payload.lifecycleStatus,
-    productStatus: payload.productStatus,
     productCategory: payload.productCategory,
     collectionId,
   })
@@ -151,6 +151,48 @@ export async function updateProduct(
   await preloadProductRelations(product)
 
   return serializeProductDetail(product)
+}
+
+export async function activateProduct(productId: string): Promise<ProductDetail | 'not-found'> {
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
+
+    if (!product || product.deletedAt) {
+      return 'not-found'
+    }
+
+    product.productStatus = 'active'
+    await product.save()
+    await preloadProductRelations(product)
+
+    return serializeProductDetail(product)
+  })
+}
+
+export async function inactivateProduct(
+  productId: string,
+  payload: InactivateProductRequest
+): Promise<ProductDetail | 'not-found'> {
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
+
+    if (!product || product.deletedAt) {
+      return 'not-found'
+    }
+
+    if (payload.inactivateVariants === true) {
+      await ProductVariant.query({ client: trx })
+        .where('productId', product.id)
+        .where('status', 'active')
+        .update({ status: 'inactive' })
+    }
+
+    product.productStatus = 'inactive'
+    await product.save()
+    await preloadProductRelations(product)
+
+    return serializeProductDetail(product)
+  })
 }
 
 export async function softDeleteProduct(productId: string): Promise<'not-found' | 'deleted'> {

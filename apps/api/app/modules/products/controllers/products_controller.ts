@@ -1,6 +1,8 @@
 import {
+  activateProduct,
   createProduct,
   getProduct,
+  inactivateProduct,
   listProducts,
   restoreProduct,
   softDeleteProduct,
@@ -8,6 +10,7 @@ import {
 } from '#modules/products/products_service'
 import {
   createProductRequestSchema,
+  inactivateProductRequestSchema,
   updateProductRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -102,6 +105,32 @@ export default class ProductsController {
     return response.ok(result)
   }
 
+  async activate({ params, response }: HttpContext) {
+    const result = await activateProduct(params.productId)
+
+    if (result === 'not-found') {
+      return response.notFound({ message: 'Product not found.' })
+    }
+
+    return response.ok(result)
+  }
+
+  async inactivate({ params, request, response }: HttpContext) {
+    const payload = inactivateProductRequestSchema.safeParse(request.body())
+
+    if (!payload.success) {
+      return response.unprocessableEntity({ errors: payload.error.flatten().fieldErrors })
+    }
+
+    const result = await inactivateProduct(params.productId, payload.data)
+
+    if (result === 'not-found') {
+      return response.notFound({ message: 'Product not found.' })
+    }
+
+    return response.ok(result)
+  }
+
   async destroy({ params, response }: HttpContext) {
     const result = await softDeleteProduct(params.productId)
 
@@ -139,7 +168,6 @@ export default class ProductsController {
       name: body.name,
       shortDescription: body.shortDescription ?? null,
       lifecycleStatus: body.lifecycleStatus,
-      productStatus: body.productStatus,
       productCategory: body.productCategory ?? null,
       collectionId:
         body.collectionId === null || body.collectionId === undefined || body.collectionId === ''

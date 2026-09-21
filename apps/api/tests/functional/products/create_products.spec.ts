@@ -306,7 +306,7 @@ test.group('Products create flow', (group) => {
       shortDescription: 'Silk sample for fittings',
       image: null,
       lifecycleStatus: 'testing',
-      productStatus: 'inactive',
+      productStatus: 'active',
       productCategory: 'dress',
       collection: {
         id: collection.id,

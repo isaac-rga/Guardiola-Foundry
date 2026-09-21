@@ -524,8 +524,11 @@ describe('products route', () => {
       expect(screen.getByRole('combobox', { name: 'Product Category' })).toHaveTextContent('Dress')
       expect(screen.getByRole('combobox', { name: 'Collection' })).toHaveTextContent('2026')
       expect(screen.getByRole('combobox', { name: 'Lifecycle Status' })).toHaveTextContent('Testing')
-      expect(screen.getByRole('combobox', { name: 'Product Status' })).toHaveTextContent('Inactive')
     })
+    expect(screen.queryByRole('combobox', { name: 'Product Status' })).not.toBeInTheDocument()
+    expect(screen.getByText('Product Status')).toBeInTheDocument()
+    expect(screen.getByText('Inactive')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activate Product' })).toBeInTheDocument()
 
     await user.clear(screen.getByLabelText(/product name/i))
     await user.type(screen.getByLabelText(/product name/i), 'Valencia Gown Revised')
@@ -539,9 +542,6 @@ describe('products route', () => {
     await user.click(await screen.findByRole('option', { name: '2026' }))
     await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
     await user.click(await screen.findByRole('option', { name: 'Testing' }))
-    await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
-    await user.click(await screen.findByRole('option', { name: 'Inactive' }))
-
     expect(
       fetchSpy.mock.calls.find(([, requestInit]) => requestInit?.method === 'PUT')
     ).toBeUndefined()
@@ -591,7 +591,6 @@ describe('products route', () => {
         name: 'Valencia Gown Revised',
         shortDescription: 'Silk sample for fittings',
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         productCategory: 'dress',
         collectionId: '2',
       })
@@ -1477,6 +1476,189 @@ describe('products route', () => {
 
     expect(await screen.findByText('No product image uploaded.')).toBeInTheDocument()
   })
+
+  it('changes Product availability independently while preserving unsaved edits', async () => {
+    const user = userEvent.setup()
+    let resolveInactivation!: (value: Response) => void
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 2,
+            email: 'operator@example.com',
+            role: 'operator',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-AVAIL1') && init?.method === 'GET') {
+        return jsonResponse({
+          state: 'active',
+          product: availabilityProduct('active'),
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [availabilityProduct('active')],
+          collections: [],
+        })
+      }
+
+      if (url.includes('/products/P-AVAIL1/variants') && init?.method === 'GET') {
+        return jsonResponse({
+          variants: [
+            {
+              id: 'PV-BASE01',
+              productId: 'P-AVAIL1',
+              name: 'Base',
+              status: 'active',
+              deletedAt: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+            },
+          ],
+        })
+      }
+
+      if (url.endsWith('/products/P-AVAIL1/inactivate') && init?.method === 'POST') {
+        return await new Promise<Response>((resolve) => {
+          resolveInactivation = resolve
+        })
+      }
+
+      if (url.endsWith('/products/P-AVAIL1/activate') && init?.method === 'POST') {
+        return jsonResponse(availabilityProduct('active'))
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession({
+      user: {
+        id: 2,
+        email: 'operator@example.com',
+        role: 'operator',
+        active: true,
+      },
+    })
+    renderProductsRoute('/app/products/P-AVAIL1')
+
+    expect(await screen.findByRole('heading', { name: 'Jackie' })).toBeInTheDocument()
+    await user.clear(screen.getByLabelText(/product name/i))
+    await user.type(screen.getByLabelText(/product name/i), 'Jackie Revised')
+
+    await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    expect(within(dialog).getByRole('radio', { name: /Product only/ })).toBeChecked()
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      })
+    ).not.toBeChecked()
+    await user.click(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      })
+    )
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      })
+    ).toBeChecked()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Inactivate Product' }))
+    expect(within(dialog).getByRole('button', { name: 'Inactivating Product…' })).toBeDisabled()
+
+    resolveInactivation(jsonResponse(availabilityProduct('inactive')))
+
+    expect(await screen.findByText('Product and active Product Variants inactivated.')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Jackie Revised')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Activate Product' })).toBeInTheDocument()
+
+    const inactivationRequest = fetchSpy.mock.calls.find(
+      ([requestUrl, request]) =>
+        String(requestUrl).endsWith('/products/P-AVAIL1/inactivate') && request?.method === 'POST'
+    )?.[1]
+    expect(inactivationRequest?.body).toBe(JSON.stringify({ inactivateVariants: true }))
+    expect(fetchSpy.mock.calls.some(([, request]) => request?.method === 'PUT')).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Activate Product' }))
+
+    expect(await screen.findByText('Product activated.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue('Jackie Revised')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
+  it('omits the Variant choice when none are Active and preserves the prior state after failure', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          expiresAt: '2026-07-28T18:33:00.000Z',
+          user: {
+            id: 1,
+            email: 'admin@example.com',
+            role: 'admin',
+            active: true,
+          },
+        })
+      }
+
+      if (url.endsWith('/products/P-AVAIL1') && init?.method === 'GET') {
+        return jsonResponse({
+          state: 'active',
+          product: availabilityProduct('active'),
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [availabilityProduct('active')],
+          collections: [],
+        })
+      }
+
+      if (url.includes('/products/P-AVAIL1/variants') && init?.method === 'GET') {
+        return jsonResponse({ variants: [] })
+      }
+
+      if (url.endsWith('/products/P-AVAIL1/inactivate') && init?.method === 'POST') {
+        return jsonResponse({ message: 'Product availability could not be changed.' }, { status: 500 })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+    renderProductsRoute('/app/products/P-AVAIL1')
+
+    expect(await screen.findByRole('heading', { name: 'Jackie' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/short product description/i), 'Pending fitting note')
+    await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    expect(within(dialog).getByText(/no Active Product Variants/)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Inactivate Product' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Product availability could not be changed.')
+    expect(screen.getByDisplayValue('Pending fitting note')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Inactivate Product' })).toBeInTheDocument()
+  })
 })
 
 function renderProductsRoute(initialEntry = '/app/products', options?: { strictMode?: boolean }) {
@@ -1513,6 +1695,24 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
       'Content-Type': 'application/json',
     },
   })
+}
+
+function availabilityProduct(productStatus: 'active' | 'inactive') {
+  return {
+    id: 'P-AVAIL1',
+    name: 'Jackie',
+    shortDescription: null,
+    image: null,
+    lifecycleStatus: 'testing',
+    productStatus,
+    productCategory: 'dress',
+    collection: null,
+    createdAt: '2026-07-01T18:33:00.000Z',
+    createdBy: {
+      id: 2,
+      email: 'operator@example.com',
+    },
+  }
 }
 
 function seedStoredSession(

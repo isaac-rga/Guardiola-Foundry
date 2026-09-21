@@ -17,10 +17,12 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { ProductAvailabilityAction } from '@/features/products/components/product-availability-action'
 import { ProductVariantsCard } from '@/features/products/components/product-variants-card'
 import { useProductVariants } from '@/features/products/api/product-variants'
 import {
   useDeleteProduct,
+  useProductAvailability,
   useProductDetail,
   useProductList,
   useRestoreProduct,
@@ -33,7 +35,6 @@ import type {
   ProductCategory,
   ProductDetail,
   ProductLifecycleStatus,
-  ProductStatus,
   UpdateProductRequest,
 } from '@guardiola-foundry/shared-types'
 
@@ -50,14 +51,6 @@ const lifecycleStatusOptions: Array<{
   { value: 'approved', label: 'Approved' },
   { value: 'on-documentation', label: 'On Documentation' },
   { value: 'finished', label: 'Finished' },
-]
-
-const productStatusOptions: Array<{
-  label: string
-  value: ProductStatus
-}> = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
 ]
 
 const productCategoryOptions: Array<{
@@ -182,6 +175,7 @@ function ActiveProductEditPage({
   })
 
   const updateMutation = useUpdateProduct(session.token, productId)
+  const availability = useProductAvailability(session.token, productId)
   const deletion = useDeleteProduct(session.token, productId)
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -212,7 +206,11 @@ function ActiveProductEditPage({
   })
   const isSaving = updateMutation.isSaving
   const isDeleting = deletion.isDeleting
-  const isMutating = isSaving || isRestoring || isDeleting
+  const isChangingAvailability = availability.isChangingAvailability
+  const isMutating = isSaving || isRestoring || isDeleting || isChangingAvailability
+  const hasActiveVariants = productVariants.variants.some(
+    (variant) => variant.status === 'active' && !variant.deletedAt
+  )
 
   return (
     <div className="space-y-6">
@@ -221,6 +219,18 @@ function ActiveProductEditPage({
         description="Edit the saved product record directly, keep immutable registration context visible, and commit changes only when you explicitly save them."
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <ProductAvailabilityAction
+              availabilityError={
+                availability.availabilityError instanceof Error
+                  ? availability.availabilityError
+                  : null
+              }
+              changeAvailability={availability.changeAvailability}
+              disabled={isSaving || isRestoring || isDeleting}
+              hasActiveVariants={hasActiveVariants}
+              isChangingAvailability={isChangingAvailability}
+              productStatus={product.productStatus}
+            />
             <Button
               type="button"
               variant="destructive"
@@ -492,35 +502,6 @@ function ActiveProductEditPage({
                       </FormItem>
                     )}
                   />
-
-                  <FormField
-                    control={form.control}
-                    name="productStatus"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Product Status</FormLabel>
-                        <Select
-                          disabled={isMutating}
-                          value={field.value}
-                          onValueChange={(value) => field.onChange(value as ProductStatus)}
-                        >
-                          <FormControl>
-                            <SelectTrigger aria-label="Product Status" className="h-11 w-full rounded-xl">
-                              <SelectValue placeholder="Select product status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {productStatusOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </div>
 
                 {updateMutation.updateError ? (
@@ -568,6 +549,7 @@ function ActiveProductEditPage({
           </CardHeader>
           <CardContent className="space-y-5 text-sm">
             <MetadataItem label="Product ID" value={product.id} mono />
+            <MetadataItem label="Product Status" value={product.productStatus === 'active' ? 'Active' : 'Inactive'} />
             <MetadataItem label="Created by" value={product.createdBy.email} />
             <MetadataItem label="Created at" value={formatCreatedAt(product.createdAt)} />
           </CardContent>
@@ -588,6 +570,7 @@ function ActiveProductEditPage({
         onRestore={productVariants.restoreVariant}
         onSave={productVariants.saveVariant}
       />
+
     </div>
   )
 }
@@ -701,7 +684,6 @@ function toFormValues(product: ProductDetail): UpdateProductRequest {
     name: product.name,
     shortDescription: product.shortDescription,
     lifecycleStatus: product.lifecycleStatus,
-    productStatus: product.productStatus,
     productCategory: product.productCategory,
     collectionId: product.collection?.id ?? null,
   }
