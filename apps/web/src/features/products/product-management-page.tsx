@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { SearchIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { PageHeader } from '@/components/app/page-header'
@@ -17,7 +17,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -36,6 +43,10 @@ import {
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { createProduct, listProducts } from '@/features/products/api/endpoints'
+import {
+  ProductTableActions,
+  type ProductActionFeedback,
+} from '@/features/products/components/product-table-actions'
 import { productListQueryKey } from '@/features/products/query-keys'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
@@ -94,14 +105,25 @@ export function ProductManagementPage({
   const { session } = useAppShell()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
-  const [lifecycleFilter, setLifecycleFilter] = useState<'all' | ProductLifecycleStatus>('all')
-  const [productStatusFilter, setProductStatusFilter] = useState<'all' | ProductStatus>('all')
+  const [lifecycleFilter, setLifecycleFilter] = useState<
+    'all' | ProductLifecycleStatus
+  >('all')
+  const [productStatusFilter, setProductStatusFilter] = useState<
+    'all' | ProductStatus
+  >('all')
   const [productCategoryFilter, setProductCategoryFilter] = useState<
     'all' | ProductCategory | 'none'
   >('all')
-  const [collectionFilter, setCollectionFilter] = useState<'all' | 'none' | `${number}`>('all')
+  const [collectionFilter, setCollectionFilter] = useState<
+    'all' | 'none' | `${number}`
+  >('all')
   const [includeDeletedFilter, setIncludeDeletedFilter] = useState(false)
-  const [createFeedbackMessage, setCreateFeedbackMessage] = useState<string | null>(null)
+  const [createFeedbackMessage, setCreateFeedbackMessage] = useState<
+    string | null
+  >(null)
+  const [actionFeedback, setActionFeedback] =
+    useState<ProductActionFeedback | null>(null)
+  const actionFeedbackRef = useRef<HTMLParagraphElement>(null)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const isAdmin = session.user.role === 'admin'
   const effectiveIncludeDeleted = isAdmin && includeDeletedFilter
@@ -112,24 +134,29 @@ export function ProductManagementPage({
   })
   const productsQuery = useQuery({
     queryKey: productsQueryKey,
-    queryFn: () => listProducts(session.token, { includeDeleted: effectiveIncludeDeleted }),
+    queryFn: () =>
+      listProducts(session.token, { includeDeleted: effectiveIncludeDeleted }),
   })
   const createProductMutation = useMutation({
-    mutationFn: (payload: CreateProductRequest) => createProduct(session.token, payload),
+    mutationFn: (payload: CreateProductRequest) =>
+      createProduct(session.token, payload),
     onSuccess: (createdProduct) => {
-      queryClient.setQueryData<ListProductsResponse>(productsQueryKey, (currentData) => {
-        if (!currentData) {
-          return {
-            products: [createdProduct],
-            collections: [],
+      queryClient.setQueryData<ListProductsResponse>(
+        productsQueryKey,
+        (currentData) => {
+          if (!currentData) {
+            return {
+              products: [createdProduct],
+              collections: [],
+            }
           }
-        }
 
-        return {
-          ...currentData,
-          products: [createdProduct, ...currentData.products],
-        }
-      })
+          return {
+            ...currentData,
+            products: [createdProduct, ...currentData.products],
+          }
+        },
+      )
 
       resetCreateForm()
       setCreateFeedbackMessage(`Created ${createdProduct.name}.`)
@@ -137,9 +164,20 @@ export function ProductManagementPage({
       setIsCreateDialogOpen(false)
     },
     onError: (error) => {
-      setSubmissionError(error instanceof Error ? error.message : 'Unable to create product.')
+      setSubmissionError(
+        error instanceof Error ? error.message : 'Unable to create product.',
+      )
     },
   })
+
+  useEffect(() => {
+    if (!actionFeedback?.focus) return
+    const focusFeedback = window.setTimeout(
+      () => actionFeedbackRef.current?.focus(),
+      50,
+    )
+    return () => window.clearTimeout(focusFeedback)
+  }, [actionFeedback])
 
   const onSubmit = form.handleSubmit(async (values) => {
     setCreateFeedbackMessage(null)
@@ -147,10 +185,15 @@ export function ProductManagementPage({
     await createProductMutation.mutateAsync(values)
   })
 
-  const products = [...(productsQuery.data?.products ?? [])].sort(compareProductsByNewestFirst)
+  const products = [...(productsQuery.data?.products ?? [])].sort(
+    compareProductsByNewestFirst,
+  )
   const collections = productsQuery.data?.collections ?? []
   const createNameValue = form.watch('name')
-  const createNameDuplicate = findDuplicateProductName(products, createNameValue)
+  const createNameDuplicate = findDuplicateProductName(
+    products,
+    createNameValue,
+  )
   const isCreatePending = createProductMutation.isPending
   const normalizedSearchValue = searchValue.trim().toLocaleLowerCase()
   const hasActiveFilters =
@@ -167,7 +210,8 @@ export function ProductManagementPage({
     const matchesLifecycle =
       lifecycleFilter === 'all' || product.lifecycleStatus === lifecycleFilter
     const matchesProductStatus =
-      productStatusFilter === 'all' || product.productStatus === productStatusFilter
+      productStatusFilter === 'all' ||
+      product.productStatus === productStatusFilter
     const matchesProductCategory =
       productCategoryFilter === 'all'
         ? true
@@ -209,9 +253,16 @@ export function ProductManagementPage({
               className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3"
               role="status"
             >
-              <p className="text-sm text-emerald-700">Deleted {deletedProductName}.</p>
+              <p className="text-sm text-emerald-700">
+                Deleted {deletedProductName}.
+              </p>
               {onDismissDeletedFeedback ? (
-                <Button type="button" variant="ghost" size="sm" onClick={onDismissDeletedFeedback}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onDismissDeletedFeedback}
+                >
                   Dismiss
                 </Button>
               ) : null}
@@ -224,6 +275,21 @@ export function ProductManagementPage({
               role="status"
             >
               {createFeedbackMessage}
+            </p>
+          ) : null}
+
+          {actionFeedback ? (
+            <p
+              ref={actionFeedbackRef}
+              className={
+                actionFeedback.type === 'success'
+                  ? 'rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700'
+                  : 'rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive'
+              }
+              role={actionFeedback.type === 'success' ? 'status' : 'alert'}
+              tabIndex={actionFeedback.focus ? -1 : undefined}
+            >
+              {actionFeedback.message}
             </p>
           ) : null}
 
@@ -246,10 +312,7 @@ export function ProductManagementPage({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
                 <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
-                  <label
-                    className="sr-only"
-                    htmlFor="product-name-search"
-                  >
+                  <label className="sr-only" htmlFor="product-name-search">
                     Search by product name
                   </label>
                   <div className="relative">
@@ -274,7 +337,9 @@ export function ProductManagementPage({
                     value={lifecycleFilter}
                     placeholder="All lifecycle statuses"
                     onValueChange={(value) =>
-                      setLifecycleFilter(value as 'all' | ProductLifecycleStatus)
+                      setLifecycleFilter(
+                        value as 'all' | ProductLifecycleStatus,
+                      )
                     }
                     options={[
                       { value: 'all', label: 'All lifecycle statuses' },
@@ -286,8 +351,13 @@ export function ProductManagementPage({
                     label="Product Status"
                     value={productStatusFilter}
                     placeholder="All product statuses"
-                    onValueChange={(value) => setProductStatusFilter(value as 'all' | ProductStatus)}
-                    options={[{ value: 'all', label: 'All product statuses' }, ...productStatusOptions]}
+                    onValueChange={(value) =>
+                      setProductStatusFilter(value as 'all' | ProductStatus)
+                    }
+                    options={[
+                      { value: 'all', label: 'All product statuses' },
+                      ...productStatusOptions,
+                    ]}
                   />
 
                   <FilterSelect
@@ -295,7 +365,9 @@ export function ProductManagementPage({
                     value={productCategoryFilter}
                     placeholder="All product categories"
                     onValueChange={(value) =>
-                      setProductCategoryFilter(value as 'all' | ProductCategory | 'none')
+                      setProductCategoryFilter(
+                        value as 'all' | ProductCategory | 'none',
+                      )
                     }
                     options={[
                       { value: 'all', label: 'All product categories' },
@@ -308,7 +380,9 @@ export function ProductManagementPage({
                     label="Collection"
                     value={collectionFilter}
                     placeholder="All collections"
-                    onValueChange={(value) => setCollectionFilter(value as 'all' | 'none' | `${number}`)}
+                    onValueChange={(value) =>
+                      setCollectionFilter(value as 'all' | 'none' | `${number}`)
+                    }
                     options={[
                       { value: 'all', label: 'All collections' },
                       { value: 'none', label: 'No collection' },
@@ -322,12 +396,18 @@ export function ProductManagementPage({
                   {isAdmin ? (
                     <Button
                       type="button"
-                      variant={effectiveIncludeDeleted ? 'secondary' : 'outline'}
+                      variant={
+                        effectiveIncludeDeleted ? 'secondary' : 'outline'
+                      }
                       size="sm"
                       aria-pressed={effectiveIncludeDeleted}
-                      onClick={() => setIncludeDeletedFilter((currentValue) => !currentValue)}
+                      onClick={() =>
+                        setIncludeDeletedFilter((currentValue) => !currentValue)
+                      }
                     >
-                      {effectiveIncludeDeleted ? 'Including deleted' : 'Include deleted'}
+                      {effectiveIncludeDeleted
+                        ? 'Including deleted'
+                        : 'Include deleted'}
                     </Button>
                   ) : null}
                 </div>
@@ -347,9 +427,12 @@ export function ProductManagementPage({
 
               {products.length === 0 ? (
                 <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-                  <p className="text-sm font-medium text-foreground">No products registered yet.</p>
+                  <p className="text-sm font-medium text-foreground">
+                    No products registered yet.
+                  </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Start with a product name and let the workflow default to Concept and Active.
+                    Start with a product name and let the workflow default to
+                    Concept and Active.
                   </p>
                 </div>
               ) : filteredProducts.length === 0 ? (
@@ -358,7 +441,8 @@ export function ProductManagementPage({
                     No products match the current search and filters.
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Adjust the search term or select different filters to broaden the visible set.
+                    Adjust the search term or select different filters to
+                    broaden the visible set.
                   </p>
                 </div>
               ) : (
@@ -371,6 +455,7 @@ export function ProductManagementPage({
                       <TableHead>Status</TableHead>
                       <TableHead>Lifecycle</TableHead>
                       <TableHead>Created</TableHead>
+                      <TableHead className="w-12 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -398,7 +483,9 @@ export function ProductManagementPage({
                         </TableCell>
                         <TableCell className="py-3 align-top whitespace-normal">
                           <StatusBadge
-                            label={toProductCategoryLabel(product.productCategory)}
+                            label={toProductCategoryLabel(
+                              product.productCategory,
+                            )}
                             tone="muted"
                           />
                         </TableCell>
@@ -408,14 +495,24 @@ export function ProductManagementPage({
                               <StatusBadge label="Deleted" tone="warning" />
                             ) : null}
                             <StatusBadge
-                              label={toProductStatusLabel(product.productStatus)}
-                              tone={product.productStatus === 'active' ? 'success' : 'muted'}
+                              label={toProductStatusLabel(
+                                product.productStatus,
+                              )}
+                              tone={
+                                product.productStatus === 'active'
+                                  ? 'success'
+                                  : 'muted'
+                              }
                             />
                           </div>
                         </TableCell>
                         <TableCell className="py-3 align-top whitespace-normal">
                           <div className="flex flex-wrap gap-1.5">
-                            <StatusBadge label={toLifecycleStatusLabel(product.lifecycleStatus)} />
+                            <StatusBadge
+                              label={toLifecycleStatusLabel(
+                                product.lifecycleStatus,
+                              )}
+                            />
                           </div>
                         </TableCell>
                         <TableCell className="py-3 align-top whitespace-normal">
@@ -423,8 +520,21 @@ export function ProductManagementPage({
                             <p className="text-sm font-medium leading-5 text-foreground">
                               {product.createdBy.email}
                             </p>
-                            <p className="text-sm text-muted-foreground">{formatCreatedAt(product.createdAt)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {formatCreatedAt(product.createdAt)}
+                            </p>
                           </div>
+                        </TableCell>
+                        <TableCell className="py-2 text-right align-top">
+                          <ProductTableActions
+                            focusFeedbackOnAvailabilitySuccess={
+                              productStatusFilter !== 'all'
+                            }
+                            isAdmin={isAdmin}
+                            product={product}
+                            token={session.token}
+                            onFeedback={setActionFeedback}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -434,9 +544,12 @@ export function ProductManagementPage({
             </div>
           ) : !productsQuery.isLoading && !productsQuery.isError ? (
             <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">No products registered yet.</p>
+              <p className="text-sm font-medium text-foreground">
+                No products registered yet.
+              </p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Start with a product name and let the workflow default to Concept and Active.
+                Start with a product name and let the workflow default to
+                Concept and Active.
               </p>
             </div>
           ) : null}
@@ -448,7 +561,8 @@ export function ProductManagementPage({
           <DialogHeader>
             <DialogTitle>Create product</DialogTitle>
             <DialogDescription>
-              Register a bridal-design product with the minimum required input, then refine it in later slices.
+              Register a bridal-design product with the minimum required input,
+              then refine it in later slices.
             </DialogDescription>
           </DialogHeader>
 
@@ -461,12 +575,17 @@ export function ProductManagementPage({
                   <FormItem>
                     <FormLabel>Product name</FormLabel>
                     <FormControl>
-                      <Input {...field} className="h-11 rounded-xl" autoFocus disabled={isCreatePending} />
+                      <Input
+                        {...field}
+                        className="h-11 rounded-xl"
+                        autoFocus
+                        disabled={isCreatePending}
+                      />
                     </FormControl>
                     {createNameDuplicate ? (
                       <p className="text-sm text-amber-700" role="status">
-                        Active product {createNameDuplicate.name} already uses this name. You can
-                        still create another record.
+                        Active product {createNameDuplicate.name} already uses
+                        this name. You can still create another record.
                       </p>
                     ) : null}
                     <FormMessage />
@@ -484,7 +603,9 @@ export function ProductManagementPage({
                       <Select
                         disabled={isCreatePending}
                         value={field.value}
-                        onValueChange={(value) => field.onChange(value as ProductLifecycleStatus)}
+                        onValueChange={(value) =>
+                          field.onChange(value as ProductLifecycleStatus)
+                        }
                       >
                         <FormControl>
                           <SelectTrigger className="h-11 w-full rounded-xl">
@@ -503,7 +624,6 @@ export function ProductManagementPage({
                     </FormItem>
                   )}
                 />
-
               </div>
 
               {submissionError ? (
@@ -579,14 +699,22 @@ type FilterSelectProps = {
   value: string
 }
 
-function FilterSelect({ label, onValueChange, options, placeholder, value }: FilterSelectProps) {
+function FilterSelect({
+  label,
+  onValueChange,
+  options,
+  placeholder,
+  value,
+}: FilterSelectProps) {
   return (
     <div className="min-w-[10rem] flex-1 sm:flex-none">
-      <label className="sr-only">
-        {label}
-      </label>
+      <label className="sr-only">{label}</label>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger aria-label={label} className="h-9 w-full min-w-[10rem] rounded-lg px-2.5" size="sm">
+        <SelectTrigger
+          aria-label={label}
+          className="h-9 w-full min-w-[10rem] rounded-lg px-2.5"
+          size="sm"
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -601,16 +729,25 @@ function FilterSelect({ label, onValueChange, options, placeholder, value }: Fil
   )
 }
 
-function compareProductsByNewestFirst(left: ProductSummary, right: ProductSummary) {
+function compareProductsByNewestFirst(
+  left: ProductSummary,
+  right: ProductSummary,
+) {
   return Date.parse(right.createdAt) - Date.parse(left.createdAt)
 }
 
 function toLifecycleStatusLabel(status: ProductLifecycleStatus) {
-  return lifecycleStatusOptions.find((option) => option.value === status)?.label ?? status
+  return (
+    lifecycleStatusOptions.find((option) => option.value === status)?.label ??
+    status
+  )
 }
 
 function toProductStatusLabel(status: ProductStatus) {
-  return productStatusOptions.find((option) => option.value === status)?.label ?? status
+  return (
+    productStatusOptions.find((option) => option.value === status)?.label ??
+    status
+  )
 }
 
 function toProductCategoryLabel(category: ProductCategory | null) {
@@ -618,7 +755,10 @@ function toProductCategoryLabel(category: ProductCategory | null) {
     return 'No category'
   }
 
-  return productCategoryOptions.find((option) => option.value === category)?.label ?? category
+  return (
+    productCategoryOptions.find((option) => option.value === category)?.label ??
+    category
+  )
 }
 
 function formatCreatedAt(createdAt: string) {

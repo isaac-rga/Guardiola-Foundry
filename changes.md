@@ -1,6 +1,6 @@
-# Product Availability Is an Independent Product-Page Action
+# Product Operations Are Available From Both Product Surfaces
 
-Admin and Operator users can now activate or inactivate a Product without saving or discarding pending Product-detail edits. Product Status is read-only record metadata, Product-detail updates no longer own it, and Product availability remains independent from Product Variant availability.
+Admin and Operator users can now operate a Product from its page or directly from the Product list. Product Status remains an independent availability action, and the list adds the valid navigation, availability, deletion, and role-sensitive recovery operations without removing the Product-name link.
 
 ## Dedicated Availability Contracts
 
@@ -19,6 +19,18 @@ Activation changes only Product Status to Active. It does not activate Product V
 The [Product page](apps/web/src/features/products/product-edit-page.tsx) removes the Product Status field from the edit form and shows the current status in Record metadata. The page header shows the valid `Activate Product` or `Inactivate Product` action. The focused [Product availability action](apps/web/src/features/products/components/product-availability-action.tsx) owns the dialog and action feedback while the page keeps the Product API mutation state. Its scope choice uses the shared shadcn/ui [Radio Group](apps/web/src/components/ui/radio-group.tsx) primitive.
 
 Inactivation opens one dialog. Product-only is the default when an Active Product Variant exists. The user can instead inactivate the Product and every currently Active Product Variant. When no Product Variant is Active, the dialog shows only Product confirmation. Activation runs directly without a dialog.
+
+## Product-List Action Workflow
+
+The [Product list](apps/web/src/features/products/product-management-page.tsx) ends with a narrow `Actions` column using the established Bills of Materials ellipsis-menu pattern. Each trigger names its Product for assistive technology, while the Product name remains a direct typed route link. The focused [Product table actions component](apps/web/src/features/products/components/product-table-actions.tsx) owns the menu, row-specific mutations, confirmations, and focus recovery instead of expanding the list page with action internals.
+
+Non-deleted Products expose Edit, exactly one valid availability transition, and Delete. Deleted Products expose View and Admin-only Restore; Operator menus do not include recovery. Edit and View are real links, so standard browser navigation behavior remains available.
+
+List inactivation reuses the same [Product inactivation dialog](apps/web/src/features/products/components/product-availability-action.tsx) as the Product page. Product Variants load only when the dialog opens. Product-only remains the default, the bulk choice targets every currently Active Product Variant through the existing atomic endpoint, and the meaningless Variant choice stays hidden when no Variant is Active. Activation continues to call the direct Product-only action.
+
+Delete uses a Product-specific confirmation and the existing soft-delete mutation. Restore calls the existing Admin-only recovery endpoint, including its required-Variant recovery behavior for exceptional empty Products. Availability cache updates immediately change row status and active filter membership; Delete removes the row from normal results; Restore refreshes deleted and normal list caches. Success and action-specific errors are visible without a page reload.
+
+Each row owns its pending action state, so unrelated rows remain enabled. Dialog cancellation and successful availability actions return focus to the originating menu trigger while it remains mounted. When an availability filter removes the changed row, or deletion removes it, focus moves to visible completion feedback instead. Direct-action failures return focus to the trigger; dialog failures keep focus and the selected scope inside the dialog for retry.
 
 Availability pending, success, and error feedback is separate from Product-detail save feedback. The action does not submit or reset the React Hook Form state. Pending field values and the dirty state remain after successful and failed availability actions.
 
@@ -56,6 +68,7 @@ flowchart LR
 
     subgraph web["Web Application · React"]
         productPage["Product Page<br/>Shows read-only Product Status<br/>Preserves pending edits<br/>Runs availability actions"]
+        productList["Product List<br/>Status-aware action menu<br/>Delete and Admin recovery<br/>Immediate row and filter updates"]
     end
 
     subgraph api["API Application · AdonisJS"]
@@ -64,7 +77,9 @@ flowchart LR
     end
 
     user --> productPage
+    user --> productList
     productPage -->|"POST activate or inactivate<br/>Update and invalidate caches"| controller
+    productList -->|"Operate Product<br/>Update and invalidate caches"| controller
     controller --> service
     service -->|"Lock Product and commit atomically"| database
 ```
@@ -126,11 +141,16 @@ The focused tests prove these behaviors:
 - Pending, success, and error states are visible and action-specific.
 - Availability success and failure preserve unsaved form values and the dirty state without sending a Product-detail update.
 - Cache behavior refreshes Product Variant candidates for every availability action and Product Variant lists after bulk inactivation.
+- The Product table has a trailing accessible action menu while Product names remain direct links; the View menu link performs a real route transition to the deleted Product page.
+- Menu contents follow Product state and User role: Edit/one valid availability action/Delete for non-deleted Products, and View/Admin-only Restore for deleted Products.
+- List activation and both inactivation scopes update row status, feedback, and active filters without reload; filtered transitions focus feedback after removing their row, and no-active-Variant inactivation omits the Variant choice.
+- Product-specific Delete confirmation removes the row from normal results, while Restore refreshes the row through the existing recovery boundary.
+- Pending state is limited to the operated row. Focused failure-and-retry coverage proves that Activate and Restore return focus to their menu trigger, Delete remains in its confirmation, bulk inactivation preserves its selected scope, and successful row-removing actions focus completion feedback.
 
 ## Focused Verification
 
 - API Product create and availability tests — 17/17 passed before review remediation; the affected Product availability tests were rerun after remediation — 7/7 passed.
-- Product route tests — 16/16 passed.
+- Product route tests — 24/24 passed.
 - Product cache/query tests — 3/3 passed.
 - Shared Types, Shared Validation, API, and Web TypeScript checks — passed before review remediation; the affected API and Web TypeScript checks were rerun after remediation — passed.
 - Focused API ESLint — passed; focused web and shared-package Oxlint — passed.
@@ -141,13 +161,14 @@ Verification limits: Product route tests emitted pre-existing, non-failing React
 
 ## Scope Boundaries
 
-- Product-table availability actions remain outside this issue.
 - Product Variant edit and delete workflows are unchanged.
 - Activation does not remember or restore a previous Product Variant status set.
 - Inactivation does not support selection of individual Product Variants.
 - Deleted Product visibility and restoration permissions are unchanged.
 - The complete `pnpm quality` gate did not run.
 - Existing unrelated working-tree changes remain preserved.
+
+This list slice completes the remaining Product-surface operations in the Product Variant Baseline and Product Availability Actions PRD. The invariant, migration, creation, Variant deletion protection, Product-page availability, and transactional server behavior remain owned by the preceding approved slices and their focused evidence.
 
 ## Commit State
 

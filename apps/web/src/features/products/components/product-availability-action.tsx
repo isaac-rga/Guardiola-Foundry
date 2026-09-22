@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { RefObject } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -12,7 +13,7 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import type { ProductStatus } from '@guardiola-foundry/shared-types'
 
-type ProductAvailabilityActionRequest =
+export type ProductAvailabilityActionRequest =
   | { type: 'activate' }
   | { type: 'inactivate'; inactivateVariants: boolean }
 
@@ -25,16 +26,15 @@ export function ProductAvailabilityAction({
   productStatus,
 }: {
   availabilityError: Error | null
-  changeAvailability: (request: ProductAvailabilityActionRequest) => Promise<unknown>
+  changeAvailability: (
+    request: ProductAvailabilityActionRequest,
+  ) => Promise<unknown>
   disabled: boolean
   hasActiveVariants: boolean
   isChangingAvailability: boolean
   productStatus: ProductStatus
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [inactivationScope, setInactivationScope] = useState<'product' | 'product-and-variants'>(
-    'product'
-  )
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const onActivate = async () => {
@@ -48,25 +48,6 @@ export function ProductAvailabilityAction({
     }
   }
 
-  const onInactivate = async () => {
-    setSuccessMessage(null)
-    const inactivateVariants =
-      hasActiveVariants && inactivationScope === 'product-and-variants'
-
-    try {
-      await changeAvailability({ type: 'inactivate', inactivateVariants })
-      setSuccessMessage(
-        inactivateVariants
-          ? 'Product and active Product Variants inactivated.'
-          : 'Product inactivated.'
-      )
-      setIsDialogOpen(false)
-      setInactivationScope('product')
-    } catch {
-      // Keep the dialog and selected scope in place so the user can retry.
-    }
-  }
-
   return (
     <div className="flex flex-col items-end gap-2">
       <Button
@@ -77,7 +58,6 @@ export function ProductAvailabilityAction({
           setSuccessMessage(null)
 
           if (productStatus === 'active') {
-            setInactivationScope('product')
             setIsDialogOpen(true)
             return
           }
@@ -118,80 +98,173 @@ export function ProductAvailabilityAction({
         </p>
       ) : null}
 
-      <Dialog
+      <ProductInactivationDialog
+        availabilityError={availabilityError}
+        changeAvailability={changeAvailability}
+        hasActiveVariants={hasActiveVariants}
+        isChangingAvailability={isChangingAvailability}
         open={isDialogOpen}
-        onOpenChange={(open) => {
-          if (isChangingAvailability) return
-          setIsDialogOpen(open)
-
-          if (!open) setInactivationScope('product')
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Inactivate Product?</DialogTitle>
-            <DialogDescription>
-              Choose whether to inactivate only this Product or also every Product Variant that is currently Active.
-            </DialogDescription>
-          </DialogHeader>
-
-          {hasActiveVariants ? (
-            <fieldset disabled={isChangingAvailability}>
-              <legend className="sr-only">Inactivation scope</legend>
-              <RadioGroup
-                aria-label="Inactivation scope"
-                value={inactivationScope}
-                onValueChange={(value) =>
-                  setInactivationScope(value as 'product' | 'product-and-variants')
-                }
-              >
-                <label className="flex items-start gap-3 rounded-xl border border-border p-4">
-                  <RadioGroupItem id="product-only" value="product" />
-                  <span>
-                    <span className="block text-sm font-medium">Product only</span>
-                    <span className="block text-sm text-muted-foreground">
-                      Keep every Product Variant status unchanged.
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 rounded-xl border border-border p-4">
-                  <RadioGroupItem id="product-and-variants" value="product-and-variants" />
-                  <span>
-                    <span className="block text-sm font-medium">Product and Active Variants</span>
-                    <span className="block text-sm text-muted-foreground">
-                      Also inactivate every Product Variant that is Active when this action runs.
-                    </span>
-                  </span>
-                </label>
-              </RadioGroup>
-            </fieldset>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This Product has no Active Product Variants, so only the Product will be inactivated.
-            </p>
-          )}
-
-          {availabilityError ? (
-            <p className="text-sm text-destructive" role="alert">
-              {availabilityError.message}
-            </p>
-          ) : null}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isChangingAvailability}
-              onClick={() => setIsDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="button" disabled={isChangingAvailability} onClick={() => void onInactivate()}>
-              {isChangingAvailability ? 'Inactivating Product…' : 'Inactivate Product'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setIsDialogOpen}
+        onSuccess={setSuccessMessage}
+      />
     </div>
   )
+}
+
+export function ProductInactivationDialog({
+  availabilityError,
+  changeAvailability,
+  hasActiveVariants,
+  isChangingAvailability,
+  isLoadingVariants = false,
+  onOpenChange,
+  onSuccess,
+  open,
+  returnFocusRef,
+  variantLoadError = null,
+}: {
+  availabilityError: Error | null
+  changeAvailability: (
+    request: ProductAvailabilityActionRequest,
+  ) => Promise<unknown>
+  hasActiveVariants: boolean
+  isChangingAvailability: boolean
+  isLoadingVariants?: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: (message: string) => void
+  open: boolean
+  returnFocusRef?: RefObject<HTMLButtonElement | null>
+  variantLoadError?: Error | null
+}) {
+  const [inactivationScope, setInactivationScope] = useState<
+    'product' | 'product-and-variants'
+  >('product')
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusRef?.current) return
+          event.preventDefault()
+          returnFocusRef.current.focus()
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Inactivate Product?</DialogTitle>
+          <DialogDescription>
+            Choose whether to inactivate only this Product or also every Product
+            Variant that is currently Active.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoadingVariants ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Loading Product Variants…
+          </p>
+        ) : variantLoadError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {variantLoadError.message}
+          </p>
+        ) : hasActiveVariants ? (
+          <fieldset disabled={isChangingAvailability}>
+            <legend className="sr-only">Inactivation scope</legend>
+            <RadioGroup
+              aria-label="Inactivation scope"
+              value={inactivationScope}
+              onValueChange={(value) =>
+                setInactivationScope(
+                  value as 'product' | 'product-and-variants',
+                )
+              }
+            >
+              <label className="flex items-start gap-3 rounded-xl border border-border p-4">
+                <RadioGroupItem id="product-only" value="product" />
+                <span>
+                  <span className="block text-sm font-medium">
+                    Product only
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Keep every Product Variant status unchanged.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-border p-4">
+                <RadioGroupItem
+                  id="product-and-variants"
+                  value="product-and-variants"
+                />
+                <span>
+                  <span className="block text-sm font-medium">
+                    Product and Active Variants
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Also inactivate every Product Variant that is Active when
+                    this action runs.
+                  </span>
+                </span>
+              </label>
+            </RadioGroup>
+          </fieldset>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This Product has no Active Product Variants, so only the Product
+            will be inactivated.
+          </p>
+        )}
+
+        {availabilityError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {availabilityError.message}
+          </p>
+        ) : null}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isChangingAvailability}
+            onClick={() => handleOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={
+              isChangingAvailability ||
+              isLoadingVariants ||
+              variantLoadError !== null
+            }
+            onClick={() => void onInactivate()}
+          >
+            {isChangingAvailability
+              ? 'Inactivating Product…'
+              : 'Inactivate Product'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (isChangingAvailability) return
+    onOpenChange(nextOpen)
+    if (!nextOpen) setInactivationScope('product')
+  }
+
+  async function onInactivate() {
+    const inactivateVariants =
+      hasActiveVariants && inactivationScope === 'product-and-variants'
+
+    try {
+      await changeAvailability({ type: 'inactivate', inactivateVariants })
+      onSuccess(
+        inactivateVariants
+          ? 'Product and active Product Variants inactivated.'
+          : 'Product inactivated.',
+      )
+      handleOpenChange(false)
+    } catch {
+      // Keep the dialog and selected scope in place so the user can retry.
+    }
+  }
 }
