@@ -93,6 +93,14 @@ test.group('Bills of Materials', (group) => {
       productOnlyId,
       'Editorial'
     )
+    const productOnlyVariantsResponse = await client
+      .get(`/products/${productOnlyId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    productOnlyVariantsResponse.assertStatus(200)
+    const productOnlyBaseId = productOnlyVariantsResponse
+      .body()
+      .variants.find((variant: { name: string }) => variant.name === 'Base').id as string
 
     const response = await client
       .get('/bills-of-materials/product-variant-candidates?search=celeste%20showroom')
@@ -101,7 +109,7 @@ test.group('Bills of Materials', (group) => {
     response.assertStatus(200)
     assert.deepEqual(
       response.body().items.map((candidate: { id: string }) => candidate.id),
-      [mixedFieldVariantId, productOnlyVariantId]
+      [mixedFieldVariantId, productOnlyBaseId, productOnlyVariantId]
     )
   })
 
@@ -132,6 +140,14 @@ test.group('Bills of Materials', (group) => {
       secondaryProductId,
       'Editorial'
     )
+    const secondaryVariantsResponse = await client
+      .get(`/products/${secondaryProductId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    secondaryVariantsResponse.assertStatus(200)
+    const secondaryBaseId = secondaryVariantsResponse
+      .body()
+      .variants.find((variant: { name: string }) => variant.name === 'Base').id as string
 
     const response = await client
       .get('/bills-of-materials/product-variant-candidates?search=showroom')
@@ -140,7 +156,7 @@ test.group('Bills of Materials', (group) => {
     response.assertStatus(200)
     assert.deepEqual(
       response.body().items.map((candidate: { id: string }) => candidate.id),
-      [eligibleWordMatchId, occupiedWordMatchId, secondaryContextId]
+      [eligibleWordMatchId, occupiedWordMatchId, secondaryBaseId, secondaryContextId]
     )
   })
 
@@ -293,9 +309,8 @@ test.group('Bills of Materials', (group) => {
     client,
   }) => {
     const session = await authenticateAs(client, 'operator')
-    const inactiveProductId = await createProduct(client, session.token, 'Inactive Jackie', {
-      productStatus: 'inactive',
-    })
+    const inactiveProductId = await createProduct(client, session.token, 'Inactive Jackie')
+    await updateProduct(client, session.token, inactiveProductId, 'Inactive Jackie', 'inactive')
     const deletedProductId = await createProduct(client, session.token, 'Deleted Paloma')
     await client
       .delete(`/products/${deletedProductId}`)

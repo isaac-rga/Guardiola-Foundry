@@ -17,7 +17,7 @@ export async function createProduct(
   client: any,
   token: string,
   name: string,
-  overrides?: { lifecycleStatus?: string; productStatus?: string }
+  overrides?: { lifecycleStatus?: string }
 ) {
   const response = await client
     .post('/products')

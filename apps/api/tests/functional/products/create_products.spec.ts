@@ -1,6 +1,6 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
-import User from '#models/user'
+import { authenticateAs } from '#tests/functional/products/support/product_test_support'
 import db from '@adonisjs/lucid/services/db'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
@@ -17,7 +17,7 @@ test.group('Products create flow', (group) => {
     await Promise.all(COLLECTION_NAMES.map((name) => Collection.firstOrCreate({ name })))
   })
 
-  test('creates a product with persisted defaults and returns it in the newest-first list', async ({
+  test('creates an Active product with an owned Active Base Variant', async ({
     assert,
     client,
   }) => {
@@ -28,12 +28,14 @@ test.group('Products create flow', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
       .json({
         name: '  Valencia Gown  ',
+        lifecycleStatus: 'testing',
+        productStatus: 'inactive',
       })
 
     createResponse.assertStatus(201)
     createResponse.assertBodyContains({
       name: 'Valencia Gown',
-      lifecycleStatus: 'concept',
+      lifecycleStatus: 'testing',
       productStatus: 'active',
       productCategory: null,
       createdBy: {
@@ -45,6 +47,23 @@ test.group('Products create flow', (group) => {
     assert.match(createResponse.body().id, /^P-[A-Z2-9]{6}$/)
     assert.exists(createResponse.body().createdAt)
 
+    const variantsResponse = await client
+      .get(`/products/${createResponse.body().id}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    variantsResponse.assertStatus(200)
+    variantsResponse.assertBodyContains({
+      variants: [
+        {
+          productId: createResponse.body().id,
+          name: 'Base',
+          status: 'active',
+          deletedAt: null,
+        },
+      ],
+    })
+    assert.match(variantsResponse.body().variants[0].id, /^PV-[A-Z2-9]{6}$/)
+
     const listResponse = await client
       .get('/products')
       .header('Authorization', `Bearer ${session.token}`)
@@ -55,7 +74,7 @@ test.group('Products create flow', (group) => {
         {
           id: createResponse.body().id,
           name: 'Valencia Gown',
-          lifecycleStatus: 'concept',
+          lifecycleStatus: 'testing',
           productStatus: 'active',
           productCategory: null,
         },
@@ -64,9 +83,7 @@ test.group('Products create flow', (group) => {
     })
   })
 
-  test('allows lifecycle status, product status, and collection overrides during creation', async ({
-    client,
-  }) => {
+  test('allows lifecycle status and collection overrides during creation', async ({ client }) => {
     const session = await authenticateAs(client, 'operator')
     const collection = await Collection.findByOrFail('name', '2026')
 
@@ -76,7 +93,6 @@ test.group('Products create flow', (group) => {
       .json({
         name: 'Mila Cape',
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         collectionId: collection.id,
       })
 
@@ -84,7 +100,7 @@ test.group('Products create flow', (group) => {
     response.assertBodyContains({
       name: 'Mila Cape',
       lifecycleStatus: 'testing',
-      productStatus: 'inactive',
+      productStatus: 'active',
       productCategory: null,
       collection: {
         id: collection.id,
@@ -94,6 +110,47 @@ test.group('Products create flow', (group) => {
         email: 'operator@example.com',
       },
     })
+  })
+
+  test('leaves no Product when initial Base Variant creation fails', async ({ assert, client }) => {
+    const session = await authenticateAs(client, 'admin')
+
+    await db.rawQuery(`
+      CREATE FUNCTION reject_initial_base_variant() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.name = 'Base' THEN
+          RAISE EXCEPTION 'forced initial Product Variant failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      CREATE TRIGGER reject_initial_base_variant
+      BEFORE INSERT ON product_variants
+      FOR EACH ROW EXECUTE FUNCTION reject_initial_base_variant();
+    `)
+
+    try {
+      const response = await client
+        .post('/products')
+        .header('Authorization', `Bearer ${session.token}`)
+        .json({ name: 'Must roll back' })
+
+      response.assertStatus(500)
+    } finally {
+      await db.rawQuery('DROP TRIGGER reject_initial_base_variant ON product_variants')
+      await db.rawQuery('DROP FUNCTION reject_initial_base_variant()')
+    }
+
+    const listResponse = await client
+      .get('/products')
+      .header('Authorization', `Bearer ${session.token}`)
+
+    listResponse.assertStatus(200)
+    assert.notInclude(
+      listResponse.body().products.map((product: { name: string }) => product.name),
+      'Must roll back'
+    )
   })
 
   test('lists products newest first', async ({ assert, client }) => {
@@ -249,7 +306,7 @@ test.group('Products create flow', (group) => {
       shortDescription: 'Silk sample for fittings',
       image: null,
       lifecycleStatus: 'testing',
-      productStatus: 'inactive',
+      productStatus: 'active',
       productCategory: 'dress',
       collection: {
         id: collection.id,
@@ -457,70 +514,6 @@ test.group('Products create flow', (group) => {
     )
   })
 
-  test('restores a deleted Product for admins and rejects non-admin recovery', async ({
-    assert,
-    client,
-  }) => {
-    const adminSession = await authenticateAs(client, 'admin')
-
-    const createResponse = await client
-      .post('/products')
-      .header('Authorization', `Bearer ${adminSession.token}`)
-      .json({
-        name: 'Recoverable Sample',
-        lifecycleStatus: 'approved',
-        productStatus: 'active',
-      })
-
-    createResponse.assertStatus(201)
-
-    const deleteResponse = await client
-      .delete(`/products/${createResponse.body().id}`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    deleteResponse.assertStatus(204)
-
-    const operatorSession = await authenticateAs(client, 'operator')
-    const forbiddenRestoreResponse = await client
-      .post(`/products/${createResponse.body().id}/restore`)
-      .header('Authorization', `Bearer ${operatorSession.token}`)
-
-    forbiddenRestoreResponse.assertStatus(403)
-    forbiddenRestoreResponse.assertBodyContains({
-      message: 'Only admins can restore deleted Products.',
-    })
-
-    const restoreResponse = await client
-      .post(`/products/${createResponse.body().id}/restore`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    restoreResponse.assertStatus(204)
-
-    const restoredProduct = await db
-      .from('products')
-      .select(['lifecycle_status', 'product_status', 'deleted_at'])
-      .where('public_id', createResponse.body().id)
-      .firstOrFail()
-
-    assert.equal(restoredProduct.lifecycle_status, 'approved')
-    assert.equal(restoredProduct.product_status, 'inactive')
-    assert.isNull(restoredProduct.deleted_at)
-
-    const showResponse = await client
-      .get(`/products/${createResponse.body().id}`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    showResponse.assertStatus(200)
-    showResponse.assertBodyContains({
-      state: 'active',
-      product: {
-        id: createResponse.body().id,
-        lifecycleStatus: 'approved',
-        productStatus: 'inactive',
-      },
-    })
-  })
-
   test('returns a deleted Product state for deleted records and 404 for nonexistent Product IDs', async ({
     client,
   }) => {
@@ -565,28 +558,6 @@ test.group('Products create flow', (group) => {
     })
   })
 })
-
-async function authenticateAs(client: any, role: 'admin' | 'operator') {
-  await User.firstOrCreate(
-    {
-      email: `${role}@example.com`,
-    },
-    {
-      password: 'Password123',
-      role,
-      active: true,
-    }
-  )
-
-  const response = await client.post('/auth/login').json({
-    email: `${role}@example.com`,
-    password: 'Password123',
-  })
-
-  response.assertStatus(200)
-
-  return response.body() as { token: string }
-}
 
 async function clearStoredProductImages() {
   await mkdir(PRODUCT_IMAGE_DIRECTORY, { recursive: true })

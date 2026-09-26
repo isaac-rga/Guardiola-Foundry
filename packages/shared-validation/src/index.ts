@@ -6,6 +6,7 @@ import type {
   DeletedProductDetail,
   GetProductResponse,
   HealthResponse,
+  InactivateProductRequest,
   ListProductsResponse,
   LoginRequest,
   ProductCollection,
@@ -127,7 +128,6 @@ export const getProductResponseSchema = z.discriminatedUnion('state', [
 export const createProductRequestSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required.'),
   lifecycleStatus: productLifecycleStatusSchema.optional(),
-  productStatus: productStatusSchema.optional(),
   collectionId: z.number().int().positive().nullable().optional(),
 }) satisfies z.ZodType<CreateProductRequest>
 
@@ -143,7 +143,10 @@ export const updateProductRequestSchema = z.object({
     return normalizedValue.length > 0 ? normalizedValue : null
   }),
   lifecycleStatus: productLifecycleStatusSchema,
-  productStatus: productStatusSchema,
   productCategory: productCategorySchema.nullable(),
   collectionId: z.number().int().positive().nullable(),
 }) satisfies z.ZodType<UpdateProductRequest>
+
+export const inactivateProductRequestSchema = z.object({
+  inactivateVariants: z.boolean().optional(),
+}) satisfies z.ZodType<InactivateProductRequest>

@@ -5,3 +5,7 @@ export function productListQueryKey(includeDeleted: boolean) {
 export function productDetailQueryKey(productId: string) {
   return ['products', 'detail', productId] as const
 }
+
+export function productVariantsQueryPrefix(productId: string) {
+  return ['products', 'detail', productId, 'variants'] as const
+}

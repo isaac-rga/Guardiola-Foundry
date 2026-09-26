@@ -3,6 +3,7 @@
 Type: grilling
 Status: resolved
 Blocked by: 01
+Superseded in part by: [ADR 0003](../../../docs/adr/0003-require-product-variants-and-separate-availability-actions.md)
 
 ## Question
 

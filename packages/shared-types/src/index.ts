@@ -101,7 +101,6 @@ export type GetProductResponse =
 export interface CreateProductRequest {
   name: string
   lifecycleStatus?: ProductLifecycleStatus
-  productStatus?: ProductStatus
   collectionId?: number | null
 }
 
@@ -109,9 +108,12 @@ export interface UpdateProductRequest {
   name: string
   shortDescription: string | null
   lifecycleStatus: ProductLifecycleStatus
-  productStatus: ProductStatus
   productCategory: ProductCategory | null
   collectionId: number | null
+}
+
+export interface InactivateProductRequest {
+  inactivateVariants?: boolean
 }
 
 export * from './materials.js'

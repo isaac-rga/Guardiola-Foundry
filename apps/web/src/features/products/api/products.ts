@@ -1,20 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   GetProductResponse,
+  InactivateProductRequest,
   ListProductsResponse,
   ProductDetail,
 } from '@guardiola-foundry/shared-types'
 
 import { invalidateProductVariantCandidates } from '@/features/bills-of-materials/api/query-keys'
 import {
+  activateProduct,
   deleteProduct,
   getProduct,
+  inactivateProduct,
   listProducts,
   restoreProduct,
   updateProduct,
   type UpdateProductInput,
 } from './endpoints'
-import { productDetailQueryKey, productListQueryKey } from '../query-keys'
+import { productDetailQueryKey, productListQueryKey, productVariantsQueryPrefix } from '../query-keys'
 
 export function useProductDetail(token: string, productId: string) {
   return useQuery({
@@ -75,6 +78,43 @@ export function useUpdateProduct(token: string, productId: string) {
     updateProduct: mutation.mutateAsync,
     isSaving: mutation.isPending,
     updateError: mutation.error,
+  }
+}
+
+export function useProductAvailability(token: string, productId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (action: { type: 'activate' } | ({ type: 'inactivate' } & InactivateProductRequest)) =>
+      action.type === 'activate'
+        ? activateProduct(token, productId)
+        : inactivateProduct(token, productId, {
+            inactivateVariants: action.inactivateVariants,
+          }),
+    onSuccess: async (updatedProduct, action) => {
+      queryClient.setQueryData<GetProductResponse>(productDetailQueryKey(productId), (currentData) => {
+        if (currentData?.state !== 'active') return currentData
+        return { ...currentData, product: updatedProduct }
+      })
+      updateProductInListCaches(queryClient, updatedProduct)
+
+      const invalidations = [invalidateProductVariantCandidates(queryClient)]
+
+      if (action.type === 'inactivate' && action.inactivateVariants === true) {
+        invalidations.push(
+          queryClient.invalidateQueries({
+            queryKey: productVariantsQueryPrefix(productId),
+          })
+        )
+      }
+
+      await Promise.all(invalidations)
+    },
+  })
+
+  return {
+    changeAvailability: mutation.mutateAsync,
+    isChangingAvailability: mutation.isPending,
+    availabilityError: mutation.error,
   }
 }
 

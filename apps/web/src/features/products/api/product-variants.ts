@@ -13,6 +13,7 @@ import type {
   ProductVariant,
   UpdateProductVariantRequest,
 } from '@guardiola-foundry/shared-types'
+import { productVariantsQueryPrefix } from '../query-keys'
 
 export function useProductVariants(
   token: string,
@@ -80,10 +81,6 @@ export function useProductVariants(
     deleteVariant: deleteMutation.mutateAsync,
     restoreVariant: restoreMutation.mutateAsync,
   }
-}
-
-function productVariantsQueryPrefix(productId: string) {
-  return ['products', 'detail', productId, 'variants'] as const
 }
 
 function productVariantsQueryKey(productId: string, includeDeleted: boolean) {

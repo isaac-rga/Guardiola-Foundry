@@ -1,11 +1,16 @@
 import app from '@adonisjs/core/services/app'
 import Collection from '#models/collection'
 import Product from '#models/product'
+import ProductVariant from '#models/product_variant'
+import { createInitialProductVariant } from '#modules/products/product_variants_service'
+import { lockProductIncludingDeleted } from '#modules/products/lock_product'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
+import db from '@adonisjs/lucid/services/db'
 import type {
   CreateProductRequest,
   DeletedProductDetail,
   GetProductResponse,
+  InactivateProductRequest,
   ListProductsResponse,
   ProductDetail,
   ProductSummary,
@@ -51,20 +56,26 @@ export async function createProduct(
     }
   }
 
-  const product = await Product.create({
-    publicId: await generateProductId(),
-    name: payload.name,
-    lifecycleStatus: payload.lifecycleStatus ?? DEFAULT_LIFECYCLE_STATUS,
-    productStatus: payload.productStatus ?? DEFAULT_PRODUCT_STATUS,
-    productCategory: null,
-    shortDescription: null,
-    collectionId,
-    createdByUserId,
+  return db.transaction(async (trx) => {
+    const product = await Product.create(
+      {
+        publicId: await generateProductId(),
+        name: payload.name,
+        lifecycleStatus: payload.lifecycleStatus ?? DEFAULT_LIFECYCLE_STATUS,
+        productStatus: DEFAULT_PRODUCT_STATUS,
+        productCategory: null,
+        shortDescription: null,
+        collectionId,
+        createdByUserId,
+      },
+      { client: trx }
+    )
+
+    await createInitialProductVariant(product.id, trx)
+    await preloadProductRelations(product)
+
+    return serializeProductSummary(product)
   })
-
-  await preloadProductRelations(product)
-
-  return serializeProductSummary(product)
 }
 
 export async function getProduct(productId: string): Promise<GetProductResponse | 'not-found'> {
@@ -126,7 +137,6 @@ export async function updateProduct(
     name: payload.name,
     shortDescription: payload.shortDescription,
     lifecycleStatus: payload.lifecycleStatus,
-    productStatus: payload.productStatus,
     productCategory: payload.productCategory,
     collectionId,
   })
@@ -143,6 +153,48 @@ export async function updateProduct(
   return serializeProductDetail(product)
 }
 
+export async function activateProduct(productId: string): Promise<ProductDetail | 'not-found'> {
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
+
+    if (!product || product.deletedAt) {
+      return 'not-found'
+    }
+
+    product.productStatus = 'active'
+    await product.save()
+    await preloadProductRelations(product)
+
+    return serializeProductDetail(product)
+  })
+}
+
+export async function inactivateProduct(
+  productId: string,
+  payload: InactivateProductRequest
+): Promise<ProductDetail | 'not-found'> {
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
+
+    if (!product || product.deletedAt) {
+      return 'not-found'
+    }
+
+    if (payload.inactivateVariants === true) {
+      await ProductVariant.query({ client: trx })
+        .where('productId', product.id)
+        .where('status', 'active')
+        .update({ status: 'inactive' })
+    }
+
+    product.productStatus = 'inactive'
+    await product.save()
+    await preloadProductRelations(product)
+
+    return serializeProductDetail(product)
+  })
+}
+
 export async function softDeleteProduct(productId: string): Promise<'not-found' | 'deleted'> {
   const product = await Product.query().where('publicId', productId).first()
 
@@ -157,17 +209,28 @@ export async function softDeleteProduct(productId: string): Promise<'not-found' 
 }
 
 export async function restoreProduct(productId: string): Promise<'not-found' | 'restored'> {
-  const product = await Product.queryWithDeleted().where('publicId', productId).first()
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productId, trx)
 
-  if (!product || !product.deletedAt) {
-    return 'not-found'
-  }
+    if (!product || !product.deletedAt) {
+      return 'not-found'
+    }
 
-  await product.restore()
-  product.productStatus = 'inactive'
-  await product.save()
+    const existingVariant = await ProductVariant.query({ client: trx })
+      .where('productId', product.id)
+      .forUpdate()
+      .first()
 
-  return 'restored'
+    if (!existingVariant) {
+      await createInitialProductVariant(product.id, trx)
+    }
+
+    await product.restore()
+    product.productStatus = 'inactive'
+    await product.save()
+
+    return 'restored'
+  })
 }
 
 function serializeProductSummary(product: Product): ProductSummary {

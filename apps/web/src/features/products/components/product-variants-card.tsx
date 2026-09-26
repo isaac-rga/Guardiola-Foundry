@@ -86,6 +86,7 @@ export function ProductVariantsCard({
     }
   })
   const isProductActive = product.productStatus === 'active'
+  const nonDeletedVariantCount = variants.filter((variant) => !variant.deletedAt).length
 
   return (
     <>
@@ -203,15 +204,22 @@ export function ProductVariantsCard({
                             >
                               Edit
                             </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={isChangingAvailability}
-                              onClick={() => openDeleteDialog(variant)}
-                            >
-                              Delete
-                            </Button>
+                            <div className="flex flex-col items-end gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isChangingAvailability || nonDeletedVariantCount === 1}
+                                onClick={() => openDeleteDialog(variant)}
+                              >
+                                Delete
+                              </Button>
+                              {nonDeletedVariantCount === 1 ? (
+                                <p className="max-w-48 whitespace-normal text-xs text-muted-foreground">
+                                  Create another Product Variant before deleting this one.
+                                </p>
+                              ) : null}
+                            </div>
                           </>
                         )}
                       </div>

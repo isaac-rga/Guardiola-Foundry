@@ -42,6 +42,8 @@ router
     router.post('/products', [ProductsController, 'store'])
     router.get('/products/:productId', [ProductsController, 'show'])
     router.put('/products/:productId', [ProductsController, 'update'])
+    router.post('/products/:productId/activate', [ProductsController, 'activate'])
+    router.post('/products/:productId/inactivate', [ProductsController, 'inactivate'])
     router.delete('/products/:productId', [ProductsController, 'destroy'])
     router.post('/products/:productId/restore', [ProductsController, 'restore'])
     router.get('/products/:productId/variants', [ProductVariantsController, 'index'])

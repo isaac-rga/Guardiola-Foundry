@@ -1,5 +1,6 @@
 import Product from '#models/product'
 import ProductVariant from '#models/product_variant'
+import { lockProductIncludingDeleted } from '#modules/products/lock_product'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type {
@@ -20,7 +21,11 @@ export type ProductVariantMutationResult =
   | 'product-unavailable'
   | 'variant-not-found'
 
-type ProductVariantDeletionResult = 'deleted' | 'product-not-found' | 'variant-not-found'
+type ProductVariantDeletionResult =
+  | 'deleted'
+  | 'last-variant'
+  | 'product-not-found'
+  | 'variant-not-found'
 
 type ProductVariantRestorationResult =
   | ProductVariantContract
@@ -57,11 +62,7 @@ export async function createProductVariant(
 ): Promise<ProductVariantMutationResult> {
   try {
     return await db.transaction(async (trx) => {
-      const productQuery = Product.query({ client: trx })
-        .where('publicId', productPublicId)
-        .forUpdate()
-      Product.includeDeleted(productQuery)
-      const product = await productQuery.first()
+      const product = await lockProductIncludingDeleted(productPublicId, trx)
 
       if (!product) {
         return 'product-not-found'
@@ -94,6 +95,21 @@ export async function createProductVariant(
 
     throw error
   }
+}
+
+export async function createInitialProductVariant(
+  productId: number,
+  trx: TransactionClientContract
+) {
+  return ProductVariant.create(
+    {
+      publicId: await generateProductVariantId(trx),
+      productId,
+      name: 'Base',
+      status: 'active',
+    },
+    { client: trx }
+  )
 }
 
 export async function updateProductVariant(
@@ -146,24 +162,30 @@ export async function softDeleteProductVariant(
   productPublicId: string,
   variantPublicId: string
 ): Promise<ProductVariantDeletionResult> {
-  const product = await findProductWithDeleted(productPublicId)
+  return db.transaction(async (trx) => {
+    const product = await lockProductIncludingDeleted(productPublicId, trx)
 
-  if (!product) {
-    return 'product-not-found'
-  }
+    if (!product) {
+      return 'product-not-found'
+    }
 
-  const variant = await ProductVariant.query()
-    .where('publicId', variantPublicId)
-    .where('productId', product.id)
-    .first()
+    const variants = await ProductVariant.query({ client: trx })
+      .where('productId', product.id)
+      .forUpdate()
+    const variant = variants.find((candidate) => candidate.publicId === variantPublicId)
 
-  if (!variant) {
-    return 'variant-not-found'
-  }
+    if (!variant) {
+      return 'variant-not-found'
+    }
 
-  await variant.softDelete()
+    if (variants.length === 1) {
+      return 'last-variant'
+    }
 
-  return 'deleted'
+    await variant.softDelete()
+
+    return 'deleted'
+  })
 }
 
 export async function restoreProductVariant(
@@ -172,11 +194,7 @@ export async function restoreProductVariant(
 ): Promise<ProductVariantRestorationResult> {
   try {
     return await db.transaction(async (trx) => {
-      const productQuery = Product.query({ client: trx })
-        .where('publicId', productPublicId)
-        .forUpdate()
-      Product.includeDeleted(productQuery)
-      const product = await productQuery.first()
+      const product = await lockProductIncludingDeleted(productPublicId, trx)
 
       if (!product) {
         return 'product-not-found'

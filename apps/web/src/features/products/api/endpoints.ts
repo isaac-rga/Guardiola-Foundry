@@ -2,6 +2,7 @@ import {
   createProductRequestSchema,
   createProductVariantRequestSchema,
   getProductResponseSchema,
+  inactivateProductRequestSchema,
   listProductVariantsResponseSchema,
   listProductsResponseSchema,
   productDetailSchema,
@@ -14,6 +15,7 @@ import type {
   CreateProductRequest,
   CreateProductVariantRequest,
   GetProductResponse,
+  InactivateProductRequest,
   ListProductsResponse,
   ListProductVariantsResponse,
   ProductDetail,
@@ -108,7 +110,6 @@ export async function updateProduct(
   formData.set('name', parsedPayload.name)
   formData.set('shortDescription', parsedPayload.shortDescription ?? '')
   formData.set('lifecycleStatus', parsedPayload.lifecycleStatus)
-  formData.set('productStatus', parsedPayload.productStatus)
   formData.set('productCategory', parsedPayload.productCategory ?? '')
   formData.set('collectionId', parsedPayload.collectionId === null ? '' : `${parsedPayload.collectionId}`)
 
@@ -132,6 +133,44 @@ export async function updateProduct(
 
   if (!response.ok) {
     throw new Error(getResponseErrorMessage(body, 'Unable to save product changes.'))
+  }
+
+  return productDetailSchema.parse(body)
+}
+
+export async function activateProduct(token: string, productId: string): Promise<ProductDetail> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/activate`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to activate Product.'))
+  }
+
+  return productDetailSchema.parse(body)
+}
+
+export async function inactivateProduct(
+  token: string,
+  productId: string,
+  payload: InactivateProductRequest
+): Promise<ProductDetail> {
+  const response = await fetch(resolveApiUrl(`/products/${productId}/inactivate`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(inactivateProductRequestSchema.parse(payload)),
+  })
+  const body = await response.json()
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(body, 'Unable to inactivate Product.'))
   }
 
   return productDetailSchema.parse(body)

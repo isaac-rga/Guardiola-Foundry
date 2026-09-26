@@ -1,6 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,58 +45,65 @@ describe('products route', () => {
   it('creates a product with default statuses and shows it immediately in the list', async () => {
     const user = userEvent.setup()
     let resolveCreateRequest!: (value: Response) => void
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
 
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: [],
-          collections: [
-            { id: 1, name: '2025' },
-            { id: 2, name: '2026' },
-            { id: 3, name: '2027' },
-          ],
-        })
-      }
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [],
+            collections: [
+              { id: 1, name: '2025' },
+              { id: 2, name: '2026' },
+              { id: 3, name: '2027' },
+            ],
+          })
+        }
 
-      if (url.endsWith('/products') && init?.method === 'POST') {
-        return await new Promise<Response>((resolve) => {
-          resolveCreateRequest = resolve
-        })
-      }
+        if (url.endsWith('/products') && init?.method === 'POST') {
+          return await new Promise<Response>((resolve) => {
+            resolveCreateRequest = resolve
+          })
+        }
 
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(await screen.findByText('No products registered yet.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('No products registered yet.'),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Create product' }))
     const createDialog = screen.getByRole('dialog')
-    await user.type(within(createDialog).getByLabelText('Product name'), 'Valencia Gown')
+    expect(
+      within(createDialog).queryByRole('combobox', { name: 'Product Status' }),
+    ).not.toBeInTheDocument()
+    await user.type(
+      within(createDialog).getByLabelText('Product name'),
+      'Valencia Gown',
+    )
     await user.click(screen.getByRole('button', { name: /^Create product$/i }))
 
-    expect(screen.getByRole('button', { name: 'Creating product…' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Creating product…' }),
+    ).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(within(createDialog).getByLabelText('Product name')).toBeDisabled()
-    expect(within(createDialog).getByRole('status')).toHaveTextContent('Creating product…')
+    expect(within(createDialog).getByRole('status')).toHaveTextContent(
+      'Creating product…',
+    )
 
     resolveCreateRequest(
       jsonResponse(
@@ -102,8 +120,8 @@ describe('products route', () => {
             email: 'admin@example.com',
           },
         },
-        { status: 201 }
-      )
+        { status: 201 },
+      ),
     )
 
     await waitFor(() => {
@@ -118,93 +136,95 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'Valencia Gown',
             lifecycleStatus: 'concept',
-            productStatus: 'active',
           }),
-        })
+        }),
       )
     })
 
-    expect(await screen.findByText('Created Valencia Gown.')).toBeInTheDocument()
-    expect(await screen.findByText('Valencia Gown')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Created Valencia Gown.'),
+    ).toBeInTheDocument()
+    const createdProductRow = await screen.findByRole('row', {
+      name: /Valencia Gown/,
+    })
+    expect(within(createdProductRow).getByText('Active')).toBeInTheDocument()
     expect(screen.queryByText('P-AB12CD')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('shows a live duplicate-name warning in create without blocking submission', async () => {
     const user = userEvent.setup()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
 
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: [
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              {
+                id: 'P-EXIST1',
+                name: 'Valencia Gown',
+                lifecycleStatus: 'concept',
+                productStatus: 'active',
+                productCategory: null,
+                collection: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+                createdBy: {
+                  id: 1,
+                  email: 'admin@example.com',
+                },
+              },
+            ],
+            collections: [],
+          })
+        }
+
+        if (url.endsWith('/products') && init?.method === 'POST') {
+          return jsonResponse(
             {
-              id: 'P-EXIST1',
-              name: 'Valencia Gown',
+              id: 'P-NEW123',
+              name: 'valencia gown',
               lifecycleStatus: 'concept',
               productStatus: 'active',
               productCategory: null,
               collection: null,
-              createdAt: '2026-07-01T18:33:00.000Z',
+              createdAt: '2026-07-02T18:33:00.000Z',
               createdBy: {
                 id: 1,
                 email: 'admin@example.com',
               },
             },
-          ],
-          collections: [],
-        })
-      }
+            { status: 201 },
+          )
+        }
 
-      if (url.endsWith('/products') && init?.method === 'POST') {
-        return jsonResponse(
-          {
-            id: 'P-NEW123',
-            name: 'valencia gown',
-            lifecycleStatus: 'concept',
-            productStatus: 'active',
-            productCategory: null,
-            collection: null,
-            createdAt: '2026-07-02T18:33:00.000Z',
-            createdBy: {
-              id: 1,
-              email: 'admin@example.com',
-            },
-          },
-          { status: 201 }
-        )
-      }
-
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Create product' }))
     const createDialog = screen.getByRole('dialog')
-    await user.type(within(createDialog).getByLabelText('Product name'), '  valencia gown  ')
+    await user.type(
+      within(createDialog).getByLabelText('Product name'),
+      '  valencia gown  ',
+    )
 
     expect(
       screen.getByText(
-        'Active product Valencia Gown already uses this name. You can still create another record.'
-      )
+        'Active product Valencia Gown already uses this name. You can still create another record.',
+      ),
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Create product$/i }))
@@ -217,77 +237,78 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'valencia gown',
             lifecycleStatus: 'concept',
-            productStatus: 'active',
           }),
-        })
+        }),
       )
     })
 
-    expect(await screen.findByText('Created valencia gown.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Created valencia gown.'),
+    ).toBeInTheDocument()
   })
 
-  it('submits explicit lifecycle and product status overrides from the modal', async () => {
+  it('submits an explicit lifecycle override without Product Status', async () => {
     const user = userEvent.setup()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
 
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: [],
-          collections: [],
-        })
-      }
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [],
+            collections: [],
+          })
+        }
 
-      if (url.endsWith('/products') && init?.method === 'POST') {
-        return jsonResponse(
-          {
-            id: 'P-ZX98QP',
-            name: 'Mila Cape',
-            lifecycleStatus: 'testing',
-            productStatus: 'inactive',
-            productCategory: null,
-            collection: null,
-            createdAt: '2026-07-01T18:33:00.000Z',
-            createdBy: {
-              id: 1,
-              email: 'admin@example.com',
+        if (url.endsWith('/products') && init?.method === 'POST') {
+          return jsonResponse(
+            {
+              id: 'P-ZX98QP',
+              name: 'Mila Cape',
+              lifecycleStatus: 'testing',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
             },
-          },
-          { status: 201 }
-        )
-      }
+            { status: 201 },
+          )
+        }
 
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
 
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'Create product' }))
       const createDialog = screen.getByRole('dialog')
-      await user.type(within(createDialog).getByLabelText('Product name'), 'Mila Cape')
-      await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
+      await user.type(
+        within(createDialog).getByLabelText('Product name'),
+        'Mila Cape',
+      )
+      await user.click(
+        screen.getByRole('combobox', { name: 'Lifecycle Status' }),
+      )
       await user.click(await screen.findByRole('option', { name: 'Testing' }))
-      await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
-      await user.click(await screen.findByRole('option', { name: 'Inactive' }))
-      await user.click(screen.getByRole('button', { name: /^Create product$/i }))
+      await user.click(
+        screen.getByRole('button', { name: /^Create product$/i }),
+      )
     })
 
     await waitFor(() => {
@@ -298,9 +319,8 @@ describe('products route', () => {
           body: JSON.stringify({
             name: 'Mila Cape',
             lifecycleStatus: 'testing',
-            productStatus: 'inactive',
           }),
-        })
+        }),
       )
     })
   })
@@ -311,16 +331,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.endsWith('/products') && init?.method === 'GET') {
@@ -380,7 +391,9 @@ describe('products route', () => {
 
     renderProductsRoute()
 
-    expect(await screen.findByPlaceholderText('Search products by name')).toBeInTheDocument()
+    expect(
+      await screen.findByPlaceholderText('Search products by name'),
+    ).toBeInTheDocument()
     expect(await screen.findByText('Bianca Veil')).toBeInTheDocument()
     expect(screen.getByText('Celeste Sketch')).toBeInTheDocument()
     expect(screen.getByText('Aster Dress')).toBeInTheDocument()
@@ -391,26 +404,47 @@ describe('products route', () => {
     expect(pageText).toHaveTextContent('No category')
     expect(pageText).toHaveTextContent('2025')
 
-    const newestProductRow = screen.getByRole('link', { name: 'Bianca Veil' }).closest('tr')
+    const newestProductRow = screen
+      .getByRole('link', { name: 'Bianca Veil' })
+      .closest('tr')
 
     expect(newestProductRow).not.toBeNull()
-    const newestProductRowContent = within(newestProductRow as HTMLTableRowElement)
+    const newestProductRowContent = within(
+      newestProductRow as HTMLTableRowElement,
+    )
 
-    expect(newestProductRowContent.getByText('No collection')).toBeInTheDocument()
+    expect(
+      newestProductRowContent.getByText('No collection'),
+    ).toBeInTheDocument()
     expect(newestProductRowContent.getByText('Accessory')).toBeInTheDocument()
     expect(newestProductRowContent.getByText('Inactive')).toBeInTheDocument()
     expect(newestProductRowContent.getByText('Testing')).toBeInTheDocument()
-    expect(newestProductRowContent.getByText('operator@example.com')).toBeInTheDocument()
+    expect(
+      newestProductRowContent.getByText('operator@example.com'),
+    ).toBeInTheDocument()
     expect(newestProductRowContent.getByText('Jul 1, 2026')).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Collection' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Category' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Lifecycle' })).toBeInTheDocument()
-    expect(screen.queryByRole('columnheader', { name: 'Record' })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Collection' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Category' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Status' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Lifecycle' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Record' }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Stable short ID')).not.toBeInTheDocument()
     expect(screen.queryByText('P-NEWEST')).not.toBeInTheDocument()
 
-    await user.type(screen.getByPlaceholderText('Search products by name'), 'celeste')
+    await user.type(
+      screen.getByPlaceholderText('Search products by name'),
+      'celeste',
+    )
 
     expect(screen.getByText('Celeste Sketch')).toBeInTheDocument()
     expect(screen.queryByText('Bianca Veil')).not.toBeInTheDocument()
@@ -423,89 +457,71 @@ describe('products route', () => {
     expect(screen.queryByText('Aster Dress')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('combobox', { name: 'Collection' }))
-    await user.click(await screen.findByRole('option', { name: 'No collection' }))
+    await user.click(
+      await screen.findByRole('option', { name: 'No collection' }),
+    )
 
     expect(
-      screen.getByText('No products match the current search and filters.')
+      screen.getByText('No products match the current search and filters.'),
     ).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Clear search and filters' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Clear search and filters' }),
+    )
 
     expect(screen.getByText('Bianca Veil')).toBeInTheDocument()
     expect(screen.getByText('Aster Dress')).toBeInTheDocument()
   })
 
-  it('loads a product page directly, shows metadata, and saves edits only when explicitly submitted', async () => {
+  it('shows the valid accessible list actions for each Product state while keeping Product names linked', async () => {
     const user = userEvent.setup()
-    let resolveSaveRequest!: (value: Response) => void
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return authMeResponse()
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
         return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
+          products: [
+            productSummary({ id: 'P-ACTIVE', name: 'Active Gown' }),
+            productSummary({
+              id: 'P-INACTIVE',
+              name: 'Inactive Gown',
+              productStatus: 'inactive',
+            }),
+            productSummary({
+              id: 'P-DELETED',
+              name: 'Deleted Gown',
+              productStatus: 'inactive',
+              deletedAt: '2026-07-08T18:33:00.000Z',
+            }),
+          ],
+          collections: [],
         })
       }
 
-      if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
+      if (url.pathname === '/products/P-DELETED' && init?.method === 'GET') {
         return jsonResponse({
-          state: 'active',
+          state: 'deleted',
           product: {
-            id: 'P-AB12CD',
-            name: 'Valencia Gown',
+            id: 'P-DELETED',
+            name: 'Deleted Gown',
             shortDescription: null,
             image: null,
-            lifecycleStatus: 'testing',
+            lifecycleStatus: 'concept',
             productStatus: 'inactive',
-            productCategory: 'dress',
-            collection: { id: 2, name: '2026' },
+            productCategory: null,
+            collection: null,
+            deletedAt: '2026-07-08T18:33:00.000Z',
             createdAt: '2026-07-01T18:33:00.000Z',
             createdBy: {
               id: 1,
               email: 'admin@example.com',
             },
           },
-          collections: [
-            { id: 1, name: '2025' },
-            { id: 2, name: '2026' },
-          ],
-        })
-      }
-
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: [
-            {
-              id: 'P-AB12CD',
-              name: 'Valencia Gown',
-              lifecycleStatus: 'concept',
-              productStatus: 'active',
-              productCategory: null,
-              collection: null,
-              createdAt: '2026-07-01T18:33:00.000Z',
-              createdBy: {
-                id: 1,
-                email: 'admin@example.com',
-              },
-            },
-          ],
-          collections: [
-            { id: 1, name: '2025' },
-            { id: 2, name: '2026' },
-          ],
-        })
-      }
-
-      if (url.endsWith('/products/P-AB12CD') && init?.method === 'PUT') {
-        return await new Promise<Response>((resolve) => {
-          resolveSaveRequest = resolve
         })
       }
 
@@ -513,26 +529,786 @@ describe('products route', () => {
     })
 
     seedStoredSession()
+    renderProductsRoute()
+
+    expect(
+      await screen.findByRole('columnheader', { name: 'Actions' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Active Gown' })).toHaveAttribute(
+      'href',
+      '/app/products/P-ACTIVE',
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Active Gown' }),
+    )
+    let menu = screen.getByRole('menu')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Edit Product' }),
+    ).toHaveAttribute('href', '/app/products/P-ACTIVE')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Inactivate Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Delete Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Activate Product' }),
+    ).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Inactive Gown' }),
+    )
+    menu = screen.getByRole('menu')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Edit Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Activate Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Delete Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Inactivate Product' }),
+    ).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Deleted Gown' }),
+    )
+    menu = screen.getByRole('menu')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'View Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Restore Product' }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Delete Product' }),
+    ).not.toBeInTheDocument()
+    await user.click(
+      within(menu).getByRole('menuitem', { name: 'View Product' }),
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Deleted Gown' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Deleted product')).toBeInTheDocument()
+  })
+
+  it('omits deleted-Product recovery from an Operator list menu', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return authMeResponse('operator')
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            productSummary({
+              id: 'P-DELETED',
+              name: 'Deleted Gown',
+              productStatus: 'inactive',
+              deletedAt: '2026-07-08T18:33:00.000Z',
+            }),
+          ],
+          collections: [],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession('operator')
+    renderProductsRoute()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Actions for Deleted Gown' }),
+    )
+    const menu = screen.getByRole('menu')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'View Product' }),
+    ).toHaveAttribute('href', '/app/products/P-DELETED')
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Restore Product' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('activates a Product from the list, updates the active filter, and leaves unrelated rows enabled', async () => {
+    const user = userEvent.setup()
+    let activationAttempts = 0
+    let resolveActivation!: (value: Response) => void
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+
+        if (url.pathname === '/auth/me') {
+          return authMeResponse('operator')
+        }
+
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              productSummary({
+                id: 'P-INACTIVE',
+                name: 'Inactive Gown',
+                productStatus: 'inactive',
+              }),
+              productSummary({
+                id: 'P-OTHER',
+                name: 'Other Inactive Gown',
+                productStatus: 'inactive',
+              }),
+            ],
+            collections: [],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-INACTIVE/activate' &&
+          init?.method === 'POST'
+        ) {
+          activationAttempts += 1
+
+          if (activationAttempts === 1) {
+            return jsonResponse(
+              { message: 'Product activation failed.' },
+              { status: 500 },
+            )
+          }
+
+          return await new Promise<Response>((resolve) => {
+            resolveActivation = resolve
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession('operator')
+    renderProductsRoute()
+
+    expect(await screen.findByText('Inactive Gown')).toBeInTheDocument()
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Product Status' }),
+    )
+    await user.click(await screen.findByRole('option', { name: 'Inactive' }))
+    const actionTrigger = screen.getByRole('button', {
+      name: 'Actions for Inactive Gown',
+    })
+    await user.click(actionTrigger)
+    await user.click(screen.getByRole('menuitem', { name: 'Activate Product' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Product activation failed.',
+    )
+    expect(actionTrigger).toHaveFocus()
+
+    await user.click(actionTrigger)
+    await user.click(screen.getByRole('menuitem', { name: 'Activate Product' }))
+
+    expect(actionTrigger).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Actions for Other Inactive Gown' }),
+    ).toBeEnabled()
+
+    resolveActivation(
+      jsonResponse({
+        ...productSummary({ id: 'P-INACTIVE', name: 'Inactive Gown' }),
+        shortDescription: null,
+        image: null,
+      }),
+    )
+
+    const feedback = await screen.findByText('Product activated.')
+    await waitFor(() => expect(feedback).toHaveFocus())
+    expect(screen.queryByText('Inactive Gown')).not.toBeInTheDocument()
+    expect(screen.getByText('Other Inactive Gown')).toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/products/P-INACTIVE/activate',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('inactivates only the Product by default and returns focus to its action menu', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+
+        if (url.pathname === '/auth/me') {
+          return authMeResponse('operator')
+        }
+
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          return jsonResponse({
+            products: [productSummary({ id: 'P-ACTIVE', name: 'Active Gown' })],
+            collections: [],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-ACTIVE/variants' &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse({
+            variants: [
+              {
+                id: 'PV-BASE01',
+                productId: 'P-ACTIVE',
+                name: 'Base',
+                status: 'active',
+                deletedAt: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-ACTIVE/inactivate' &&
+          init?.method === 'POST'
+        ) {
+          return jsonResponse({
+            ...productSummary({
+              id: 'P-ACTIVE',
+              name: 'Active Gown',
+              productStatus: 'inactive',
+            }),
+            shortDescription: null,
+            image: null,
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession('operator')
+    renderProductsRoute()
+
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Product Status' }),
+    )
+    await user.click(await screen.findByRole('option', { name: 'Active' }))
+    const actionTrigger = await screen.findByRole('button', {
+      name: 'Actions for Active Gown',
+    })
+    await user.click(actionTrigger)
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Inactivate Product' }),
+    )
+
+    let dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    expect(
+      await within(dialog).findByRole('radio', { name: /Product only/ }),
+    ).toBeChecked()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(actionTrigger).toHaveFocus()
+
+    await user.click(actionTrigger)
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Inactivate Product' }),
+    )
+    dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Inactivate Product' }),
+    )
+
+    const feedback = await screen.findByText('Product inactivated.')
+    await waitFor(() => expect(feedback).toHaveFocus())
+    expect(screen.queryByText('Active Gown')).not.toBeInTheDocument()
+    const inactivationRequest = fetchSpy.mock.calls.find(
+      ([requestUrl, request]) =>
+        String(requestUrl).endsWith('/products/P-ACTIVE/inactivate') &&
+        request?.method === 'POST',
+    )?.[1]
+    expect(inactivationRequest?.body).toBe(
+      JSON.stringify({ inactivateVariants: false }),
+    )
+  })
+
+  it('retries failed bulk inactivation from the list without losing dialog focus or scope', async () => {
+    const user = userEvent.setup()
+    let inactivationAttempts = 0
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+
+        if (url.pathname === '/auth/me') {
+          return authMeResponse()
+        }
+
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          return jsonResponse({
+            products: [productSummary({ id: 'P-BULK', name: 'Bulk Gown' })],
+            collections: [],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-BULK/variants' &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse({
+            variants: [
+              {
+                id: 'PV-BULK01',
+                productId: 'P-BULK',
+                name: 'Base',
+                status: 'active',
+                deletedAt: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-BULK/inactivate' &&
+          init?.method === 'POST'
+        ) {
+          inactivationAttempts += 1
+
+          if (inactivationAttempts === 1) {
+            return jsonResponse(
+              { message: 'Product availability could not be changed.' },
+              { status: 500 },
+            )
+          }
+
+          return jsonResponse({
+            ...productSummary({
+              id: 'P-BULK',
+              name: 'Bulk Gown',
+              productStatus: 'inactive',
+            }),
+            shortDescription: null,
+            image: null,
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession()
+    renderProductsRoute()
+
+    await user.click(
+      await screen.findByRole('combobox', { name: 'Product Status' }),
+    )
+    await user.click(await screen.findByRole('option', { name: 'Active' }))
+    const actionTrigger = await screen.findByRole('button', {
+      name: 'Actions for Bulk Gown',
+    })
+    await user.click(actionTrigger)
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Inactivate Product' }),
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    await user.click(
+      await within(dialog).findByRole('radio', {
+        name: /Product and Active Variants/,
+      }),
+    )
+    const submitButton = within(dialog).getByRole('button', {
+      name: 'Inactivate Product',
+    })
+    await user.click(submitButton)
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Product availability could not be changed.',
+    )
+    expect(submitButton).toHaveFocus()
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      }),
+    ).toBeChecked()
+
+    await user.click(submitButton)
+
+    const feedback = await screen.findByText(
+      'Product and active Product Variants inactivated.',
+    )
+    await waitFor(() => expect(feedback).toHaveFocus())
+    expect(screen.queryByText('Bulk Gown')).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Clear search and filters' }),
+    )
+    const updatedRow = await screen.findByRole('row', { name: /Bulk Gown/ })
+    expect(within(updatedRow).getByText('Inactive')).toBeInTheDocument()
+    await user.click(
+      within(updatedRow).getByRole('button', { name: 'Actions for Bulk Gown' }),
+    )
+    expect(
+      screen.getByRole('menuitem', { name: 'Activate Product' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Inactivate Product' }),
+    ).not.toBeInTheDocument()
+    const inactivationRequests = fetchSpy.mock.calls.filter(
+      ([requestUrl, request]) =>
+        String(requestUrl).endsWith('/products/P-BULK/inactivate') &&
+        request?.method === 'POST',
+    )
+    expect(inactivationRequests).toHaveLength(2)
+    expect(inactivationRequests[0]?.[1]?.body).toBe(
+      JSON.stringify({ inactivateVariants: true }),
+    )
+    expect(inactivationRequests[1]?.[1]?.body).toBe(
+      JSON.stringify({ inactivateVariants: true }),
+    )
+  })
+
+  it('offers only Product inactivation from the list when no Product Variant is Active', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+
+      if (url.pathname === '/auth/me') {
+        return authMeResponse('operator')
+      }
+
+      if (url.pathname === '/products' && init?.method === 'GET') {
+        return jsonResponse({
+          products: [
+            productSummary({ id: 'P-NOACTIVE', name: 'No Active Variants' }),
+          ],
+          collections: [],
+        })
+      }
+
+      if (
+        url.pathname === '/products/P-NOACTIVE/variants' &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse({ variants: [] })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession('operator')
+    renderProductsRoute()
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Actions for No Active Variants',
+      }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Inactivate Product' }),
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+
+    expect(
+      await within(dialog).findByText(/no Active Product Variants/),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument()
+  })
+
+  it('confirms Product deletion from the list and focuses feedback after the row is removed', async () => {
+    const user = userEvent.setup()
+    let deletionAttempts = 0
+    let resolveDeletion!: (value: Response) => void
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+
+        if (url.pathname === '/auth/me') {
+          return authMeResponse()
+        }
+
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              productSummary({ id: 'P-DELETE', name: 'Delete Gown' }),
+              productSummary({ id: 'P-KEEP', name: 'Keep Gown' }),
+            ],
+            collections: [],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-DELETE' &&
+          init?.method === 'DELETE'
+        ) {
+          deletionAttempts += 1
+
+          if (deletionAttempts === 1) {
+            return jsonResponse(
+              { message: 'Product deletion failed.' },
+              { status: 500 },
+            )
+          }
+
+          return await new Promise<Response>((resolve) => {
+            resolveDeletion = resolve
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession()
+    renderProductsRoute()
+
+    const actionTrigger = await screen.findByRole('button', {
+      name: 'Actions for Delete Gown',
+    })
+    await user.click(actionTrigger)
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Product' }))
+
+    let dialog = screen.getByRole('dialog', { name: 'Delete Product?' })
+    expect(within(dialog).getByText(/Delete Gown/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(actionTrigger).toHaveFocus()
+
+    await user.click(actionTrigger)
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Product' }))
+    dialog = screen.getByRole('dialog', { name: 'Delete Product?' })
+    const deleteButton = within(dialog).getByRole('button', {
+      name: 'Delete Product',
+    })
+    await user.click(deleteButton)
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Product deletion failed.',
+    )
+    expect(deleteButton).toHaveFocus()
+
+    await user.click(deleteButton)
+
+    expect(
+      within(dialog).getByRole('button', { name: 'Deleting Product…' }),
+    ).toBeDisabled()
+    resolveDeletion(new Response(null, { status: 204 }))
+
+    const feedback = await screen.findByText('Deleted Delete Gown.')
+    await waitFor(() => expect(feedback).toHaveFocus())
+    expect(screen.queryByText('Delete Gown')).not.toBeInTheDocument()
+    expect(screen.getByText('Keep Gown')).toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/products/P-DELETE',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
+  it('restores a deleted Product from the list for an Admin and updates its available actions', async () => {
+    const user = userEvent.setup()
+    let isRestored = false
+    let restorationAttempts = 0
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
+
+        if (url.pathname === '/auth/me') {
+          return authMeResponse()
+        }
+
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              productSummary({
+                id: 'P-RESTORE',
+                name: 'Restore Gown',
+                productStatus: 'inactive',
+                ...(isRestored
+                  ? {}
+                  : { deletedAt: '2026-07-08T18:33:00.000Z' }),
+              }),
+            ],
+            collections: [],
+          })
+        }
+
+        if (
+          url.pathname === '/products/P-RESTORE/restore' &&
+          init?.method === 'POST'
+        ) {
+          restorationAttempts += 1
+
+          if (restorationAttempts === 1) {
+            return jsonResponse(
+              { message: 'Product restoration failed.' },
+              { status: 500 },
+            )
+          }
+
+          isRestored = true
+          return new Response(null, { status: 204 })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession()
+    renderProductsRoute()
+
+    const actionTrigger = await screen.findByRole('button', {
+      name: 'Actions for Restore Gown',
+    })
+    await user.click(actionTrigger)
+    const menu = screen.getByRole('menu')
+    expect(
+      within(menu).getByRole('menuitem', { name: 'View Product' }),
+    ).toHaveAttribute('href', '/app/products/P-RESTORE')
+    await user.click(
+      within(menu).getByRole('menuitem', { name: 'Restore Product' }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Product restoration failed.',
+    )
+    expect(actionTrigger).toHaveFocus()
+
+    await user.click(actionTrigger)
+    await user.click(screen.getByRole('menuitem', { name: 'Restore Product' }))
+
+    expect(
+      await screen.findByText('Restored Restore Gown.'),
+    ).toBeInTheDocument()
+    expect(actionTrigger).toHaveFocus()
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Restore Gown' }),
+    )
+    expect(
+      screen.getByRole('menuitem', { name: 'Edit Product' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: 'Activate Product' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: 'Delete Product' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Restore Product' }),
+    ).not.toBeInTheDocument()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:3333/products/P-RESTORE/restore',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('loads a product page directly, shows metadata, and saves edits only when explicitly submitted', async () => {
+    const user = userEvent.setup()
+    let resolveSaveRequest!: (value: Response) => void
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
+
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
+
+        if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
+          return jsonResponse({
+            state: 'active',
+            product: {
+              id: 'P-AB12CD',
+              name: 'Valencia Gown',
+              shortDescription: null,
+              image: null,
+              lifecycleStatus: 'testing',
+              productStatus: 'inactive',
+              productCategory: 'dress',
+              collection: { id: 2, name: '2026' },
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+            collections: [
+              { id: 1, name: '2025' },
+              { id: 2, name: '2026' },
+            ],
+          })
+        }
+
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              {
+                id: 'P-AB12CD',
+                name: 'Valencia Gown',
+                lifecycleStatus: 'concept',
+                productStatus: 'active',
+                productCategory: null,
+                collection: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+                createdBy: {
+                  id: 1,
+                  email: 'admin@example.com',
+                },
+              },
+            ],
+            collections: [
+              { id: 1, name: '2025' },
+              { id: 2, name: '2026' },
+            ],
+          })
+        }
+
+        if (url.endsWith('/products/P-AB12CD') && init?.method === 'PUT') {
+          return await new Promise<Response>((resolve) => {
+            resolveSaveRequest = resolve
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession()
 
     renderProductsRoute('/app/products/P-AB12CD', { strictMode: true })
 
-    expect(await screen.findByRole('heading', { name: 'Valencia Gown' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Valencia Gown' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Product ID')).toBeInTheDocument()
     expect(screen.getByText('Created by')).toBeInTheDocument()
     expect(screen.getByText('Created at')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Valencia Gown')).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Product Category' })).toHaveTextContent('Dress')
-      expect(screen.getByRole('combobox', { name: 'Collection' })).toHaveTextContent('2026')
-      expect(screen.getByRole('combobox', { name: 'Lifecycle Status' })).toHaveTextContent('Testing')
-      expect(screen.getByRole('combobox', { name: 'Product Status' })).toHaveTextContent('Inactive')
+      expect(
+        screen.getByRole('combobox', { name: 'Product Category' }),
+      ).toHaveTextContent('Dress')
+      expect(
+        screen.getByRole('combobox', { name: 'Collection' }),
+      ).toHaveTextContent('2026')
+      expect(
+        screen.getByRole('combobox', { name: 'Lifecycle Status' }),
+      ).toHaveTextContent('Testing')
     })
+    expect(
+      screen.queryByRole('combobox', { name: 'Product Status' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Product Status')).toBeInTheDocument()
+    expect(screen.getByText('Inactive')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Activate Product' }),
+    ).toBeInTheDocument()
 
     await user.clear(screen.getByLabelText(/product name/i))
-    await user.type(screen.getByLabelText(/product name/i), 'Valencia Gown Revised')
+    await user.type(
+      screen.getByLabelText(/product name/i),
+      'Valencia Gown Revised',
+    )
     await user.type(
       screen.getByLabelText(/short product description/i),
-      'Silk sample for fittings'
+      'Silk sample for fittings',
     )
     await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
     await user.click(await screen.findByRole('option', { name: 'Dress' }))
@@ -540,17 +1316,20 @@ describe('products route', () => {
     await user.click(await screen.findByRole('option', { name: '2026' }))
     await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
     await user.click(await screen.findByRole('option', { name: 'Testing' }))
-    await user.click(screen.getByRole('combobox', { name: 'Product Status' }))
-    await user.click(await screen.findByRole('option', { name: 'Inactive' }))
-
     expect(
-      fetchSpy.mock.calls.find(([, requestInit]) => requestInit?.method === 'PUT')
+      fetchSpy.mock.calls.find(
+        ([, requestInit]) => requestInit?.method === 'PUT',
+      ),
     ).toBeUndefined()
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    expect(screen.getByRole('button', { name: 'Saving changes…' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Back to products' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Saving changes…' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Back to products' }),
+    ).toBeDisabled()
     expect(screen.getByLabelText(/product name/i)).toBeDisabled()
     expect(screen.getByText('Saving product changes…')).toBeInTheDocument()
 
@@ -572,27 +1351,27 @@ describe('products route', () => {
           id: 1,
           email: 'admin@example.com',
         },
-      })
+      }),
     )
 
     await waitFor(() => {
       const requestInit = fetchSpy.mock.calls.find(
         ([requestUrl, request]) =>
-          String(requestUrl).endsWith('/products/P-AB12CD') && request?.method === 'PUT'
+          String(requestUrl).endsWith('/products/P-AB12CD') &&
+          request?.method === 'PUT',
       )?.[1]
 
       expect(requestInit).toBeDefined()
       expect(requestInit?.headers).toEqual(
         expect.objectContaining({
           Authorization: 'Bearer opaque-access-token',
-        })
+        }),
       )
       expect(requestInit?.body).toBeInstanceOf(FormData)
       expect(readFormData(requestInit?.body).entries).toEqual({
         name: 'Valencia Gown Revised',
         shortDescription: 'Silk sample for fittings',
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         productCategory: 'dress',
         collectionId: '2',
       })
@@ -603,28 +1382,75 @@ describe('products route', () => {
 
   it('shows a live duplicate-name warning on edit without blocking save', async () => {
     const user = userEvent.setup()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
 
-      if (url.endsWith('/products/P-EDIT01') && init?.method === 'GET') {
-        return jsonResponse({
-          state: 'active',
-          product: {
+        if (url.endsWith('/products/P-EDIT01') && init?.method === 'GET') {
+          return jsonResponse({
+            state: 'active',
+            product: {
+              id: 'P-EDIT01',
+              name: 'Mila Cape',
+              shortDescription: null,
+              image: null,
+              lifecycleStatus: 'concept',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
+            },
+            collections: [],
+          })
+        }
+
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [
+              {
+                id: 'P-EDIT01',
+                name: 'Mila Cape',
+                lifecycleStatus: 'concept',
+                productStatus: 'active',
+                productCategory: null,
+                collection: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+                createdBy: {
+                  id: 1,
+                  email: 'admin@example.com',
+                },
+              },
+              {
+                id: 'P-OTHER1',
+                name: 'Valencia Gown',
+                lifecycleStatus: 'testing',
+                productStatus: 'active',
+                productCategory: null,
+                collection: null,
+                createdAt: '2026-07-02T18:33:00.000Z',
+                createdBy: {
+                  id: 2,
+                  email: 'operator@example.com',
+                },
+              },
+            ],
+            collections: [],
+          })
+        }
+
+        if (url.endsWith('/products/P-EDIT01') && init?.method === 'PUT') {
+          return jsonResponse({
             id: 'P-EDIT01',
-            name: 'Mila Cape',
+            name: ' valencia gown ',
             shortDescription: null,
             image: null,
             lifecycleStatus: 'concept',
@@ -636,79 +1462,27 @@ describe('products route', () => {
               id: 1,
               email: 'admin@example.com',
             },
-          },
-          collections: [],
-        })
-      }
+          })
+        }
 
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: [
-            {
-              id: 'P-EDIT01',
-              name: 'Mila Cape',
-              lifecycleStatus: 'concept',
-              productStatus: 'active',
-              productCategory: null,
-              collection: null,
-              createdAt: '2026-07-01T18:33:00.000Z',
-              createdBy: {
-                id: 1,
-                email: 'admin@example.com',
-              },
-            },
-            {
-              id: 'P-OTHER1',
-              name: 'Valencia Gown',
-              lifecycleStatus: 'testing',
-              productStatus: 'active',
-              productCategory: null,
-              collection: null,
-              createdAt: '2026-07-02T18:33:00.000Z',
-              createdBy: {
-                id: 2,
-                email: 'operator@example.com',
-              },
-            },
-          ],
-          collections: [],
-        })
-      }
-
-      if (url.endsWith('/products/P-EDIT01') && init?.method === 'PUT') {
-        return jsonResponse({
-          id: 'P-EDIT01',
-          name: ' valencia gown ',
-          shortDescription: null,
-          image: null,
-          lifecycleStatus: 'concept',
-          productStatus: 'active',
-          productCategory: null,
-          collection: null,
-          createdAt: '2026-07-01T18:33:00.000Z',
-          createdBy: {
-            id: 1,
-            email: 'admin@example.com',
-          },
-        })
-      }
-
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute('/app/products/P-EDIT01')
 
-    expect(await screen.findByRole('heading', { name: 'Mila Cape' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Mila Cape' }),
+    ).toBeInTheDocument()
 
     await user.clear(screen.getByLabelText(/product name/i))
     await user.type(screen.getByLabelText(/product name/i), ' valencia gown ')
 
     expect(
       screen.getByText(
-        'Active product Valencia Gown already uses this name. You can still save this product.'
-      )
+        'Active product Valencia Gown already uses this name. You can still save this product.',
+      ),
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -716,7 +1490,8 @@ describe('products route', () => {
     await waitFor(() => {
       const requestInit = fetchSpy.mock.calls.find(
         ([requestUrl, request]) =>
-          String(requestUrl).endsWith('/products/P-EDIT01') && request?.method === 'PUT'
+          String(requestUrl).endsWith('/products/P-EDIT01') &&
+          request?.method === 'PUT',
       )?.[1]
 
       expect(requestInit?.body).toBeInstanceOf(FormData)
@@ -730,85 +1505,80 @@ describe('products route', () => {
     const user = userEvent.setup()
     let isDeleted = false
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input)
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
 
-      if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse()
+        }
 
-      if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
-        return jsonResponse({
-          state: 'active',
-          product: {
-            id: 'P-AB12CD',
-            name: 'Valencia Gown',
-            shortDescription: null,
-            image: null,
-            lifecycleStatus: 'concept',
-            productStatus: 'active',
-            productCategory: null,
-            collection: null,
-            createdAt: '2026-07-01T18:33:00.000Z',
-            createdBy: {
-              id: 1,
-              email: 'admin@example.com',
+        if (url.endsWith('/products/P-AB12CD') && init?.method === 'GET') {
+          return jsonResponse({
+            state: 'active',
+            product: {
+              id: 'P-AB12CD',
+              name: 'Valencia Gown',
+              shortDescription: null,
+              image: null,
+              lifecycleStatus: 'concept',
+              productStatus: 'active',
+              productCategory: null,
+              collection: null,
+              createdAt: '2026-07-01T18:33:00.000Z',
+              createdBy: {
+                id: 1,
+                email: 'admin@example.com',
+              },
             },
-          },
-          collections: [],
-        })
-      }
+            collections: [],
+          })
+        }
 
-      if (url.endsWith('/products') && init?.method === 'GET') {
-        return jsonResponse({
-          products: isDeleted
-            ? []
-            : [
-                {
-                  id: 'P-AB12CD',
-                  name: 'Valencia Gown',
-                  lifecycleStatus: 'concept',
-                  productStatus: 'active',
-                  productCategory: null,
-                  collection: null,
-                  createdAt: '2026-07-01T18:33:00.000Z',
-                  createdBy: {
-                    id: 1,
-                    email: 'admin@example.com',
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: isDeleted
+              ? []
+              : [
+                  {
+                    id: 'P-AB12CD',
+                    name: 'Valencia Gown',
+                    lifecycleStatus: 'concept',
+                    productStatus: 'active',
+                    productCategory: null,
+                    collection: null,
+                    createdAt: '2026-07-01T18:33:00.000Z',
+                    createdBy: {
+                      id: 1,
+                      email: 'admin@example.com',
+                    },
                   },
-                },
-              ],
-          collections: [],
-        })
-      }
+                ],
+            collections: [],
+          })
+        }
 
-      if (url.endsWith('/products/P-AB12CD') && init?.method === 'DELETE') {
-        isDeleted = true
-        return new Response(null, { status: 204 })
-      }
+        if (url.endsWith('/products/P-AB12CD') && init?.method === 'DELETE') {
+          isDeleted = true
+          return new Response(null, { status: 204 })
+        }
 
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute('/app/products/P-AB12CD')
 
-    expect(await screen.findByRole('heading', { name: 'Valencia Gown' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Valencia Gown' }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete Valencia Gown? This removes it from normal product views.'
+      'Delete Valencia Gown? This removes it from normal product views.',
     )
 
     await waitFor(() => {
@@ -819,12 +1589,16 @@ describe('products route', () => {
           headers: expect.objectContaining({
             Authorization: 'Bearer opaque-access-token',
           }),
-        })
+        }),
       )
     })
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(await screen.findByText('Deleted Valencia Gown.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Deleted Valencia Gown.'),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Stable short ID')).not.toBeInTheDocument()
   })
 
@@ -833,16 +1607,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.endsWith('/products/P-DEL001') && init?.method === 'GET') {
@@ -881,76 +1646,79 @@ describe('products route', () => {
 
     renderProductsRoute('/app/products/P-DEL001')
 
-    expect(await screen.findByRole('heading', { name: 'Retired Sample' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Retired Sample' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Deleted product')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'This Product has been removed from normal views. Restore it to return the record to editable mode with Product Status set to Inactive.'
-      )
+        'This Product has been removed from normal views. Restore it to return the record to editable mode with Product Status set to Inactive.',
+      ),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument()
     expect(screen.getByText('Archived after approval.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Save changes' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/product name/i)).not.toBeInTheDocument()
   })
 
   it('lets admins opt into deleted Products from the list and hides that control from operators', async () => {
     const user = userEvent.setup()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = new URL(String(input))
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input))
 
-      if (url.pathname === '/auth/me') {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
-      }
+        if (url.pathname === '/auth/me') {
+          return authMeResponse()
+        }
 
-      if (url.pathname === '/products' && init?.method === 'GET') {
-        if (url.searchParams.get('includeDeleted') === 'true') {
-          return jsonResponse({
-            products: [
-              {
-                id: 'P-DEL101',
-                name: 'Archived Lace',
-                lifecycleStatus: 'approved',
-                productStatus: 'inactive',
-                deletedAt: '2026-07-08T18:33:00.000Z',
-                productCategory: null,
-                collection: null,
-                createdAt: '2026-07-01T18:33:00.000Z',
-                createdBy: {
-                  id: 1,
-                  email: 'admin@example.com',
+        if (url.pathname === '/products' && init?.method === 'GET') {
+          if (url.searchParams.get('includeDeleted') === 'true') {
+            return jsonResponse({
+              products: [
+                {
+                  id: 'P-DEL101',
+                  name: 'Archived Lace',
+                  lifecycleStatus: 'approved',
+                  productStatus: 'inactive',
+                  deletedAt: '2026-07-08T18:33:00.000Z',
+                  productCategory: null,
+                  collection: null,
+                  createdAt: '2026-07-01T18:33:00.000Z',
+                  createdBy: {
+                    id: 1,
+                    email: 'admin@example.com',
+                  },
                 },
-              },
-            ],
+              ],
+              collections: [],
+            })
+          }
+
+          return jsonResponse({
+            products: [],
             collections: [],
           })
         }
 
-        return jsonResponse({
-          products: [],
-          collections: [],
-        })
-      }
-
-      throw new Error(`Unexpected request: ${url}`)
-    })
+        throw new Error(`Unexpected request: ${url}`)
+      })
 
     seedStoredSession()
 
     renderProductsRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Include deleted' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Include deleted' }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Include deleted' }))
 
@@ -962,7 +1730,7 @@ describe('products route', () => {
           headers: expect.objectContaining({
             Authorization: 'Bearer opaque-access-token',
           }),
-        })
+        }),
       )
     })
 
@@ -975,16 +1743,7 @@ describe('products route', () => {
       const url = new URL(String(input))
 
       if (url.pathname === '/auth/me') {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 2,
-            email: 'operator@example.com',
-            role: 'operator',
-            active: true,
-          },
-        })
+        return authMeResponse('operator')
       }
 
       if (url.pathname === '/products' && init?.method === 'GET') {
@@ -997,19 +1756,16 @@ describe('products route', () => {
       throw new Error(`Unexpected request: ${url}`)
     })
 
-    seedStoredSession({
-      user: {
-        id: 2,
-        email: 'operator@example.com',
-        role: 'operator',
-        active: true,
-      },
-    })
+    seedStoredSession('operator')
 
     renderProductsRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Include deleted' })).not.toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Include deleted' }),
+    ).not.toBeInTheDocument()
   })
 
   it('restores a deleted Product for admins and returns the page to editable mode', async () => {
@@ -1020,16 +1776,7 @@ describe('products route', () => {
       const url = new URL(String(input))
 
       if (url.pathname === '/auth/me') {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.pathname === '/products/P-DEL777' && init?.method === 'GET') {
@@ -1076,7 +1823,10 @@ describe('products route', () => {
         })
       }
 
-      if (url.pathname === '/products/P-DEL777/restore' && init?.method === 'POST') {
+      if (
+        url.pathname === '/products/P-DEL777/restore' &&
+        init?.method === 'POST'
+      ) {
         isDeleted = false
         return new Response(null, { status: 204 })
       }
@@ -1109,11 +1859,15 @@ describe('products route', () => {
 
     renderProductsRoute('/app/products/P-DEL777')
 
-    expect(await screen.findByRole('heading', { name: 'Recoverable Sample' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Recoverable Sample' }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Restore' }))
 
-    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Save changes' }),
+    ).toBeInTheDocument()
     expect(screen.getByDisplayValue('Recoverable Sample')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Ready to recover.')).toBeInTheDocument()
   })
@@ -1123,16 +1877,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 2,
-            email: 'operator@example.com',
-            role: 'operator',
-            active: true,
-          },
-        })
+        return authMeResponse('operator')
       }
 
       if (url.endsWith('/products/P-DEL002') && init?.method === 'GET') {
@@ -1167,22 +1912,17 @@ describe('products route', () => {
       throw new Error(`Unexpected request: ${url}`)
     })
 
-    seedStoredSession({
-      user: {
-        id: 2,
-        email: 'operator@example.com',
-        role: 'operator',
-        active: true,
-      },
-    })
+    seedStoredSession('operator')
 
     renderProductsRoute('/app/products/P-DEL002')
 
-    expect(await screen.findByRole('heading', { name: 'Hidden Archive' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Hidden Archive' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'This Product has been removed from normal views. An admin is required for recovery.'
-      )
+        'This Product has been removed from normal views. An admin is required for recovery.',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -1191,16 +1931,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.endsWith('/products/P-MISSING') && init?.method === 'GET') {
@@ -1208,7 +1939,7 @@ describe('products route', () => {
           {
             message: 'Product not found.',
           },
-          { status: 404 }
+          { status: 404 },
         )
       }
 
@@ -1226,7 +1957,9 @@ describe('products route', () => {
 
     renderProductsRoute('/app/products/P-MISSING')
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Product not found.')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Product not found.',
+    )
     expect(screen.queryByText('Deleted product')).not.toBeInTheDocument()
   })
 
@@ -1238,16 +1971,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.endsWith('/products/P-ZX98QP') && init?.method === 'GET') {
@@ -1321,15 +2045,19 @@ describe('products route', () => {
 
     const { router } = renderProductsRoute('/app/products/P-ZX98QP')
 
-    expect(await screen.findByRole('heading', { name: 'Mila Cape' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Mila Cape' }),
+    ).toBeInTheDocument()
 
     await user.clear(screen.getByLabelText(/product name/i))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    expect(await screen.findByText('Product name is required.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Product name is required.'),
+    ).toBeInTheDocument()
     expect(globalThis.fetch).not.toHaveBeenCalledWith(
       'http://localhost:3333/products/P-ZX98QP',
-      expect.objectContaining({ method: 'PUT' })
+      expect.objectContaining({ method: 'PUT' }),
     )
 
     await user.type(screen.getByLabelText(/product name/i), 'Mila Cape')
@@ -1337,12 +2065,14 @@ describe('products route', () => {
     await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
     await user.click(await screen.findByRole('option', { name: 'No category' }))
     await user.click(screen.getByRole('combobox', { name: 'Collection' }))
-    await user.click(await screen.findByRole('option', { name: 'No collection' }))
+    await user.click(
+      await screen.findByRole('option', { name: 'No collection' }),
+    )
 
     await user.click(screen.getByRole('button', { name: 'Back to products' }))
 
     expect(confirmSpy).toHaveBeenCalledWith(
-      'You have unsaved changes. Leave this product without saving?'
+      'You have unsaved changes. Leave this product without saving?',
     )
     expect(router.state.location.pathname).toBe('/app/products/P-ZX98QP')
 
@@ -1354,7 +2084,9 @@ describe('products route', () => {
       expect(router.state.location.pathname).toBe('/app/products')
     })
 
-    expect(await screen.findByRole('heading', { name: 'Products' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Products' }),
+    ).toBeInTheDocument()
   })
 
   it('uploads one image, shows the persisted saved state after reload, and removes it back to empty', async () => {
@@ -1366,16 +2098,7 @@ describe('products route', () => {
       const url = String(input)
 
       if (url.endsWith('/auth/me')) {
-        return jsonResponse({
-          tokenType: 'Bearer',
-          expiresAt: '2026-07-28T18:33:00.000Z',
-          user: {
-            id: 1,
-            email: 'admin@example.com',
-            role: 'admin',
-            active: true,
-          },
-        })
+        return authMeResponse()
       }
 
       if (url.endsWith('/products/P-IMG001') && init?.method === 'GET') {
@@ -1433,35 +2156,46 @@ describe('products route', () => {
 
     renderProductsRoute('/app/products/P-IMG001')
 
-    expect(await screen.findByRole('heading', { name: 'Celeste Gown' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Celeste Gown' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('No product image uploaded.')).toBeInTheDocument()
 
     await user.upload(
       screen.getByLabelText('Upload image'),
-      new File(['image-binary'], 'celeste-gown.png', { type: 'image/png' })
+      new File(['image-binary'], 'celeste-gown.png', { type: 'image/png' }),
     )
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => {
       const requestInit = fetchSpy.mock.calls.find(
         ([requestUrl, request]) =>
-          String(requestUrl).endsWith('/products/P-IMG001') && request?.method === 'PUT'
+          String(requestUrl).endsWith('/products/P-IMG001') &&
+          request?.method === 'PUT',
       )?.[1]
 
       expect(requestInit?.body).toBeInstanceOf(FormData)
-      expect(readFormData(requestInit?.body).imageFileName).toBe('celeste-gown.png')
+      expect(readFormData(requestInit?.body).imageFileName).toBe(
+        'celeste-gown.png',
+      )
     })
 
-    expect(await screen.findByText('Saved image: celeste-gown.png')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Saved image: celeste-gown.png'),
+    ).toBeInTheDocument()
 
     cleanup()
 
     renderProductsRoute('/app/products/P-IMG001')
 
-    expect(await screen.findByText('Saved image: celeste-gown.png')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Saved image: celeste-gown.png'),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Remove image' }))
-    expect(screen.getByText('Current image will be removed on save.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Current image will be removed on save.'),
+    ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => {
@@ -1469,18 +2203,234 @@ describe('products route', () => {
         .reverse()
         .find(
           ([requestUrl, request]) =>
-            String(requestUrl).endsWith('/products/P-IMG001') && request?.method === 'PUT'
-      )?.[1]
+            String(requestUrl).endsWith('/products/P-IMG001') &&
+            request?.method === 'PUT',
+        )?.[1]
 
       expect(readFormData(requestInit?.body).entries.removeImage).toBe('true')
       expect(readFormData(requestInit?.body).imageFileName).toBeNull()
     })
 
-    expect(await screen.findByText('No product image uploaded.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('No product image uploaded.'),
+    ).toBeInTheDocument()
+  })
+
+  it('changes Product availability independently while preserving unsaved edits', async () => {
+    const user = userEvent.setup()
+    let resolveInactivation!: (value: Response) => void
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input, init) => {
+        const url = String(input)
+
+        if (url.endsWith('/auth/me')) {
+          return authMeResponse('operator')
+        }
+
+        if (url.endsWith('/products/P-AVAIL1') && init?.method === 'GET') {
+          return jsonResponse({
+            state: 'active',
+            product: availabilityProduct('active'),
+            collections: [],
+          })
+        }
+
+        if (url.endsWith('/products') && init?.method === 'GET') {
+          return jsonResponse({
+            products: [availabilityProduct('active')],
+            collections: [],
+          })
+        }
+
+        if (
+          url.includes('/products/P-AVAIL1/variants') &&
+          init?.method === 'GET'
+        ) {
+          return jsonResponse({
+            variants: [
+              {
+                id: 'PV-BASE01',
+                productId: 'P-AVAIL1',
+                name: 'Base',
+                status: 'active',
+                deletedAt: null,
+                createdAt: '2026-07-01T18:33:00.000Z',
+              },
+            ],
+          })
+        }
+
+        if (
+          url.endsWith('/products/P-AVAIL1/inactivate') &&
+          init?.method === 'POST'
+        ) {
+          return await new Promise<Response>((resolve) => {
+            resolveInactivation = resolve
+          })
+        }
+
+        if (
+          url.endsWith('/products/P-AVAIL1/activate') &&
+          init?.method === 'POST'
+        ) {
+          return jsonResponse(availabilityProduct('active'))
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+
+    seedStoredSession('operator')
+    renderProductsRoute('/app/products/P-AVAIL1')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Jackie' }),
+    ).toBeInTheDocument()
+    await user.clear(screen.getByLabelText(/product name/i))
+    await user.type(screen.getByLabelText(/product name/i), 'Jackie Revised')
+
+    await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    expect(
+      within(dialog).getByRole('radio', { name: /Product only/ }),
+    ).toBeChecked()
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      }),
+    ).not.toBeChecked()
+    await user.click(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      }),
+    )
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Product and Active Variants/,
+      }),
+    ).toBeChecked()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Inactivate Product' }),
+    )
+    expect(
+      within(dialog).getByRole('button', { name: 'Inactivating Product…' }),
+    ).toBeDisabled()
+
+    resolveInactivation(jsonResponse(availabilityProduct('inactive')))
+
+    expect(
+      await screen.findByText(
+        'Product and active Product Variants inactivated.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Jackie Revised')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Activate Product' }),
+    ).toBeInTheDocument()
+
+    const inactivationRequest = fetchSpy.mock.calls.find(
+      ([requestUrl, request]) =>
+        String(requestUrl).endsWith('/products/P-AVAIL1/inactivate') &&
+        request?.method === 'POST',
+    )?.[1]
+    expect(inactivationRequest?.body).toBe(
+      JSON.stringify({ inactivateVariants: true }),
+    )
+    expect(
+      fetchSpy.mock.calls.some(([, request]) => request?.method === 'PUT'),
+    ).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Activate Product' }))
+
+    expect(await screen.findByText('Product activated.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue('Jackie Revised')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
+  it('omits the Variant choice when none are Active and preserves the prior state after failure', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+
+      if (url.endsWith('/auth/me')) {
+        return authMeResponse()
+      }
+
+      if (url.endsWith('/products/P-AVAIL1') && init?.method === 'GET') {
+        return jsonResponse({
+          state: 'active',
+          product: availabilityProduct('active'),
+          collections: [],
+        })
+      }
+
+      if (url.endsWith('/products') && init?.method === 'GET') {
+        return jsonResponse({
+          products: [availabilityProduct('active')],
+          collections: [],
+        })
+      }
+
+      if (
+        url.includes('/products/P-AVAIL1/variants') &&
+        init?.method === 'GET'
+      ) {
+        return jsonResponse({ variants: [] })
+      }
+
+      if (
+        url.endsWith('/products/P-AVAIL1/inactivate') &&
+        init?.method === 'POST'
+      ) {
+        return jsonResponse(
+          { message: 'Product availability could not be changed.' },
+          { status: 500 },
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    seedStoredSession()
+    renderProductsRoute('/app/products/P-AVAIL1')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Jackie' }),
+    ).toBeInTheDocument()
+    await user.type(
+      screen.getByLabelText(/short product description/i),
+      'Pending fitting note',
+    )
+    await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Inactivate Product?' })
+    expect(
+      within(dialog).getByText(/no Active Product Variants/),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument()
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Inactivate Product' }),
+    )
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Product availability could not be changed.',
+    )
+    expect(screen.getByDisplayValue('Pending fitting note')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Inactivate Product' }),
+    ).toBeInTheDocument()
   })
 })
 
-function renderProductsRoute(initialEntry = '/app/products', options?: { strictMode?: boolean }) {
+function renderProductsRoute(
+  initialEntry = '/app/products',
+  options?: { strictMode?: boolean },
+) {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
@@ -1503,7 +2453,9 @@ function renderProductsRoute(initialEntry = '/app/products', options?: { strictM
 
   return {
     router,
-    ...render(options?.strictMode ? <StrictMode>{content}</StrictMode> : content),
+    ...render(
+      options?.strictMode ? <StrictMode>{content}</StrictMode> : content,
+    ),
   }
 }
 
@@ -1516,32 +2468,74 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   })
 }
 
-function seedStoredSession(
-  overrides?: Partial<{
-    token: string
-    tokenType: 'Bearer'
-    expiresAt: string
-    user: {
-      id: number
-      email: string
-      role: 'admin' | 'operator'
-      active: boolean
-    }
-  }>
+function availabilityProduct(productStatus: 'active' | 'inactive') {
+  return {
+    id: 'P-AVAIL1',
+    name: 'Jackie',
+    shortDescription: null,
+    image: null,
+    lifecycleStatus: 'testing',
+    productStatus,
+    productCategory: 'dress',
+    collection: null,
+    createdAt: '2026-07-01T18:33:00.000Z',
+    createdBy: {
+      id: 2,
+      email: 'operator@example.com',
+    },
+  }
+}
+
+function productSummary(
+  overrides: Partial<ReturnType<typeof availabilityProduct>> & {
+    id: string
+    name: string
+    deletedAt?: string
+  },
 ) {
+  return {
+    ...availabilityProduct(overrides.productStatus ?? 'active'),
+    ...overrides,
+  }
+}
+
+type TestRole = 'admin' | 'operator'
+
+const testUserByRole = {
+  admin: {
+    id: 1,
+    email: 'admin@example.com',
+    role: 'admin',
+    active: true,
+  },
+  operator: {
+    id: 2,
+    email: 'operator@example.com',
+    role: 'operator',
+    active: true,
+  },
+} satisfies Record<
+  TestRole,
+  { id: number; email: string; role: TestRole; active: boolean }
+>
+
+function authMeResponse(role: TestRole = 'admin') {
+  return jsonResponse({
+    tokenType: 'Bearer',
+    expiresAt: '2026-07-28T18:33:00.000Z',
+    user: testUserByRole[role],
+  })
+}
+
+function seedStoredSession(role: TestRole = 'admin') {
   localStorage.setItem(
     AUTH_SESSION_STORAGE_KEY,
     JSON.stringify({
-      token: overrides?.token ?? 'opaque-access-token',
-      tokenType: overrides?.tokenType ?? 'Bearer',
-      expiresAt: overrides?.expiresAt ?? '2026-07-28T18:33:00.000Z',
-      user: overrides?.user ?? {
-        id: 1,
-        email: 'admin@example.com',
-        role: 'admin',
-        active: true,
-      },
-    })
+      token: 'opaque-access-token',
+      tokenType: 'Bearer',
+      expiresAt: '2026-07-28T18:33:00.000Z',
+      user: testUserByRole[role],
+    }),
   )
 }
 

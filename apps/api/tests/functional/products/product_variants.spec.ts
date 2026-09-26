@@ -1,6 +1,6 @@
 import Product from '#models/product'
 import ProductVariant from '#models/product_variant'
-import User from '#models/user'
+import { authenticateAs } from '#tests/functional/products/support/product_test_support'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { test } from '@japa/runner'
 
@@ -9,12 +9,34 @@ test.group('Product Variants', (group) => {
     await testUtils.db('postgres_test').truncate()
   })
 
-  test('registers and lists active Product Variants in Product context', async ({
+  test('treats the initial Base as a normal renamable Product Variant', async ({
     assert,
     client,
   }) => {
     const session = await authenticateAs(client, 'operator')
     const productId = await createProduct(client, session.token, 'Jackie')
+    const initialListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    initialListResponse.assertStatus(200)
+    initialListResponse.assertBodyContains({
+      variants: [{ productId, name: 'Base', status: 'active', deletedAt: null }],
+    })
+    const initialVariant = initialListResponse.body().variants[0]
+
+    const updateResponse = await client
+      .put(`/products/${productId}/variants/${initialVariant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({ name: 'Jackie Foundation', status: 'inactive' })
+
+    updateResponse.assertStatus(200)
+    updateResponse.assertBodyContains({
+      id: initialVariant.id,
+      productId,
+      name: 'Jackie Foundation',
+      status: 'inactive',
+    })
 
     const createResponse = await client
       .post(`/products/${productId}/variants`)
@@ -46,7 +68,7 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
 
     listResponse.assertStatus(200)
-    listResponse.assertBody({ variants: [createResponse.body()] })
+    listResponse.assertBody({ variants: [updateResponse.body(), createResponse.body()] })
   })
 
   test('renames and changes Variant status without changing identity or Product ownership', async ({
@@ -218,6 +240,10 @@ test.group('Product Variants', (group) => {
     const session = await authenticateAs(client, 'operator')
     const productId = await createProduct(client, session.token, 'Jackie')
     const variant = await createVariant(client, session.token, productId, 'Jackie Showroom')
+    const initialListResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const baseVariant = initialListResponse.body().variants[0]
 
     const deleteResponse = await client
       .delete(`/products/${productId}/variants/${variant.id}`)
@@ -230,14 +256,14 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${session.token}`)
 
     ordinaryListResponse.assertStatus(200)
-    ordinaryListResponse.assertBody({ variants: [] })
+    ordinaryListResponse.assertBody({ variants: [baseVariant] })
 
     const operatorRecoveryListResponse = await client
       .get(`/products/${productId}/variants?includeDeleted=true`)
       .header('Authorization', `Bearer ${session.token}`)
 
     operatorRecoveryListResponse.assertStatus(200)
-    operatorRecoveryListResponse.assertBody({ variants: [] })
+    operatorRecoveryListResponse.assertBody({ variants: [baseVariant] })
 
     const adminSession = await authenticateAs(client, 'admin')
     const recoveryListResponse = await client
@@ -245,17 +271,106 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${adminSession.token}`)
 
     recoveryListResponse.assertStatus(200)
-    recoveryListResponse.assertBodyContains({
-      variants: [
-        {
-          id: variant.id,
-          productId,
-          name: 'Jackie Showroom',
-          status: 'active',
-        },
-      ],
+    const deletedVariant = recoveryListResponse
+      .body()
+      .variants.find((candidate: { id: string }) => candidate.id === variant.id)
+    assert.deepInclude(deletedVariant, {
+      id: variant.id,
+      productId,
+      name: 'Jackie Showroom',
+      status: 'active',
     })
-    assert.isString(recoveryListResponse.body().variants[0].deletedAt)
+    assert.isString(deletedVariant.deletedAt)
+  })
+
+  test('rejects deletion of the last non-deleted Product Variant', async ({ client }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Jackie')
+    const variantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const baseVariant = variantsResponse.body().variants[0]
+
+    const deleteResponse = await client
+      .delete(`/products/${productId}/variants/${baseVariant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteResponse.assertStatus(422)
+    deleteResponse.assertBody({
+      message: 'Create another Product Variant before deleting this one.',
+    })
+
+    const preservedVariantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    preservedVariantsResponse.assertStatus(200)
+    preservedVariantsResponse.assertBody({ variants: [baseVariant] })
+  })
+
+  test('protects the last Product Variant while its Product is soft-deleted', async ({
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Deleted Jackie')
+    const variantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const baseVariant = variantsResponse.body().variants[0]
+
+    const deleteProductResponse = await client
+      .delete(`/products/${productId}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteProductResponse.assertStatus(204)
+
+    const deleteVariantResponse = await client
+      .delete(`/products/${productId}/variants/${baseVariant.id}`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    deleteVariantResponse.assertStatus(422)
+    deleteVariantResponse.assertBody({
+      message: 'Create another Product Variant before deleting this one.',
+    })
+
+    const preservedVariantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    preservedVariantsResponse.assertBody({ variants: [baseVariant] })
+  })
+
+  test('serializes competing deletions so one non-deleted Product Variant remains', async ({
+    assert,
+    client,
+  }) => {
+    const session = await authenticateAs(client, 'operator')
+    const productId = await createProduct(client, session.token, 'Concurrent Jackie')
+    const replacement = await createVariant(client, session.token, productId, 'Showroom')
+    const variantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+    const baseVariant = variantsResponse
+      .body()
+      .variants.find((variant: { name: string }) => variant.name === 'Base')
+
+    const responses = await Promise.all([
+      client
+        .delete(`/products/${productId}/variants/${baseVariant.id}`)
+        .header('Authorization', `Bearer ${session.token}`),
+      client
+        .delete(`/products/${productId}/variants/${replacement.id}`)
+        .header('Authorization', `Bearer ${session.token}`),
+    ])
+
+    assert.deepEqual(responses.map((response) => response.status()).sort(), [204, 422])
+
+    const remainingVariantsResponse = await client
+      .get(`/products/${productId}/variants`)
+      .header('Authorization', `Bearer ${session.token}`)
+
+    remainingVariantsResponse.assertStatus(200)
+    assert.lengthOf(remainingVariantsResponse.body().variants, 1)
   })
 
   test('allows only an Admin to restore a Product Variant without changing its ownership', async ({
@@ -365,26 +480,6 @@ test.group('Product Variants', (group) => {
     )
   })
 })
-
-async function authenticateAs(client: any, role: 'admin' | 'operator') {
-  await User.firstOrCreate(
-    { email: `${role}@example.com` },
-    {
-      password: 'Password123',
-      role,
-      active: true,
-    }
-  )
-
-  const response = await client.post('/auth/login').json({
-    email: `${role}@example.com`,
-    password: 'Password123',
-  })
-
-  response.assertStatus(200)
-
-  return response.body() as { token: string }
-}
 
 async function createProduct(client: any, token: string, name: string) {
   const response = await client
