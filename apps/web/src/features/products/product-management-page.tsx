@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { createProduct, listProducts } from '@/features/products/api/endpoints'
+import { ProductFilterPrototype } from '@/features/products/components/product-filter-prototype'
 import {
   ProductTableActions,
   type ProductActionFeedback,
@@ -97,9 +98,11 @@ const defaultFormValues: CreateProductRequest = {
 export function ProductManagementPage({
   deletedProductName,
   onDismissDeletedFeedback,
+  showFilterPrototype,
 }: {
   deletedProductName?: string
   onDismissDeletedFeedback?: () => void
+  showFilterPrototype?: boolean
 }) {
   const queryClient = useQueryClient()
   const { session } = useAppShell()
@@ -310,120 +313,145 @@ export function ProductManagementPage({
 
           {products.length > 0 || isAdmin ? (
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
-                <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
-                  <label className="sr-only" htmlFor="product-name-search">
-                    Search by product name
-                  </label>
-                  <div className="relative">
-                    <SearchIcon
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      id="product-name-search"
-                      value={searchValue}
-                      onChange={(event) => setSearchValue(event.target.value)}
-                      className="h-9 rounded-lg pr-2.5 pl-8 text-sm"
-                      placeholder="Search products by name"
-                      type="search"
-                    />
+              {import.meta.env.DEV &&
+              showFilterPrototype ? (
+                <ProductFilterPrototype
+                  collectionFilter={collectionFilter}
+                  collections={collections}
+                  includeDeleted={effectiveIncludeDeleted}
+                  isAdmin={isAdmin}
+                  lifecycleFilter={lifecycleFilter}
+                  onClearAll={resetFilters}
+                  onCollectionFilterChange={setCollectionFilter}
+                  onIncludeDeletedChange={setIncludeDeletedFilter}
+                  onLifecycleFilterChange={setLifecycleFilter}
+                  onProductCategoryFilterChange={setProductCategoryFilter}
+                  onProductStatusFilterChange={setProductStatusFilter}
+                  onSearchValueChange={setSearchValue}
+                  productCategoryFilter={productCategoryFilter}
+                  productStatusFilter={productStatusFilter}
+                  searchValue={searchValue}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
+                  <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
+                    <label className="sr-only" htmlFor="product-name-search">
+                      Search by product name
+                    </label>
+                    <div className="relative">
+                      <SearchIcon
+                        aria-hidden="true"
+                        className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                      />
+                      <Input
+                        id="product-name-search"
+                        value={searchValue}
+                        onChange={(event) => setSearchValue(event.target.value)}
+                        className="h-9 rounded-lg pr-2.5 pl-8 text-sm"
+                        placeholder="Search products by name"
+                        type="search"
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
-                  <FilterSelect
-                    label="Lifecycle Status"
-                    value={lifecycleFilter}
-                    placeholder="All lifecycle statuses"
-                    onValueChange={(value) =>
-                      setLifecycleFilter(
-                        value as 'all' | ProductLifecycleStatus,
-                      )
-                    }
-                    options={[
-                      { value: 'all', label: 'All lifecycle statuses' },
-                      ...lifecycleStatusOptions,
-                    ]}
-                  />
+                  <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
+                    <FilterSelect
+                      label="Lifecycle Status"
+                      value={lifecycleFilter}
+                      placeholder="All lifecycle statuses"
+                      onValueChange={(value) =>
+                        setLifecycleFilter(
+                          value as 'all' | ProductLifecycleStatus,
+                        )
+                      }
+                      options={[
+                        { value: 'all', label: 'All lifecycle statuses' },
+                        ...lifecycleStatusOptions,
+                      ]}
+                    />
 
-                  <FilterSelect
-                    label="Product Status"
-                    value={productStatusFilter}
-                    placeholder="All product statuses"
-                    onValueChange={(value) =>
-                      setProductStatusFilter(value as 'all' | ProductStatus)
-                    }
-                    options={[
-                      { value: 'all', label: 'All product statuses' },
-                      ...productStatusOptions,
-                    ]}
-                  />
+                    <FilterSelect
+                      label="Product Status"
+                      value={productStatusFilter}
+                      placeholder="All product statuses"
+                      onValueChange={(value) =>
+                        setProductStatusFilter(value as 'all' | ProductStatus)
+                      }
+                      options={[
+                        { value: 'all', label: 'All product statuses' },
+                        ...productStatusOptions,
+                      ]}
+                    />
 
-                  <FilterSelect
-                    label="Product Category"
-                    value={productCategoryFilter}
-                    placeholder="All product categories"
-                    onValueChange={(value) =>
-                      setProductCategoryFilter(
-                        value as 'all' | ProductCategory | 'none',
-                      )
-                    }
-                    options={[
-                      { value: 'all', label: 'All product categories' },
-                      { value: 'none', label: 'No category' },
-                      ...productCategoryOptions,
-                    ]}
-                  />
+                    <FilterSelect
+                      label="Product Category"
+                      value={productCategoryFilter}
+                      placeholder="All product categories"
+                      onValueChange={(value) =>
+                        setProductCategoryFilter(
+                          value as 'all' | ProductCategory | 'none',
+                        )
+                      }
+                      options={[
+                        { value: 'all', label: 'All product categories' },
+                        { value: 'none', label: 'No category' },
+                        ...productCategoryOptions,
+                      ]}
+                    />
 
-                  <FilterSelect
-                    label="Collection"
-                    value={collectionFilter}
-                    placeholder="All collections"
-                    onValueChange={(value) =>
-                      setCollectionFilter(value as 'all' | 'none' | `${number}`)
-                    }
-                    options={[
-                      { value: 'all', label: 'All collections' },
-                      { value: 'none', label: 'No collection' },
-                      ...collections.map((collection) => ({
-                        value: `${collection.id}`,
-                        label: collection.name,
-                      })),
-                    ]}
-                  />
+                    <FilterSelect
+                      label="Collection"
+                      value={collectionFilter}
+                      placeholder="All collections"
+                      onValueChange={(value) =>
+                        setCollectionFilter(
+                          value as 'all' | 'none' | `${number}`,
+                        )
+                      }
+                      options={[
+                        { value: 'all', label: 'All collections' },
+                        { value: 'none', label: 'No collection' },
+                        ...collections.map((collection) => ({
+                          value: `${collection.id}`,
+                          label: collection.name,
+                        })),
+                      ]}
+                    />
 
-                  {isAdmin ? (
+                    {isAdmin ? (
+                      <Button
+                        type="button"
+                        variant={
+                          effectiveIncludeDeleted ? 'secondary' : 'outline'
+                        }
+                        size="sm"
+                        aria-pressed={effectiveIncludeDeleted}
+                        onClick={() =>
+                          setIncludeDeletedFilter(
+                            (currentValue) => !currentValue,
+                          )
+                        }
+                      >
+                        {effectiveIncludeDeleted
+                          ? 'Including deleted'
+                          : 'Include deleted'}
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {hasActiveFilters ? (
                     <Button
                       type="button"
-                      variant={
-                        effectiveIncludeDeleted ? 'secondary' : 'outline'
-                      }
+                      variant="ghost"
                       size="sm"
-                      aria-pressed={effectiveIncludeDeleted}
-                      onClick={() =>
-                        setIncludeDeletedFilter((currentValue) => !currentValue)
-                      }
+                      onClick={resetFilters}
+                      aria-label="Clear search and filters"
                     >
-                      {effectiveIncludeDeleted
-                        ? 'Including deleted'
-                        : 'Include deleted'}
+                      Clear
                     </Button>
                   ) : null}
                 </div>
-
-                {hasActiveFilters ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetFilters}
-                    aria-label="Clear search and filters"
-                  >
-                    Clear
-                  </Button>
-                ) : null}
-              </div>
+              )}
 
               {products.length === 0 ? (
                 <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">

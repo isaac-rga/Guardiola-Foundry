@@ -49,6 +49,7 @@ Keep components small and behavior-focused. Put server state in feature-local Ta
 - Use shadcn/ui components from `@/components/ui`.
 - Do not install new UI libraries without approval.
 - Treat `src/components/ui` as shared design primitives. Prefer composition in app or feature components. Only modify primitives when the task explicitly requires a reusable design-system change.
+- When adding or changing filters for a data table, follow [`docs/ui/table-filters.md`](../../docs/ui/table-filters.md).
 - Feature-specific components go under `src/features/<domain>/components`.
 - Shared app components go under `src/components/app`.
 - Forms should use shadcn form components with Zod schemas.
