@@ -11,6 +11,7 @@ import type {
   DeletedProductDetail,
   GetProductResponse,
   InactivateProductRequest,
+  ListProductsQuery,
   ListProductsResponse,
   ProductDetail,
   ProductSummary,
@@ -26,10 +27,14 @@ const PRODUCT_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PRODUCT_ID_LENGTH = 6
 const PRODUCT_IMAGE_DIRECTORY = app.makePath('tmp/product-images')
 
-export async function listProducts(options?: {
-  includeDeleted?: boolean
-}): Promise<ListProductsResponse> {
+export async function listProducts(options: ListProductsQuery = {}): Promise<ListProductsResponse> {
   const productsQuery = options?.includeDeleted ? Product.queryWithDeleted() : Product.query()
+
+  if (options.search) {
+    productsQuery.whereRaw("name ILIKE ? ESCAPE '!'", [
+      `%${escapeLikePattern(options.search.trim())}%`,
+    ])
+  }
 
   const [products, collections] = await Promise.all([
     productsQuery.preload('collection').preload('createdBy').orderBy('createdAt', 'desc'),
@@ -40,6 +45,10 @@ export async function listProducts(options?: {
     products: products.map(serializeProductSummary),
     collections: collections.map(serializeCollection),
   }
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[!%_]/g, '!$&')
 }
 
 export async function createProduct(

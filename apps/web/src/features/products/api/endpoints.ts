@@ -16,6 +16,7 @@ import type {
   CreateProductVariantRequest,
   GetProductResponse,
   InactivateProductRequest,
+  ListProductsQuery,
   ListProductsResponse,
   ListProductVariantsResponse,
   ProductDetail,
@@ -25,7 +26,11 @@ import type {
   UpdateProductVariantRequest,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
 export type UpdateProductInput = UpdateProductRequest & {
   imageFile?: File | null
@@ -34,14 +39,16 @@ export type UpdateProductInput = UpdateProductRequest & {
 
 export async function listProducts(
   token: string,
-  options?: {
-    includeDeleted?: boolean
-  }
+  options?: ListProductsQuery
 ): Promise<ListProductsResponse> {
   const url = new URL(resolveApiUrl('/products'), window.location.origin)
 
   if (options?.includeDeleted) {
     url.searchParams.set('includeDeleted', 'true')
+  }
+
+  if (options?.search) {
+    url.searchParams.set('search', options.search)
   }
 
   const response = await fetch(url.toString(), {
@@ -54,7 +61,10 @@ export async function listProducts(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getResponseErrorMessage(body, 'Unable to load products.'))
+    throw new ApiRequestError(
+      getResponseErrorMessage(body, 'Unable to load products.'),
+      response.status,
+    )
   }
 
   return listProductsResponseSchema.parse(body)

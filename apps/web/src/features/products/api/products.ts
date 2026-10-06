@@ -1,7 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import type {
+  CreateProductRequest,
   GetProductResponse,
   InactivateProductRequest,
+  ListProductsQuery,
   ListProductsResponse,
   ProductDetail,
 } from '@guardiola-foundry/shared-types'
@@ -9,6 +16,7 @@ import type {
 import { invalidateProductVariantCandidates } from '@/features/bills-of-materials/api/query-keys'
 import {
   activateProduct,
+  createProduct,
   deleteProduct,
   getProduct,
   inactivateProduct,
@@ -17,7 +25,14 @@ import {
   updateProduct,
   type UpdateProductInput,
 } from './endpoints'
-import { productDetailQueryKey, productListQueryKey, productVariantsQueryPrefix } from '../query-keys'
+import {
+  decodeProductListQueryKey,
+  productDetailQueryKey,
+  productListQueryKey,
+  productListQueryPrefix,
+  productMatchesListQueryKey,
+  productVariantsQueryPrefix,
+} from '../query-keys'
 
 export function useProductDetail(token: string, productId: string) {
   return useQuery({
@@ -26,11 +41,30 @@ export function useProductDetail(token: string, productId: string) {
   })
 }
 
-export function useProductList(token: string) {
+export function useProductList(token: string, filters?: ListProductsQuery) {
   return useQuery({
-    queryKey: productListQueryKey(false),
-    queryFn: () => listProducts(token),
+    queryKey: productListQueryKey(filters),
+    queryFn: () =>
+      filters ? listProducts(token, filters) : listProducts(token),
+    placeholderData: keepPreviousData,
   })
+}
+
+export function useCreateProduct(token: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (payload: CreateProductRequest) =>
+      createProduct(token, payload),
+    onSuccess: (createdProduct) => {
+      reconcileProductListCaches(queryClient, createdProduct)
+    },
+  })
+
+  return {
+    createProduct: mutation.mutateAsync,
+    isCreating: mutation.isPending,
+    createError: mutation.error,
+  }
 }
 
 export function useRestoreProduct(token: string, productId: string) {
@@ -42,8 +76,10 @@ export function useRestoreProduct(token: string, productId: string) {
         queryClient.invalidateQueries({
           queryKey: productDetailQueryKey(productId),
         }),
-        queryClient.invalidateQueries({ queryKey: productListQueryKey(false) }),
-        queryClient.invalidateQueries({ queryKey: productListQueryKey(true) }),
+        queryClient.invalidateQueries({
+          queryKey: productListQueryPrefix,
+          refetchType: 'all',
+        }),
         invalidateProductVariantCandidates(queryClient),
       ])
     },
@@ -69,7 +105,7 @@ export function useUpdateProduct(token: string, productId: string) {
           return { ...currentData, product: updatedProduct }
         },
       )
-      updateProductInListCaches(queryClient, updatedProduct)
+      reconcileProductListCaches(queryClient, toProductSummary(updatedProduct))
       await invalidateProductVariantCandidates(queryClient)
     },
   })
@@ -126,20 +162,28 @@ export function useDeleteProduct(token: string, productId: string) {
       queryClient.removeQueries({
         queryKey: productDetailQueryKey(productId),
       })
-      queryClient.setQueryData<ListProductsResponse>(
-        productListQueryKey(false),
-        (currentData) => {
-          if (!currentData) return currentData
-          return {
-            ...currentData,
-            products: currentData.products.filter(
-              (product) => product.id !== productId,
-            ),
-          }
-        },
-      )
+      for (const [
+        queryKey,
+        currentData,
+      ] of queryClient.getQueriesData<ListProductsResponse>({
+        queryKey: productListQueryPrefix,
+      })) {
+        const identity = decodeProductListQueryKey(queryKey)
+        if (!currentData || !identity || identity.includeDeleted) continue
+
+        queryClient.setQueryData<ListProductsResponse>(queryKey, {
+          ...currentData,
+          products: currentData.products.filter(
+            (product) => product.id !== productId,
+          ),
+        })
+      }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: productListQueryKey(true) }),
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            decodeProductListQueryKey(query.queryKey)?.includeDeleted === true,
+          refetchType: 'all',
+        }),
         invalidateProductVariantCandidates(queryClient),
       ])
     },
@@ -156,22 +200,20 @@ function updateProductInListCaches(
   queryClient: ReturnType<typeof useQueryClient>,
   updatedProduct: ProductDetail,
 ) {
-  for (const includeDeleted of [false, true]) {
-    queryClient.setQueryData<ListProductsResponse>(
-      productListQueryKey(includeDeleted),
-      (currentData) => {
-        if (!currentData) return currentData
-        return {
-          ...currentData,
-          products: currentData.products.map((currentProduct) =>
-            currentProduct.id === updatedProduct.id
-              ? toProductSummary(updatedProduct)
-              : currentProduct,
-          ),
-        }
-      },
-    )
-  }
+  queryClient.setQueriesData<ListProductsResponse>(
+    { queryKey: productListQueryPrefix },
+    (currentData) => {
+      if (!currentData) return currentData
+      return {
+        ...currentData,
+        products: currentData.products.map((currentProduct) =>
+          currentProduct.id === updatedProduct.id
+            ? toProductSummary(updatedProduct)
+            : currentProduct,
+        ),
+      }
+    },
+  )
 }
 
 function toProductSummary(
@@ -187,5 +229,29 @@ function toProductSummary(
     collection: product.collection,
     createdAt: product.createdAt,
     createdBy: product.createdBy,
+  }
+}
+
+function reconcileProductListCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  product: ListProductsResponse['products'][number],
+) {
+  for (const [
+    queryKey,
+    currentData,
+  ] of queryClient.getQueriesData<ListProductsResponse>({
+    queryKey: productListQueryPrefix,
+  })) {
+    if (!currentData) continue
+
+    const otherProducts = currentData.products.filter(
+      (currentProduct) => currentProduct.id !== product.id,
+    )
+    queryClient.setQueryData<ListProductsResponse>(queryKey, {
+      ...currentData,
+      products: productMatchesListQueryKey(product, queryKey)
+        ? [product, ...otherProducts]
+        : otherProducts,
+    })
   }
 }

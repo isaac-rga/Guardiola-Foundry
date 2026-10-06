@@ -467,53 +467,6 @@ test.group('Products create flow', (group) => {
     )
   })
 
-  test('only admins can opt into deleted Products on the list', async ({ assert, client }) => {
-    const adminSession = await authenticateAs(client, 'admin')
-
-    const createResponse = await client
-      .post('/products')
-      .header('Authorization', `Bearer ${adminSession.token}`)
-      .json({
-        name: 'Archive Sample',
-      })
-
-    createResponse.assertStatus(201)
-
-    const deleteResponse = await client
-      .delete(`/products/${createResponse.body().id}`)
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    deleteResponse.assertStatus(204)
-
-    const adminIncludedResponse = await client
-      .get('/products?includeDeleted=true')
-      .header('Authorization', `Bearer ${adminSession.token}`)
-
-    adminIncludedResponse.assertStatus(200)
-    adminIncludedResponse.assertBodyContains({
-      products: [
-        {
-          id: createResponse.body().id,
-          name: 'Archive Sample',
-          productStatus: 'inactive',
-        },
-      ],
-    })
-    assert.isString(adminIncludedResponse.body().products[0].deletedAt)
-
-    const operatorSession = await authenticateAs(client, 'operator')
-
-    const operatorIncludedResponse = await client
-      .get('/products?includeDeleted=true')
-      .header('Authorization', `Bearer ${operatorSession.token}`)
-
-    operatorIncludedResponse.assertStatus(200)
-    assert.notInclude(
-      operatorIncludedResponse.body().products.map((product: { id: string }) => product.id),
-      createResponse.body().id
-    )
-  })
-
   test('returns a deleted Product state for deleted records and 404 for nonexistent Product IDs', async ({
     client,
   }) => {

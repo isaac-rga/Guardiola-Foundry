@@ -8,14 +8,20 @@ export const Route = createFileRoute('/app/products/')({
 
 function ProductsIndexRoute() {
   const navigate = useNavigate({ from: '/app/products' })
-  const { deletedProductName, filterPrototype } = useSearch({
+  const filters = useSearch({
     from: '/app/products',
   })
 
   return (
     <ProductManagementPage
-      deletedProductName={deletedProductName}
-      showFilterPrototype={filterPrototype === 'A'}
+      filters={filters}
+      onFiltersChange={(changes, options) =>
+        void navigate({
+          to: '/app/products',
+          search: (previousSearch) => ({ ...previousSearch, ...changes }),
+          replace: options?.replace,
+        })
+      }
       onDismissDeletedFeedback={() =>
         void navigate({
           to: '/app/products',
@@ -25,6 +31,7 @@ function ProductsIndexRoute() {
           }),
         })
       }
+      showFilterPrototype={filters.filterPrototype === 'A'}
     />
   )
 }

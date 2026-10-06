@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { SearchIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -42,18 +41,25 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
-import { createProduct, listProducts } from '@/features/products/api/endpoints'
+import {
+  useCreateProduct,
+  useProductList,
+} from '@/features/products/api/products'
 import { ProductFilterPrototype } from '@/features/products/components/product-filter-prototype'
 import {
   ProductTableActions,
   type ProductActionFeedback,
 } from '@/features/products/components/product-table-actions'
-import { productListQueryKey } from '@/features/products/query-keys'
+import type {
+  ProductCatalogFilters,
+  ProductCatalogRouteSearch,
+} from '@/features/products/product-catalog-filters'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
+import { ApiRequestError } from '@/lib/api/transport'
+import { clearAuthSession } from '@/lib/auth/session-storage'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   CreateProductRequest,
-  ListProductsResponse,
   ProductCategory,
   ProductLifecycleStatus,
   ProductStatus,
@@ -96,31 +102,22 @@ const defaultFormValues: CreateProductRequest = {
 }
 
 export function ProductManagementPage({
-  deletedProductName,
+  filters,
+  onFiltersChange,
   onDismissDeletedFeedback,
   showFilterPrototype,
 }: {
-  deletedProductName?: string
+  filters: ProductCatalogRouteSearch
+  onFiltersChange: (
+    changes: Partial<ProductCatalogFilters>,
+    options?: { replace?: boolean },
+  ) => void
   onDismissDeletedFeedback?: () => void
   showFilterPrototype?: boolean
 }) {
-  const queryClient = useQueryClient()
   const { session } = useAppShell()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [searchValue, setSearchValue] = useState('')
-  const [lifecycleFilter, setLifecycleFilter] = useState<
-    'all' | ProductLifecycleStatus
-  >('all')
-  const [productStatusFilter, setProductStatusFilter] = useState<
-    'all' | ProductStatus
-  >('all')
-  const [productCategoryFilter, setProductCategoryFilter] = useState<
-    'all' | ProductCategory | 'none'
-  >('all')
-  const [collectionFilter, setCollectionFilter] = useState<
-    'all' | 'none' | `${number}`
-  >('all')
-  const [includeDeletedFilter, setIncludeDeletedFilter] = useState(false)
+  const [searchValue, setSearchValue] = useState(filters.search ?? '')
   const [createFeedbackMessage, setCreateFeedbackMessage] = useState<
     string | null
   >(null)
@@ -129,49 +126,51 @@ export function ProductManagementPage({
   const actionFeedbackRef = useRef<HTMLParagraphElement>(null)
   const [submissionError, setSubmissionError] = useState<string | null>(null)
   const isAdmin = session.user.role === 'admin'
-  const effectiveIncludeDeleted = isAdmin && includeDeletedFilter
-  const productsQueryKey = productListQueryKey(effectiveIncludeDeleted)
+  const lifecycleFilter = filters.lifecycleStatus ?? 'all'
+  const productStatusFilter = filters.productStatus ?? 'all'
+  const productCategoryFilter = filters.productCategory ?? 'all'
+  const collectionFilter: 'all' | 'none' | `${number}` =
+    filters.collection === undefined
+      ? 'all'
+      : filters.collection === 'none'
+        ? 'none'
+        : `${filters.collection}`
+  const effectiveIncludeDeleted = isAdmin && filters.includeDeleted === true
+  const effectiveSearch = filters.search ?? ''
+  const normalizedInputSearch = searchValue.trim().replace(/\s+/g, ' ')
+  const isDebouncing = normalizedInputSearch !== effectiveSearch
   const form = useForm<CreateProductRequest>({
     resolver: zodResolver(createProductRequestSchema),
     defaultValues: defaultFormValues,
   })
-  const productsQuery = useQuery({
-    queryKey: productsQueryKey,
-    queryFn: () =>
-      listProducts(session.token, { includeDeleted: effectiveIncludeDeleted }),
+  const productsQuery = useProductList(session.token, {
+    search: effectiveSearch || undefined,
+    includeDeleted: effectiveIncludeDeleted,
   })
-  const createProductMutation = useMutation({
-    mutationFn: (payload: CreateProductRequest) =>
-      createProduct(session.token, payload),
-    onSuccess: (createdProduct) => {
-      queryClient.setQueryData<ListProductsResponse>(
-        productsQueryKey,
-        (currentData) => {
-          if (!currentData) {
-            return {
-              products: [createdProduct],
-              collections: [],
-            }
-          }
+  const { createProduct: createProductRecord, isCreating } = useCreateProduct(
+    session.token,
+  )
 
-          return {
-            ...currentData,
-            products: [createdProduct, ...currentData.products],
-          }
-        },
-      )
+  useEffect(() => {
+    setSearchValue(filters.search ?? '')
+  }, [filters.search])
 
-      resetCreateForm()
-      setCreateFeedbackMessage(`Created ${createdProduct.name}.`)
-      setSubmissionError(null)
-      setIsCreateDialogOpen(false)
-    },
-    onError: (error) => {
-      setSubmissionError(
-        error instanceof Error ? error.message : 'Unable to create product.',
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (normalizedInputSearch === effectiveSearch) return
+      onFiltersChange(
+        { search: normalizedInputSearch || undefined },
+        { replace: true },
       )
-    },
-  })
+    }, 250)
+
+    return () => window.clearTimeout(timeout)
+  }, [effectiveSearch, normalizedInputSearch, onFiltersChange])
+
+  useEffect(() => {
+    if (isAdmin || filters.includeDeleted !== true) return
+    onFiltersChange({ includeDeleted: undefined }, { replace: true })
+  }, [filters.includeDeleted, isAdmin, onFiltersChange])
 
   useEffect(() => {
     if (!actionFeedback?.focus) return
@@ -185,7 +184,16 @@ export function ProductManagementPage({
   const onSubmit = form.handleSubmit(async (values) => {
     setCreateFeedbackMessage(null)
     setSubmissionError(null)
-    await createProductMutation.mutateAsync(values)
+    try {
+      const createdProduct = await createProductRecord(values)
+      resetCreateForm()
+      setCreateFeedbackMessage(`Created ${createdProduct.name}.`)
+      setIsCreateDialogOpen(false)
+    } catch (error) {
+      setSubmissionError(
+        error instanceof Error ? error.message : 'Unable to create product.',
+      )
+    }
   })
 
   const products = [...(productsQuery.data?.products ?? [])].sort(
@@ -197,19 +205,23 @@ export function ProductManagementPage({
     products,
     createNameValue,
   )
-  const isCreatePending = createProductMutation.isPending
-  const normalizedSearchValue = searchValue.trim().toLocaleLowerCase()
+  const isCreatePending = isCreating
+  const isUnauthorized =
+    productsQuery.error instanceof ApiRequestError &&
+    productsQuery.error.status === 401
+  const isForbidden =
+    productsQuery.error instanceof ApiRequestError &&
+    productsQuery.error.status === 403
+  const isUpdatingProducts =
+    isDebouncing || (productsQuery.isFetching && !productsQuery.isLoading)
   const hasActiveFilters =
-    normalizedSearchValue.length > 0 ||
+    searchValue.trim().length > 0 ||
     lifecycleFilter !== 'all' ||
     productStatusFilter !== 'all' ||
     productCategoryFilter !== 'all' ||
     collectionFilter !== 'all' ||
     effectiveIncludeDeleted
   const filteredProducts = products.filter((product) => {
-    const matchesSearch =
-      normalizedSearchValue.length === 0 ||
-      product.name.toLocaleLowerCase().includes(normalizedSearchValue)
     const matchesLifecycle =
       lifecycleFilter === 'all' || product.lifecycleStatus === lifecycleFilter
     const matchesProductStatus =
@@ -229,7 +241,6 @@ export function ProductManagementPage({
           : product.collection?.id === Number(collectionFilter)
 
     return (
-      matchesSearch &&
       matchesLifecycle &&
       matchesProductStatus &&
       matchesProductCategory &&
@@ -251,13 +262,13 @@ export function ProductManagementPage({
 
       <Card className="rounded-[1.75rem]">
         <CardContent className="space-y-4">
-          {deletedProductName ? (
+          {filters.deletedProductName ? (
             <div
               className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3"
               role="status"
             >
               <p className="text-sm text-emerald-700">
-                Deleted {deletedProductName}.
+                Deleted {filters.deletedProductName}.
               </p>
               {onDismissDeletedFeedback ? (
                 <Button
@@ -300,7 +311,13 @@ export function ProductManagementPage({
             <p className="text-sm text-muted-foreground">Loading products…</p>
           ) : null}
 
-          {productsQuery.isError ? (
+          {isUpdatingProducts ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              Updating products…
+            </p>
+          ) : null}
+
+          {productsQuery.isError && !isUnauthorized && !isForbidden ? (
             <p
               className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
               role="alert"
@@ -311,276 +328,354 @@ export function ProductManagementPage({
             </p>
           ) : null}
 
-          {products.length > 0 || isAdmin ? (
-            <div className="space-y-3">
-              {import.meta.env.DEV &&
-              showFilterPrototype ? (
-                <ProductFilterPrototype
-                  collectionFilter={collectionFilter}
-                  collections={collections}
-                  includeDeleted={effectiveIncludeDeleted}
-                  isAdmin={isAdmin}
-                  lifecycleFilter={lifecycleFilter}
-                  onClearAll={resetFilters}
-                  onCollectionFilterChange={setCollectionFilter}
-                  onIncludeDeletedChange={setIncludeDeletedFilter}
-                  onLifecycleFilterChange={setLifecycleFilter}
-                  onProductCategoryFilterChange={setProductCategoryFilter}
-                  onProductStatusFilterChange={setProductStatusFilter}
-                  onSearchValueChange={setSearchValue}
-                  productCategoryFilter={productCategoryFilter}
-                  productStatusFilter={productStatusFilter}
-                  searchValue={searchValue}
-                />
-              ) : (
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
-                  <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
-                    <label className="sr-only" htmlFor="product-name-search">
-                      Search by product name
-                    </label>
-                    <div className="relative">
-                      <SearchIcon
-                        aria-hidden="true"
-                        className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-                      />
-                      <Input
-                        id="product-name-search"
-                        value={searchValue}
-                        onChange={(event) => setSearchValue(event.target.value)}
-                        className="h-9 rounded-lg pr-2.5 pl-8 text-sm"
-                        placeholder="Search products by name"
-                        type="search"
-                      />
-                    </div>
+          <div className="space-y-3">
+            {import.meta.env.DEV && showFilterPrototype ? (
+              <ProductFilterPrototype
+                collectionFilter={collectionFilter}
+                collections={collections}
+                includeDeleted={effectiveIncludeDeleted}
+                isAdmin={isAdmin}
+                lifecycleFilter={lifecycleFilter}
+                onClearAll={resetFilters}
+                onCollectionFilterChange={(value) =>
+                  onFiltersChange({
+                    collection:
+                      value === 'all'
+                        ? undefined
+                        : value === 'none'
+                          ? 'none'
+                          : Number(value),
+                  })
+                }
+                onIncludeDeletedChange={(value) =>
+                  onFiltersChange({ includeDeleted: value || undefined })
+                }
+                onLifecycleFilterChange={(value) =>
+                  onFiltersChange({
+                    lifecycleStatus: value === 'all' ? undefined : value,
+                  })
+                }
+                onProductCategoryFilterChange={(value) =>
+                  onFiltersChange({
+                    productCategory: value === 'all' ? undefined : value,
+                  })
+                }
+                onProductStatusFilterChange={(value) =>
+                  onFiltersChange({
+                    productStatus: value === 'all' ? undefined : value,
+                  })
+                }
+                onSearchValueChange={setSearchValue}
+                productCategoryFilter={productCategoryFilter}
+                productStatusFilter={productStatusFilter}
+                searchValue={searchValue}
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
+                <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
+                  <label className="sr-only" htmlFor="product-name-search">
+                    Search by product name
+                  </label>
+                  <div className="relative">
+                    <SearchIcon
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      id="product-name-search"
+                      value={searchValue}
+                      onChange={(event) => setSearchValue(event.target.value)}
+                      className="h-9 rounded-lg pr-2.5 pl-8 text-sm"
+                      placeholder="Search products by name"
+                      type="search"
+                    />
                   </div>
+                </div>
 
-                  <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
-                    <FilterSelect
-                      label="Lifecycle Status"
-                      value={lifecycleFilter}
-                      placeholder="All lifecycle statuses"
-                      onValueChange={(value) =>
-                        setLifecycleFilter(
-                          value as 'all' | ProductLifecycleStatus,
-                        )
-                      }
-                      options={[
-                        { value: 'all', label: 'All lifecycle statuses' },
-                        ...lifecycleStatusOptions,
-                      ]}
-                    />
+                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
+                  <FilterSelect
+                    label="Lifecycle Status"
+                    value={lifecycleFilter}
+                    placeholder="All lifecycle statuses"
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        lifecycleStatus:
+                          value === 'all'
+                            ? undefined
+                            : (value as ProductLifecycleStatus),
+                      })
+                    }
+                    options={[
+                      { value: 'all', label: 'All lifecycle statuses' },
+                      ...lifecycleStatusOptions,
+                    ]}
+                  />
 
-                    <FilterSelect
-                      label="Product Status"
-                      value={productStatusFilter}
-                      placeholder="All product statuses"
-                      onValueChange={(value) =>
-                        setProductStatusFilter(value as 'all' | ProductStatus)
-                      }
-                      options={[
-                        { value: 'all', label: 'All product statuses' },
-                        ...productStatusOptions,
-                      ]}
-                    />
+                  <FilterSelect
+                    label="Product Status"
+                    value={productStatusFilter}
+                    placeholder="All product statuses"
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        productStatus:
+                          value === 'all'
+                            ? undefined
+                            : (value as ProductStatus),
+                      })
+                    }
+                    options={[
+                      { value: 'all', label: 'All product statuses' },
+                      ...productStatusOptions,
+                    ]}
+                  />
 
-                    <FilterSelect
-                      label="Product Category"
-                      value={productCategoryFilter}
-                      placeholder="All product categories"
-                      onValueChange={(value) =>
-                        setProductCategoryFilter(
-                          value as 'all' | ProductCategory | 'none',
-                        )
-                      }
-                      options={[
-                        { value: 'all', label: 'All product categories' },
-                        { value: 'none', label: 'No category' },
-                        ...productCategoryOptions,
-                      ]}
-                    />
+                  <FilterSelect
+                    label="Product Category"
+                    value={productCategoryFilter}
+                    placeholder="All product categories"
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        productCategory:
+                          value === 'all'
+                            ? undefined
+                            : (value as ProductCategory | 'none'),
+                      })
+                    }
+                    options={[
+                      { value: 'all', label: 'All product categories' },
+                      { value: 'none', label: 'No category' },
+                      ...productCategoryOptions,
+                    ]}
+                  />
 
-                    <FilterSelect
-                      label="Collection"
-                      value={collectionFilter}
-                      placeholder="All collections"
-                      onValueChange={(value) =>
-                        setCollectionFilter(
-                          value as 'all' | 'none' | `${number}`,
-                        )
-                      }
-                      options={[
-                        { value: 'all', label: 'All collections' },
-                        { value: 'none', label: 'No collection' },
-                        ...collections.map((collection) => ({
-                          value: `${collection.id}`,
-                          label: collection.name,
-                        })),
-                      ]}
-                    />
+                  <FilterSelect
+                    label="Collection"
+                    value={collectionFilter}
+                    placeholder="All collections"
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        collection:
+                          value === 'all'
+                            ? undefined
+                            : value === 'none'
+                              ? 'none'
+                              : Number(value),
+                      })
+                    }
+                    options={[
+                      { value: 'all', label: 'All collections' },
+                      { value: 'none', label: 'No collection' },
+                      ...collections.map((collection) => ({
+                        value: `${collection.id}`,
+                        label: collection.name,
+                      })),
+                    ]}
+                  />
 
-                    {isAdmin ? (
-                      <Button
-                        type="button"
-                        variant={
-                          effectiveIncludeDeleted ? 'secondary' : 'outline'
-                        }
-                        size="sm"
-                        aria-pressed={effectiveIncludeDeleted}
-                        onClick={() =>
-                          setIncludeDeletedFilter(
-                            (currentValue) => !currentValue,
-                          )
-                        }
-                      >
-                        {effectiveIncludeDeleted
-                          ? 'Including deleted'
-                          : 'Include deleted'}
-                      </Button>
-                    ) : null}
-                  </div>
-
-                  {hasActiveFilters ? (
+                  {isAdmin ? (
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant={
+                        effectiveIncludeDeleted ? 'secondary' : 'outline'
+                      }
                       size="sm"
-                      onClick={resetFilters}
-                      aria-label="Clear search and filters"
+                      aria-pressed={effectiveIncludeDeleted}
+                      onClick={() =>
+                        onFiltersChange({
+                          includeDeleted: effectiveIncludeDeleted
+                            ? undefined
+                            : true,
+                        })
+                      }
                     >
-                      Clear
+                      {effectiveIncludeDeleted
+                        ? 'Including deleted'
+                        : 'Include deleted'}
                     </Button>
                   ) : null}
                 </div>
-              )}
 
-              {products.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-                  <p className="text-sm font-medium text-foreground">
-                    No products registered yet.
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Start with a product name and let the workflow default to
-                    Concept and Active.
-                  </p>
-                </div>
-              ) : filteredProducts.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-                  <p className="text-sm font-medium text-foreground">
-                    No products match the current search and filters.
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Adjust the search term or select different filters to
-                    broaden the visible set.
-                  </p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Collection</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Lifecycle</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="w-12 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredProducts.map((product) => (
-                      <TableRow key={product.id}>
-                        <TableCell className="py-3 align-top whitespace-normal">
-                          <Link
-                            to="/app/products/$productId"
-                            params={{ productId: product.id }}
-                            search={{ deletedProductName: undefined }}
-                            className="block text-sm font-medium leading-5 text-foreground underline-offset-4 hover:underline"
-                          >
-                            {product.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="py-3 align-top whitespace-normal">
+                {hasActiveFilters ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={resetFilters}
+                    aria-label="Clear search and filters"
+                  >
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
+            )}
+
+            {isUnauthorized ? (
+              <div
+                className="rounded-[1.5rem] border border-destructive/20 bg-destructive/8 px-6 py-8 text-center"
+                role="alert"
+              >
+                <p className="text-sm font-medium text-destructive">
+                  Your session has expired.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Sign in again to continue working with Products.
+                </p>
+                <Button asChild className="mt-4" variant="outline">
+                  <Link to="/sign-in" onClick={clearAuthSession}>
+                    Sign in again
+                  </Link>
+                </Button>
+              </div>
+            ) : isForbidden ? (
+              <div
+                className="rounded-[1.5rem] border border-destructive/20 bg-destructive/8 px-6 py-8 text-center"
+                role="alert"
+              >
+                <p className="text-sm font-medium text-destructive">
+                  You do not have permission to view this Product catalog
+                  configuration.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Clear all filters to return to the safe default catalog.
+                </p>
+                <Button
+                  className="mt-4"
+                  type="button"
+                  variant="outline"
+                  onClick={resetFilters}
+                >
+                  Clear all
+                </Button>
+              </div>
+            ) : productsQuery.isLoading ||
+              productsQuery.isError ||
+              (isUpdatingProducts &&
+                products.length === 0) ? null : products.length === 0 &&
+              hasActiveFilters ? (
+              <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  No products match the current search and filters.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Adjust the search term or select different filters to broaden
+                  the visible set.
+                </p>
+              </div>
+            ) : products.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  No products registered yet.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Start with a product name and let the workflow default to
+                  Concept and Active.
+                </p>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  No products match the current search and filters.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Adjust the search term or select different filters to broaden
+                  the visible set.
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Collection</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Lifecycle</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="w-12 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <Link
+                          to="/app/products/$productId"
+                          params={{ productId: product.id }}
+                          search={{ deletedProductName: undefined }}
+                          className="block text-sm font-medium leading-5 text-foreground underline-offset-4 hover:underline"
+                        >
+                          {product.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <StatusBadge
+                          label={
+                            product.collection
+                              ? `Collection ${product.collection.name}`
+                              : 'No collection'
+                          }
+                          tone="muted"
+                        />
+                      </TableCell>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <StatusBadge
+                          label={toProductCategoryLabel(
+                            product.productCategory,
+                          )}
+                          tone="muted"
+                        />
+                      </TableCell>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <div className="flex flex-wrap gap-1.5">
+                          {product.deletedAt ? (
+                            <StatusBadge label="Deleted" tone="warning" />
+                          ) : null}
                           <StatusBadge
-                            label={
-                              product.collection
-                                ? `Collection ${product.collection.name}`
-                                : 'No collection'
+                            label={toProductStatusLabel(product.productStatus)}
+                            tone={
+                              product.productStatus === 'active'
+                                ? 'success'
+                                : 'muted'
                             }
-                            tone="muted"
                           />
-                        </TableCell>
-                        <TableCell className="py-3 align-top whitespace-normal">
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <div className="flex flex-wrap gap-1.5">
                           <StatusBadge
-                            label={toProductCategoryLabel(
-                              product.productCategory,
+                            label={toLifecycleStatusLabel(
+                              product.lifecycleStatus,
                             )}
-                            tone="muted"
                           />
-                        </TableCell>
-                        <TableCell className="py-3 align-top whitespace-normal">
-                          <div className="flex flex-wrap gap-1.5">
-                            {product.deletedAt ? (
-                              <StatusBadge label="Deleted" tone="warning" />
-                            ) : null}
-                            <StatusBadge
-                              label={toProductStatusLabel(
-                                product.productStatus,
-                              )}
-                              tone={
-                                product.productStatus === 'active'
-                                  ? 'success'
-                                  : 'muted'
-                              }
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-3 align-top whitespace-normal">
-                          <div className="flex flex-wrap gap-1.5">
-                            <StatusBadge
-                              label={toLifecycleStatusLabel(
-                                product.lifecycleStatus,
-                              )}
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-3 align-top whitespace-normal">
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium leading-5 text-foreground">
-                              {product.createdBy.email}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {formatCreatedAt(product.createdAt)}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-2 text-right align-top">
-                          <ProductTableActions
-                            focusFeedbackOnAvailabilitySuccess={
-                              productStatusFilter !== 'all'
-                            }
-                            isAdmin={isAdmin}
-                            product={product}
-                            token={session.token}
-                            onFeedback={setActionFeedback}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-          ) : !productsQuery.isLoading && !productsQuery.isError ? (
-            <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">
-                No products registered yet.
-              </p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Start with a product name and let the workflow default to
-                Concept and Active.
-              </p>
-            </div>
-          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 align-top whitespace-normal">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium leading-5 text-foreground">
+                            {product.createdBy.email}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {formatCreatedAt(product.createdAt)}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2 text-right align-top">
+                        <ProductTableActions
+                          focusFeedbackOnAvailabilitySuccess={
+                            productStatusFilter !== 'all'
+                          }
+                          isAdmin={isAdmin}
+                          product={product}
+                          token={session.token}
+                          onFeedback={setActionFeedback}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -708,11 +803,14 @@ export function ProductManagementPage({
 
   function resetFilters() {
     setSearchValue('')
-    setLifecycleFilter('all')
-    setProductStatusFilter('all')
-    setProductCategoryFilter('all')
-    setCollectionFilter('all')
-    setIncludeDeletedFilter(false)
+    onFiltersChange({
+      search: undefined,
+      lifecycleStatus: undefined,
+      productStatus: undefined,
+      productCategory: undefined,
+      collection: undefined,
+      includeDeleted: undefined,
+    })
   }
 }
 
