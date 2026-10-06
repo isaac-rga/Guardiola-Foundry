@@ -1,4 +1,9 @@
-import { Outlet, createFileRoute } from '@tanstack/react-router'
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  defaultStringifySearch,
+} from '@tanstack/react-router'
 import type { ProductCatalogRouteSearch } from '@/features/products/product-catalog-filters'
 import {
   productCategorySchema,
@@ -9,7 +14,6 @@ import { z } from 'zod'
 
 const productCatalogSearchSchema = z.object({
   deletedProductName: z.string().min(1).optional().catch(undefined),
-  filterPrototype: z.literal('A').optional().catch(undefined),
   search: z
     .string()
     .trim()
@@ -50,6 +54,23 @@ const productCatalogSearchSchema = z.object({
 
 export const Route = createFileRoute('/app/products')({
   validateSearch: productCatalogSearchSchema,
+  beforeLoad: ({ location, search }) => {
+    const validatedSearch = productCatalogSearchSchema.parse(search)
+    const canonicalSearch = defaultStringifySearch(
+      Object.fromEntries(Object.entries(validatedSearch).sort()),
+    )
+    const currentSearch = defaultStringifySearch(
+      Object.fromEntries(Object.entries(location.search).sort()),
+    )
+    if (currentSearch !== canonicalSearch) {
+      throw redirect({
+        to: location.pathname,
+        search: validatedSearch,
+        hash: location.hash,
+        replace: true,
+      })
+    }
+  },
   component: ProductsRoute,
 })
 

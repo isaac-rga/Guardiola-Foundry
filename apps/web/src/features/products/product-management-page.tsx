@@ -1,6 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
-import { SearchIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
@@ -45,7 +44,10 @@ import {
   useCreateProduct,
   useProductList,
 } from '@/features/products/api/products'
-import { ProductFilterPrototype } from '@/features/products/components/product-filter-prototype'
+import {
+  TableFilters,
+  type TableFilterCriterion,
+} from '@/components/app/table-filters'
 import {
   ProductTableActions,
   type ProductActionFeedback,
@@ -105,7 +107,6 @@ export function ProductManagementPage({
   filters,
   onFiltersChange,
   onDismissDeletedFeedback,
-  showFilterPrototype,
 }: {
   filters: ProductCatalogRouteSearch
   onFiltersChange: (
@@ -113,7 +114,6 @@ export function ProductManagementPage({
     options?: { replace?: boolean },
   ) => void
   onDismissDeletedFeedback?: () => void
-  showFilterPrototype?: boolean
 }) {
   const { session } = useAppShell()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -248,6 +248,105 @@ export function ProductManagementPage({
     )
   })
 
+  const filterCriteria: TableFilterCriterion[] = [
+    {
+      key: 'lifecycleStatus',
+      label: 'Lifecycle status',
+      value: filters.lifecycleStatus,
+      valueLabel: filters.lifecycleStatus
+        ? toLifecycleStatusLabel(filters.lifecycleStatus)
+        : undefined,
+      options: lifecycleStatusOptions,
+      onChange: (value) =>
+        onFiltersChange({
+          lifecycleStatus: lifecycleStatusOptions.find(
+            (option) => option.value === value,
+          )?.value,
+        }),
+    },
+    {
+      key: 'productStatus',
+      label: 'Product status',
+      value: filters.productStatus,
+      valueLabel: filters.productStatus
+        ? toProductStatusLabel(filters.productStatus)
+        : undefined,
+      options: productStatusOptions,
+      onChange: (value) =>
+        onFiltersChange({
+          productStatus: productStatusOptions.find(
+            (option) => option.value === value,
+          )?.value,
+        }),
+    },
+    {
+      key: 'productCategory',
+      label: 'Product category',
+      value: filters.productCategory,
+      valueLabel: filters.productCategory
+        ? toProductCategoryLabel(
+            filters.productCategory === 'none' ? null : filters.productCategory,
+          )
+        : undefined,
+      options: [
+        { value: 'none', label: 'No category' },
+        ...productCategoryOptions,
+      ],
+      onChange: (value) =>
+        onFiltersChange({
+          productCategory:
+            value === 'none'
+              ? 'none'
+              : productCategoryOptions.find((option) => option.value === value)
+                  ?.value,
+        }),
+    },
+    {
+      key: 'collection',
+      label: 'Collection',
+      value: filters.collection === undefined ? undefined : collectionFilter,
+      valueLabel:
+        filters.collection === undefined
+          ? undefined
+          : filters.collection === 'none'
+            ? 'No collection'
+            : (collections.find(
+                (collection) => collection.id === filters.collection,
+              )?.name ?? 'Unknown collection'),
+      searchable: true,
+      options: [
+        { value: 'none', label: 'No collection' },
+        ...collections.map((collection) => ({
+          value: `${collection.id}`,
+          label: collection.name,
+        })),
+      ],
+      onChange: (value) =>
+        onFiltersChange({
+          collection:
+            value === undefined
+              ? undefined
+              : value === 'none'
+                ? 'none'
+                : Number(value),
+        }),
+    },
+    ...(isAdmin
+      ? [
+          {
+            key: 'includeDeleted',
+            label: 'Include deleted',
+            additive: true,
+            value: effectiveIncludeDeleted ? 'true' : undefined,
+            onChange: (value: string | undefined) =>
+              onFiltersChange({
+                includeDeleted: value === 'true' || undefined,
+              }),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -329,185 +428,16 @@ export function ProductManagementPage({
           ) : null}
 
           <div className="space-y-3">
-            {import.meta.env.DEV && showFilterPrototype ? (
-              <ProductFilterPrototype
-                collectionFilter={collectionFilter}
-                collections={collections}
-                includeDeleted={effectiveIncludeDeleted}
-                isAdmin={isAdmin}
-                lifecycleFilter={lifecycleFilter}
-                onClearAll={resetFilters}
-                onCollectionFilterChange={(value) =>
-                  onFiltersChange({
-                    collection:
-                      value === 'all'
-                        ? undefined
-                        : value === 'none'
-                          ? 'none'
-                          : Number(value),
-                  })
-                }
-                onIncludeDeletedChange={(value) =>
-                  onFiltersChange({ includeDeleted: value || undefined })
-                }
-                onLifecycleFilterChange={(value) =>
-                  onFiltersChange({
-                    lifecycleStatus: value === 'all' ? undefined : value,
-                  })
-                }
-                onProductCategoryFilterChange={(value) =>
-                  onFiltersChange({
-                    productCategory: value === 'all' ? undefined : value,
-                  })
-                }
-                onProductStatusFilterChange={(value) =>
-                  onFiltersChange({
-                    productStatus: value === 'all' ? undefined : value,
-                  })
-                }
-                onSearchValueChange={setSearchValue}
-                productCategoryFilter={productCategoryFilter}
-                productStatusFilter={productStatusFilter}
-                searchValue={searchValue}
-              />
-            ) : (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/10 p-2">
-                <div className="min-w-[22rem] flex-1 sm:max-w-[28rem] sm:flex-none">
-                  <label className="sr-only" htmlFor="product-name-search">
-                    Search by product name
-                  </label>
-                  <div className="relative">
-                    <SearchIcon
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      id="product-name-search"
-                      value={searchValue}
-                      onChange={(event) => setSearchValue(event.target.value)}
-                      className="h-9 rounded-lg pr-2.5 pl-8 text-sm"
-                      placeholder="Search products by name"
-                      type="search"
-                    />
-                  </div>
-                </div>
-
-                <div className="ml-auto flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
-                  <FilterSelect
-                    label="Lifecycle Status"
-                    value={lifecycleFilter}
-                    placeholder="All lifecycle statuses"
-                    onValueChange={(value) =>
-                      onFiltersChange({
-                        lifecycleStatus:
-                          value === 'all'
-                            ? undefined
-                            : (value as ProductLifecycleStatus),
-                      })
-                    }
-                    options={[
-                      { value: 'all', label: 'All lifecycle statuses' },
-                      ...lifecycleStatusOptions,
-                    ]}
-                  />
-
-                  <FilterSelect
-                    label="Product Status"
-                    value={productStatusFilter}
-                    placeholder="All product statuses"
-                    onValueChange={(value) =>
-                      onFiltersChange({
-                        productStatus:
-                          value === 'all'
-                            ? undefined
-                            : (value as ProductStatus),
-                      })
-                    }
-                    options={[
-                      { value: 'all', label: 'All product statuses' },
-                      ...productStatusOptions,
-                    ]}
-                  />
-
-                  <FilterSelect
-                    label="Product Category"
-                    value={productCategoryFilter}
-                    placeholder="All product categories"
-                    onValueChange={(value) =>
-                      onFiltersChange({
-                        productCategory:
-                          value === 'all'
-                            ? undefined
-                            : (value as ProductCategory | 'none'),
-                      })
-                    }
-                    options={[
-                      { value: 'all', label: 'All product categories' },
-                      { value: 'none', label: 'No category' },
-                      ...productCategoryOptions,
-                    ]}
-                  />
-
-                  <FilterSelect
-                    label="Collection"
-                    value={collectionFilter}
-                    placeholder="All collections"
-                    onValueChange={(value) =>
-                      onFiltersChange({
-                        collection:
-                          value === 'all'
-                            ? undefined
-                            : value === 'none'
-                              ? 'none'
-                              : Number(value),
-                      })
-                    }
-                    options={[
-                      { value: 'all', label: 'All collections' },
-                      { value: 'none', label: 'No collection' },
-                      ...collections.map((collection) => ({
-                        value: `${collection.id}`,
-                        label: collection.name,
-                      })),
-                    ]}
-                  />
-
-                  {isAdmin ? (
-                    <Button
-                      type="button"
-                      variant={
-                        effectiveIncludeDeleted ? 'secondary' : 'outline'
-                      }
-                      size="sm"
-                      aria-pressed={effectiveIncludeDeleted}
-                      onClick={() =>
-                        onFiltersChange({
-                          includeDeleted: effectiveIncludeDeleted
-                            ? undefined
-                            : true,
-                        })
-                      }
-                    >
-                      {effectiveIncludeDeleted
-                        ? 'Including deleted'
-                        : 'Include deleted'}
-                    </Button>
-                  ) : null}
-                </div>
-
-                {hasActiveFilters ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetFilters}
-                    aria-label="Clear search and filters"
-                  >
-                    Clear
-                  </Button>
-                ) : null}
-              </div>
-            )}
+            <TableFilters
+              criteria={filterCriteria}
+              onClearAll={resetFilters}
+              search={{
+                label: 'Search by product name',
+                placeholder: 'Search products by name',
+                value: searchValue,
+                onChange: setSearchValue,
+              }}
+            />
 
             {isUnauthorized ? (
               <div
@@ -557,8 +487,7 @@ export function ProductManagementPage({
                   No products match the current search and filters.
                 </p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Adjust the search term or select different filters to broaden
-                  the visible set.
+                  Clear search or filters to broaden the visible set.
                 </p>
               </div>
             ) : products.length === 0 ? (
@@ -577,8 +506,7 @@ export function ProductManagementPage({
                   No products match the current search and filters.
                 </p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Adjust the search term or select different filters to broaden
-                  the visible set.
+                  Clear search or filters to broaden the visible set.
                 </p>
               </div>
             ) : (
@@ -802,6 +730,9 @@ export function ProductManagementPage({
   }
 
   function resetFilters() {
+    if (isForbidden && !effectiveSearch && !effectiveIncludeDeleted) {
+      void productsQuery.refetch()
+    }
     setSearchValue('')
     onFiltersChange({
       search: undefined,
@@ -812,47 +743,6 @@ export function ProductManagementPage({
       includeDeleted: undefined,
     })
   }
-}
-
-type FilterSelectProps = {
-  label: string
-  onValueChange: (value: string) => void
-  options: Array<{
-    label: string
-    value: string
-  }>
-  placeholder: string
-  value: string
-}
-
-function FilterSelect({
-  label,
-  onValueChange,
-  options,
-  placeholder,
-  value,
-}: FilterSelectProps) {
-  return (
-    <div className="min-w-[10rem] flex-1 sm:flex-none">
-      <label className="sr-only">{label}</label>
-      <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger
-          aria-label={label}
-          className="h-9 w-full min-w-[10rem] rounded-lg px-2.5"
-          size="sm"
-        >
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
 }
 
 function compareProductsByNewestFirst(

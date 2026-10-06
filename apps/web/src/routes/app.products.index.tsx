@@ -31,7 +31,6 @@ function ProductsIndexRoute() {
           }),
         })
       }
-      showFilterPrototype={filters.filterPrototype === 'A'}
     />
   )
 }

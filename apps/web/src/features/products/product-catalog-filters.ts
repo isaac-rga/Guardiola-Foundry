@@ -15,5 +15,4 @@ export type ProductCatalogFilters = {
 
 export type ProductCatalogRouteSearch = ProductCatalogFilters & {
   deletedProductName?: string
-  filterPrototype?: 'A'
 }

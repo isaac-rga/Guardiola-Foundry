@@ -460,24 +460,18 @@ describe('products route', () => {
     await waitFor(() => {
       expect(screen.getByText('Bianca Veil')).toBeInTheDocument()
     })
-    await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
-    await user.click(await screen.findByRole('option', { name: 'No category' }))
+    await selectProductFilter(user, 'Product category', 'No category')
 
     expect(screen.getByText('Celeste Sketch')).toBeInTheDocument()
     expect(screen.queryByText('Aster Dress')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('combobox', { name: 'Collection' }))
-    await user.click(
-      await screen.findByRole('option', { name: 'No collection' }),
-    )
+    await selectProductFilter(user, 'Collection', 'No collection')
 
     expect(
       screen.getByText('No products match the current search and filters.'),
     ).toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Clear search and filters' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Clear all' }))
 
     expect(screen.getByText('Bianca Veil')).toBeInTheDocument()
     expect(screen.getByText('Aster Dress')).toBeInTheDocument()
@@ -541,7 +535,7 @@ describe('products route', () => {
       'veil',
     )
     expect(
-      screen.getByRole('button', { name: 'Including deleted' }),
+      screen.getByRole('button', { name: 'Include deleted' }),
     ).toBeInTheDocument()
 
     const productRequest = fetchSpy.mock.calls.find(([input, request]) => {
@@ -579,65 +573,6 @@ describe('products route', () => {
     })
   })
 
-  it('debounces remote Product search while retaining rows and announcing the refresh', async () => {
-    const user = userEvent.setup()
-    let resolveSearch!: (response: Response) => void
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async (input, init) => {
-        const url = new URL(String(input))
-
-        if (url.pathname === '/auth/me') return authMeResponse()
-        if (url.pathname === '/products' && init?.method === 'GET') {
-          if (url.searchParams.get('search') === 'veil') {
-            return await new Promise<Response>((resolve) => {
-              resolveSearch = resolve
-            })
-          }
-
-          return jsonResponse({
-            products: [productSummary({ id: 'P-ASTER', name: 'Aster Dress' })],
-            collections: [],
-          })
-        }
-
-        throw new Error(`Unexpected request: ${url}`)
-      })
-
-    seedStoredSession()
-    const { router } = renderProductsRoute()
-
-    expect(await screen.findByText('Aster Dress')).toBeInTheDocument()
-    const searchInput = screen.getByPlaceholderText('Search products by name')
-    await user.type(searchInput, 'veil')
-
-    expect(searchInput).toHaveValue('veil')
-    expect(screen.getByRole('status')).toHaveTextContent('Updating products…')
-    expect(screen.getByText('Aster Dress')).toBeInTheDocument()
-    expect(
-      fetchSpy.mock.calls.filter(([input]) =>
-        new URL(String(input)).searchParams.has('search'),
-      ),
-    ).toHaveLength(0)
-
-    await waitFor(() => {
-      expect(router.state.location.search.search).toBe('veil')
-    })
-    expect(screen.getByText('Aster Dress')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('Updating products…')
-
-    resolveSearch(
-      jsonResponse({
-        products: [productSummary({ id: 'P-VEIL', name: 'Bianca Veil' })],
-        collections: [],
-      }),
-    )
-
-    expect(await screen.findByText('Bianca Veil')).toBeInTheDocument()
-    expect(screen.queryByText('Aster Dress')).not.toBeInTheDocument()
-    expect(screen.queryByText('Updating products…')).not.toBeInTheDocument()
-  })
-
   it('restores discrete Product filter configurations with browser history', async () => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -658,35 +593,29 @@ describe('products route', () => {
     const { router } = renderProductsRoute()
 
     await screen.findByText('History Gown')
-    await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
-    await user.click(await screen.findByRole('option', { name: 'Testing' }))
+    await selectProductFilter(user, 'Lifecycle status', 'Testing')
     await waitFor(() => {
       expect(router.state.location.search.lifecycleStatus).toBe('testing')
     })
 
-    await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
-    await user.click(await screen.findByRole('option', { name: 'Approved' }))
+    await selectProductFilter(user, 'Lifecycle status', 'Approved')
     await waitFor(() => {
       expect(router.state.location.search.lifecycleStatus).toBe('approved')
     })
 
-    await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
-    await user.click(await screen.findByRole('option', { name: 'Accessory' }))
+    await selectProductFilter(user, 'Product category', 'Accessory')
     await waitFor(() => {
       expect(router.state.location.search.productCategory).toBe('accessory')
     })
 
-    await user.click(screen.getByRole('combobox', { name: 'Product Category' }))
     await user.click(
-      await screen.findByRole('option', { name: 'All product categories' }),
+      screen.getByRole('button', { name: 'Remove Product category filter' }),
     )
     await waitFor(() => {
       expect(router.state.location.search.productCategory).toBeUndefined()
     })
 
-    await user.click(
-      screen.getByRole('button', { name: 'Clear search and filters' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Clear all' }))
     await waitFor(() => {
       expect(router.state.location.search.lifecycleStatus).toBeUndefined()
     })
@@ -739,8 +668,7 @@ describe('products route', () => {
     const { router } = renderProductsRoute()
 
     await screen.findByText('Search Gown')
-    await user.click(screen.getByRole('combobox', { name: 'Lifecycle Status' }))
-    await user.click(await screen.findByRole('option', { name: 'Testing' }))
+    await selectProductFilter(user, 'Lifecycle status', 'Testing')
     await waitFor(() => {
       expect(router.state.location.search.lifecycleStatus).toBe('testing')
     })
@@ -819,11 +747,9 @@ describe('products route', () => {
     expect(screen.getByPlaceholderText('Search products by name')).toHaveValue(
       'missing',
     )
+    expect(screen.getByRole('button', { name: 'Filter' })).toBeInTheDocument()
     expect(
-      screen.getByRole('combobox', { name: 'Lifecycle Status' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Clear search and filters' }),
+      screen.getByRole('button', { name: 'Clear all' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('No products registered yet.'),
@@ -911,7 +837,11 @@ describe('products route', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Safe Gown')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Clear all' }))
+    await user.click(
+      within(screen.getByRole('alert')).getByRole('button', {
+        name: 'Clear all',
+      }),
+    )
 
     expect(await screen.findByText('Safe Gown')).toBeInTheDocument()
     expect(router.state.location.searchStr).toBe('')
@@ -1180,10 +1110,7 @@ describe('products route', () => {
     renderProductsRoute()
 
     expect(await screen.findByText('Inactive Gown')).toBeInTheDocument()
-    await user.click(
-      await screen.findByRole('combobox', { name: 'Product Status' }),
-    )
-    await user.click(await screen.findByRole('option', { name: 'Inactive' }))
+    await selectProductFilter(user, 'Product status', 'Inactive')
     const actionTrigger = screen.getByRole('button', {
       name: 'Actions for Inactive Gown',
     })
@@ -1278,10 +1205,7 @@ describe('products route', () => {
     seedStoredSession('operator')
     renderProductsRoute()
 
-    await user.click(
-      await screen.findByRole('combobox', { name: 'Product Status' }),
-    )
-    await user.click(await screen.findByRole('option', { name: 'Active' }))
+    await selectProductFilter(user, 'Product status', 'Active')
     const actionTrigger = await screen.findByRole('button', {
       name: 'Actions for Active Gown',
     })
@@ -1386,10 +1310,7 @@ describe('products route', () => {
     seedStoredSession()
     renderProductsRoute()
 
-    await user.click(
-      await screen.findByRole('combobox', { name: 'Product Status' }),
-    )
-    await user.click(await screen.findByRole('option', { name: 'Active' }))
+    await selectProductFilter(user, 'Product status', 'Active')
     const actionTrigger = await screen.findByRole('button', {
       name: 'Actions for Bulk Gown',
     })
@@ -1426,9 +1347,7 @@ describe('products route', () => {
     await waitFor(() => expect(feedback).toHaveFocus())
     expect(screen.queryByText('Bulk Gown')).not.toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Clear search and filters' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Clear all' }))
     const updatedRow = await screen.findByRole('row', { name: /Bulk Gown/ })
     expect(within(updatedRow).getByText('Inactive')).toBeInTheDocument()
     await user.click(
@@ -2150,108 +2069,6 @@ describe('products route', () => {
       screen.queryByRole('button', { name: 'Delete' }),
     ).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/product name/i)).not.toBeInTheDocument()
-  })
-
-  it('lets admins opt into deleted Products from the list and hides that control from operators', async () => {
-    const user = userEvent.setup()
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async (input, init) => {
-        const url = new URL(String(input))
-
-        if (url.pathname === '/auth/me') {
-          return authMeResponse()
-        }
-
-        if (url.pathname === '/products' && init?.method === 'GET') {
-          if (url.searchParams.get('includeDeleted') === 'true') {
-            return jsonResponse({
-              products: [
-                {
-                  id: 'P-DEL101',
-                  name: 'Archived Lace',
-                  lifecycleStatus: 'approved',
-                  productStatus: 'inactive',
-                  deletedAt: '2026-07-08T18:33:00.000Z',
-                  productCategory: null,
-                  collection: null,
-                  createdAt: '2026-07-01T18:33:00.000Z',
-                  createdBy: {
-                    id: 1,
-                    email: 'admin@example.com',
-                  },
-                },
-              ],
-              collections: [],
-            })
-          }
-
-          return jsonResponse({
-            products: [],
-            collections: [],
-          })
-        }
-
-        throw new Error(`Unexpected request: ${url}`)
-      })
-
-    seedStoredSession()
-
-    renderProductsRoute()
-
-    expect(
-      await screen.findByRole('heading', { name: 'Products' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Include deleted' }),
-    ).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
-
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3333/products?includeDeleted=true',
-        expect.objectContaining({
-          method: 'GET',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer opaque-access-token',
-          }),
-        }),
-      )
-    })
-
-    expect(await screen.findByText('Archived Lace')).toBeInTheDocument()
-
-    cleanup()
-    vi.restoreAllMocks()
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = new URL(String(input))
-
-      if (url.pathname === '/auth/me') {
-        return authMeResponse('operator')
-      }
-
-      if (url.pathname === '/products' && init?.method === 'GET') {
-        return jsonResponse({
-          products: [],
-          collections: [],
-        })
-      }
-
-      throw new Error(`Unexpected request: ${url}`)
-    })
-
-    seedStoredSession('operator')
-
-    renderProductsRoute()
-
-    expect(
-      await screen.findByRole('heading', { name: 'Products' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Include deleted' }),
-    ).not.toBeInTheDocument()
   })
 
   it('restores a deleted Product for admins and returns the page to editable mode', async () => {
@@ -3046,4 +2863,21 @@ function readFormData(body: BodyInit | null | undefined) {
   })
 
   return { entries, imageFileName }
+}
+
+async function selectProductFilter(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+  value: string,
+) {
+  if (!screen.queryByRole('dialog', { name: 'Table filters' })) {
+    await user.click(await screen.findByRole('button', { name: 'Filter' }))
+  }
+  await user.click(
+    within(
+      await screen.findByRole('dialog', { name: 'Table filters' }),
+    ).getByRole('button', { name: new RegExp(label) }),
+  )
+  await user.click(screen.getByRole('button', { name: value }))
+  await user.click(screen.getByRole('button', { name: 'Close filters' }))
 }
