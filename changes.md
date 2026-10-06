@@ -96,3 +96,51 @@ For this documentation update, `node node_modules/.pnpm/prettier@3.8.4/node_modu
 ## Scope Boundaries
 
 This ticket changes shared filter presentation and Products integration. It does not change the API, shared query contracts, domain model, or other catalogs. It adds no dependency. The unrelated `.gitignore` change remains intact. Changes remain uncommitted. `pnpm quality` was not run; that gate remains with the human and CI.
+
+## Follow-up — Correct Inactive Product Test Setup
+
+Five API tests now prepare an Inactive Product through its availability action before they check business rules. This correction affects tests for BOM Implementation creation, Product Variant candidates, BOM Template association and derivation, and Product Variant registration. It does not change application behavior.
+
+### Product Availability Setup
+
+Commit `78363d9` removed Product Status from detail updates and introduced dedicated availability actions. The [accepted ADR 0003](docs/adr/0003-require-product-variants-and-separate-availability-actions.md) requires this separation. The old test setup sent `productStatus: 'inactive'` through `PUT /products/:id`. That request returned HTTP `200`, but the Product stayed Active. The tests then checked restrictions that did not apply to the actual Product state.
+
+The [BOM test support](apps/api/tests/functional/bills_of_materials/support/bom_test_support.ts) adds `inactivateProduct(client, token, productId)`. It calls `POST /products/:id/inactivate` with `{}` and checks HTTP `200`, Product identity, and `productStatus: 'inactive'`. The empty body selects Product-only inactivation and preserves Product Variant Status.
+
+The BOM tests use this helper. The Product Variant registration test calls the same action directly. The Template association test keeps its separate detail update to Lifecycle Status `Approved` and now checks that update's response status. The Product Variant registration test keeps its detail update to Lifecycle Status `Testing`. Neither detail update tries to change Product Status.
+
+### Business Rules and Focused Coverage
+
+The [BOM requirements](.scratch/bill-of-materials-builder/PRD.md) still require an Active Product for new Product Variants, BOM Template associations, and BOM Implementations. An existing Template association survives Product inactivation. A non-deleted Bill of Materials can still produce an unassociated Template when its Product is unavailable. The correction keeps these expectations.
+
+| Test file                                                                                           | Corrected scenario and expected result                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Creation](apps/api/tests/functional/bills_of_materials/creation.spec.ts)                           | Manual BOM Implementation creation rejects an Inactive Product with HTTP `422` and creates no Bill of Materials.                                                                                                                                                                                                                                   |
+| [Product relationships](apps/api/tests/functional/bills_of_materials/product_relationships.spec.ts) | A Product Variant under an Inactive Product is not selectable and has outcome `product-unavailable`. An occupied Variant keeps outcome `implementation-exists`, even when its Product and Variant are Inactive. A new Template association with an unavailable Product returns HTTP `422`; an existing association remains visible as unavailable. |
+| [Template derivation](apps/api/tests/functional/bills_of_materials/template_derivation.spec.ts)     | BOM Derivation from an unavailable Product and Variant context returns HTTP `201` with `product: null`.                                                                                                                                                                                                                                            |
+| [Product Variants](apps/api/tests/functional/products/product_variants.spec.ts)                     | Registration under an Inactive Product returns HTTP `422`, even when Lifecycle Status is `Testing`.                                                                                                                                                                                                                                                |
+
+The candidate test retains separate Variant inactivation. Thus, it continues to check `variant-inactive` independently from Product availability and preserves the existing outcome precedence.
+
+### Focused Verification
+
+The implementation ran the following command from `apps/api`, before and after correction:
+
+```sh
+node ace test --files=tests/functional/bills_of_materials/creation.spec.ts --files=tests/functional/bills_of_materials/product_relationships.spec.ts --files=tests/functional/bills_of_materials/template_derivation.spec.ts --files=tests/functional/products/product_variants.spec.ts --reporter=dot
+```
+
+- Before correction: 29 passed and the five reported cases failed, out of 34 tests.
+- After correction: all 34 tests passed across the four complete affected files.
+- `node node_modules/eslint/bin/eslint.js tests/functional/bills_of_materials/support/bom_test_support.ts tests/functional/bills_of_materials/creation.spec.ts tests/functional/bills_of_materials/product_relationships.spec.ts tests/functional/bills_of_materials/template_derivation.spec.ts tests/functional/products/product_variants.spec.ts` from `apps/api` — passed.
+- `node node_modules/typescript/bin/tsc --noEmit` from `apps/api` — passed.
+- `node node_modules/.pnpm/prettier@3.8.4/node_modules/prettier/bin/prettier.cjs --check changes.md` from the repository root — passed.
+- `git diff --check` — passed.
+
+Japa HTTP response assertions were checked against the Context7 API client documentation. The focused run emitted a PostgreSQL client deprecation warning about concurrent `client.query()` calls. The warning did not fail the tests. This documentation update does not rerun application checks.
+
+### Scope Boundaries
+
+Only the five reported cases use the corrected setup. The existing `updateProduct` helper and other obsolete setup remain unchanged, as requested. Other tests can still pass without creating the intended Inactive Product state; those cases need a separate correction.
+
+Production code, public contracts, database schema, domain relationships, and component responsibilities do not change. This correction needs no new architecture view. The complete API suite, root `pnpm test`, and `pnpm quality` were not run for the correction. Changes remain uncommitted and unpushed. The unrelated `.gitignore` change is preserved.

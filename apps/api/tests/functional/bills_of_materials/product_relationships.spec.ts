@@ -4,7 +4,7 @@ import {
   createProduct,
   createTemplate,
   createProductVariant,
-  updateProduct,
+  inactivateProduct,
   updateProductVariant,
   createImplementation,
 } from '#tests/functional/bills_of_materials/support/bom_test_support'
@@ -204,7 +204,7 @@ test.group('Bills of Materials', (group) => {
       inactiveProductId,
       'Showroom'
     )
-    await updateProduct(client, session.token, inactiveProductId, 'Inactive Jackie', 'inactive')
+    await inactivateProduct(client, session.token, inactiveProductId)
     const inactiveVariantProductId = await createProduct(
       client,
       session.token,
@@ -237,7 +237,7 @@ test.group('Bills of Materials', (group) => {
       occupiedVariantId,
       'Occupied construction'
     )
-    await updateProduct(client, session.token, occupiedProductId, 'Occupied Jackie', 'inactive')
+    await inactivateProduct(client, session.token, occupiedProductId)
     await updateProductVariant(
       client,
       session.token,
@@ -310,7 +310,7 @@ test.group('Bills of Materials', (group) => {
   }) => {
     const session = await authenticateAs(client, 'operator')
     const inactiveProductId = await createProduct(client, session.token, 'Inactive Jackie')
-    await updateProduct(client, session.token, inactiveProductId, 'Inactive Jackie', 'inactive')
+    await inactivateProduct(client, session.token, inactiveProductId)
     const deletedProductId = await createProduct(client, session.token, 'Deleted Paloma')
     await client
       .delete(`/products/${deletedProductId}`)
@@ -332,17 +332,18 @@ test.group('Bills of Materials', (group) => {
     const template = await createTemplate(client, session.token, 'Associated construction', {
       productId: activeProductId,
     })
-    await client
+    const updateResponse = await client
       .put(`/products/${activeProductId}`)
       .header('Authorization', `Bearer ${session.token}`)
       .json({
         name: 'Associated Jackie',
         shortDescription: null,
         lifecycleStatus: 'approved',
-        productStatus: 'inactive',
         productCategory: null,
         collectionId: null,
       })
+    updateResponse.assertStatus(200)
+    await inactivateProduct(client, session.token, activeProductId)
 
     const preserved = await client
       .get(`/bills-of-materials/${template.id}`)

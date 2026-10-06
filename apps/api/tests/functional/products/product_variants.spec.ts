@@ -174,12 +174,22 @@ test.group('Product Variants', (group) => {
         name: 'Inactive Jackie',
         shortDescription: null,
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         productCategory: null,
         collectionId: null,
       })
 
     inactiveProductResponse.assertStatus(200)
+
+    const inactivationResponse = await client
+      .post(`/products/${inactiveProductId}/inactivate`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({})
+
+    inactivationResponse.assertStatus(200)
+    inactivationResponse.assertBodyContains({
+      id: inactiveProductId,
+      productStatus: 'inactive',
+    })
 
     const inactiveCreateResponse = await client
       .post(`/products/${inactiveProductId}/variants`)

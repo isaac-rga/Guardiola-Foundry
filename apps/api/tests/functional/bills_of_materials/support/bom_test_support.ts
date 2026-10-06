@@ -55,6 +55,15 @@ export async function createProductVariant(
   return response.body().id as string
 }
 
+export async function inactivateProduct(client: any, token: string, productId: string) {
+  const response = await client
+    .post(`/products/${productId}/inactivate`)
+    .header('Authorization', `Bearer ${token}`)
+    .json({})
+  response.assertStatus(200)
+  response.assertBodyContains({ id: productId, productStatus: 'inactive' })
+}
+
 export async function updateProduct(
   client: any,
   token: string,
