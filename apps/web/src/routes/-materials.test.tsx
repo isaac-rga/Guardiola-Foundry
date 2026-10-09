@@ -868,6 +868,7 @@ function materialDetailWithoutActiveAlternateResponse() {
 
 function eligibleSourceSummary() {
   return {
+    sourceStatus: 'active',
     id: 'S-0004',
     name: 'White Chantilly Lace',
     vendor: 'Dentelle House',

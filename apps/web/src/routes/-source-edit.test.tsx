@@ -198,6 +198,7 @@ function sourceListResponse(name: string) {
   return {
     sources: [
       {
+        sourceStatus: 'active',
         id: 'S-0001',
         name,
         vendor: 'Casa Tessile',

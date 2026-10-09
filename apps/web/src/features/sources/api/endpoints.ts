@@ -24,7 +24,11 @@ import type {
   UpdateSourceResponse,
 } from '@guardiola-foundry/shared-types'
 
-import { getResponseErrorMessage, resolveApiUrl } from '@/lib/api/transport'
+import {
+  ApiRequestError,
+  getResponseErrorMessage,
+  resolveApiUrl,
+} from '@/lib/api/transport'
 
 export async function getCurrencyConversionRate(
   token: string,
@@ -55,7 +59,7 @@ export async function listSources(
   if (filters.search) searchParams.set('search', filters.search)
   if (filters.textileFamily)
     searchParams.set('textileFamily', filters.textileFamily)
-  if (filters.status) searchParams.set('status', filters.status)
+  if (filters.includeRetired) searchParams.set('includeRetired', 'true')
   if (filters.linkState) searchParams.set('linkState', filters.linkState)
   if (filters.attentionState)
     searchParams.set('attentionState', filters.attentionState)
@@ -73,7 +77,10 @@ export async function listSources(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getResponseErrorMessage(body, 'Unable to load Sources.'))
+    throw new ApiRequestError(
+      getResponseErrorMessage(body, 'Unable to load Sources.'),
+      response.status,
+    )
   }
 
   return listSourcesResponseSchema.parse(body)
@@ -183,7 +190,10 @@ export async function updateSource(
 export class SourceLifecycleConflictError extends Error {
   readonly affectedMaterials: SourceLifecycleAffectedMaterial[]
 
-  constructor(message: string, affectedMaterials: SourceLifecycleAffectedMaterial[]) {
+  constructor(
+    message: string,
+    affectedMaterials: SourceLifecycleAffectedMaterial[],
+  ) {
     super(message)
     this.name = 'SourceLifecycleConflictError'
     this.affectedMaterials = affectedMaterials

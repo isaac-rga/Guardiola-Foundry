@@ -36,9 +36,12 @@ export class SourceLifecycleError extends Error {
 export async function listSources(filters: ListSourcesQuery): Promise<ListSourcesResponse> {
   const query = MaterialSource.query()
     .preload('materialLinks')
-    .where('sourceStatus', filters.status ?? 'active')
     .orderBy('name', 'asc')
     .orderBy('vendor', 'asc')
+
+  if (!filters.includeRetired) {
+    query.where('sourceStatus', 'active')
+  }
 
   if (filters.search) {
     const search = filters.search.trim()
@@ -336,6 +339,7 @@ function serializeSourceSummary(source: MaterialSource): SourceSummary {
     purchasePriceCents: source.purchasePriceCents,
     landedUnitCostCents: source.landedUnitCostCents,
     linkedMaterialCount: source.materialLinks.length,
+    sourceStatus: source.sourceStatus,
     ...attention,
   }
 }

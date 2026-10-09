@@ -45,7 +45,12 @@ export function SourcesTable({ sources }: { sources: SourceSummary[] }) {
               </Link>
             </TableCell>
             <TableCell className="max-w-[15rem] whitespace-normal font-medium">
-              {source.name}
+              <div className="flex flex-wrap items-center gap-2">
+                {source.name}
+                {source.sourceStatus === 'retired' ? (
+                  <StatusBadge label="Retired" tone="muted" />
+                ) : null}
+              </div>
             </TableCell>
             <TableCell className="max-w-[13rem] whitespace-normal">
               {source.vendor}

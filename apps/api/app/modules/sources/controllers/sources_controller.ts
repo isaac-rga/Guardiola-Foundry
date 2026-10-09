@@ -22,10 +22,10 @@ export default class SourcesController {
       return response.unprocessableEntity({ message: 'Invalid Source filters.' })
     }
 
-    if (parsedFilters.data.status === 'retired' && authenticatedSession.user.role !== 'admin') {
+    if (parsedFilters.data.includeRetired && authenticatedSession.user.role !== 'admin') {
       return response.forbidden({
         message:
-          'Only Admins can view Retired Sources. Remove the Status filter to view Active Sources.',
+          'Only Admins can view Retired Sources. Remove Include retired to view Active Sources.',
       })
     }
 

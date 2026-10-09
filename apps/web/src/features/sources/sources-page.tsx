@@ -1,5 +1,8 @@
 import type { ListSourcesQuery } from '@guardiola-foundry/shared-types'
 import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { ApiRequestError } from '@/lib/api/transport'
+import { clearAuthSession } from '@/lib/auth/session-storage'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,13 +18,65 @@ import { SourcesTable } from '@/features/sources/components/sources-table'
 
 type SourcesPageProps = {
   filters: ListSourcesQuery
-  onFiltersChange: (changes: Partial<ListSourcesQuery>) => void
+  onFiltersChange: (
+    changes: Partial<ListSourcesQuery>,
+    options?: { replace?: boolean },
+  ) => void
 }
 
 export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
   const { session } = useAppShell()
+  const [searchValue, setSearchValue] = useState(filters.search ?? '')
+  const effectiveSearch = filters.search ?? ''
+  const normalizedSearch = searchValue.trim()
+  const isDebouncing = normalizedSearch !== effectiveSearch
+
+  useEffect(() => {
+    setSearchValue(filters.search ?? '')
+  }, [filters.search])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (normalizedSearch === effectiveSearch) return
+      onFiltersChange(
+        { search: normalizedSearch || undefined },
+        { replace: true },
+      )
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [effectiveSearch, normalizedSearch, onFiltersChange])
   const currencyConversionRateQuery = useCurrencyConversionRate(session.token)
-  const sourcesQuery = useSourceList(session.token, filters)
+  const effectiveFilters =
+    session.user.role === 'admin'
+      ? filters
+      : { ...filters, includeRetired: undefined }
+  const sourcesQuery = useSourceList(session.token, effectiveFilters)
+  const isForbidden =
+    sourcesQuery.error instanceof ApiRequestError &&
+    sourcesQuery.error.status === 403
+  const isUnauthorized =
+    sourcesQuery.error instanceof ApiRequestError &&
+    sourcesQuery.error.status === 401
+
+  useEffect(() => {
+    if (filters.includeRetired && session.user.role !== 'admin') {
+      onFiltersChange({ includeRetired: undefined }, { replace: true })
+    }
+  }, [filters.includeRetired, session.user.role, onFiltersChange])
+
+  function clearFilters() {
+    if (isForbidden) {
+      void sourcesQuery.recoverDefault()
+    }
+    setSearchValue('')
+    onFiltersChange({
+      search: undefined,
+      textileFamily: undefined,
+      linkState: undefined,
+      attentionState: undefined,
+      includeRetired: undefined,
+    })
+  }
   const sources = sourcesQuery.data?.sources ?? []
 
   return (
@@ -117,16 +172,25 @@ export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
       <Card>
         <CardContent className="space-y-5">
           <SourceFilters
-            filters={filters}
+            filters={{ ...effectiveFilters, search: searchValue }}
             onFiltersChange={onFiltersChange}
+            onSearchChange={setSearchValue}
+            onClearAll={clearFilters}
             role={session.user.role}
           />
+
+          {isDebouncing ||
+          (sourcesQuery.isFetching && !sourcesQuery.isLoading) ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              Updating Sources...
+            </p>
+          ) : null}
 
           {sourcesQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading Sources...</p>
           ) : null}
 
-          {sourcesQuery.isError ? (
+          {sourcesQuery.isError && !isForbidden && !isUnauthorized ? (
             <p
               className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
               role="alert"
@@ -138,6 +202,32 @@ export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
             </p>
           ) : null}
 
+          {isForbidden ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-border px-4 py-3"
+            >
+              <p>
+                You do not have permission to view this Source catalog
+                selection.
+              </p>
+              <Button className="mt-3" variant="outline" onClick={clearFilters}>
+                Clear all
+              </Button>
+            </div>
+          ) : null}
+
+          {isUnauthorized ? (
+            <div role="alert">
+              <p>Your session has expired. Sign in again to continue.</p>
+              <Button asChild variant="outline" className="mt-3">
+                <Link to="/sign-in" onClick={clearAuthSession}>
+                  Sign in again
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+
           {!sourcesQuery.isLoading &&
           !sourcesQuery.isError &&
           sources.length === 0 ? (
@@ -146,13 +236,14 @@ export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
                 No Sources match this view.
               </p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Adjust the search or filters to return to the operational
-                catalog.
+                Clear search or filters to return to the operational catalog.
               </p>
             </div>
           ) : null}
 
-          {sources.length > 0 ? <SourcesTable sources={sources} /> : null}
+          {!sourcesQuery.isError && sources.length > 0 ? (
+            <SourcesTable sources={sources} />
+          ) : null}
         </CardContent>
       </Card>
     </div>

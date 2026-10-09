@@ -51,6 +51,7 @@ test.group('Sources list', (group) => {
 
     assert.deepEqual(unlinkedSource, {
       id: 'S-0004',
+      sourceStatus: 'active',
       name: 'White Chantilly Lace',
       vendor: 'Dentelle House',
       textileFamily: 'Encaje',
@@ -84,9 +85,7 @@ test.group('Sources list', (group) => {
       .get('/sources?search=S-0001')
       .header('Authorization', `Bearer ${session.token}`)
     const filterResponse = await client
-      .get(
-        '/sources?textileFamily=Crepe&status=active&linkState=linked&attentionState=data-needs-attention'
-      )
+      .get('/sources?textileFamily=Crepe&linkState=linked&attentionState=data-needs-attention')
       .header('Authorization', `Bearer ${session.token}`)
     const unlinkedResponse = await client
       .get('/sources?linkState=unlinked')
@@ -119,7 +118,10 @@ test.group('Sources list', (group) => {
     )
   })
 
-  test('allows only Admins to request Retired Sources', async ({ assert, client }) => {
+  test('includes Active and Retired Sources together only for Admins', async ({
+    assert,
+    client,
+  }) => {
     const retiredSource = await MaterialSource.findByOrFail('publicId', 'S-0003')
     retiredSource.sourceStatus = 'retired'
     await retiredSource.save()
@@ -127,10 +129,10 @@ test.group('Sources list', (group) => {
     const adminSession = await authenticateAs(client, 'admin')
     const operatorSession = await authenticateAs(client, 'operator')
     const adminResponse = await client
-      .get('/sources?status=retired')
+      .get('/sources?includeRetired=true')
       .header('Authorization', `Bearer ${adminSession.token}`)
     const operatorResponse = await client
-      .get('/sources?status=retired')
+      .get('/sources?includeRetired=true')
       .header('Authorization', `Bearer ${operatorSession.token}`)
     const operatorDefaultResponse = await client
       .get('/sources')
@@ -140,11 +142,25 @@ test.group('Sources list', (group) => {
     operatorResponse.assertStatus(403)
     operatorResponse.assertBodyContains({
       message:
-        'Only Admins can view Retired Sources. Remove the Status filter to view Active Sources.',
+        'Only Admins can view Retired Sources. Remove Include retired to view Active Sources.',
     })
     assert.deepEqual(
       adminResponse.body().sources.map((source: { id: string }) => source.id),
-      ['S-0003']
+      ['S-0003', 'S-0001', 'S-0002', 'S-0004']
+    )
+    assert.deepEqual(
+      adminResponse
+        .body()
+        .sources.map((source: { id: string; sourceStatus: string }) => [
+          source.id,
+          source.sourceStatus,
+        ]),
+      [
+        ['S-0003', 'retired'],
+        ['S-0001', 'active'],
+        ['S-0002', 'active'],
+        ['S-0004', 'active'],
+      ]
     )
     assert.notInclude(
       operatorDefaultResponse.body().sources.map((source: { id: string }) => source.id),
@@ -155,7 +171,7 @@ test.group('Sources list', (group) => {
   test('rejects invalid filters instead of widening the result set', async ({ client }) => {
     const session = await authenticateAs(client, 'admin')
     const response = await client
-      .get('/sources?status=archived&linkState=assigned')
+      .get('/sources?includeRetired=invalid&linkState=assigned')
       .header('Authorization', `Bearer ${session.token}`)
 
     response.assertStatus(422)

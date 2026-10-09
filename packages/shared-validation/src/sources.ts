@@ -47,12 +47,16 @@ export const listSourcesQuerySchema = z.object({
     .refine((value) => value.trim().length > 0)
     .optional(),
   textileFamily: textileFamilySchema.optional(),
-  status: sourceStatusSchema.optional(),
+  includeRetired: z.preprocess(
+    (value) => (value === 'true' ? true : value === 'false' ? false : value),
+    z.boolean().optional(),
+  ),
   linkState: sourceLinkStateSchema.optional(),
   attentionState: sourceAttentionStateSchema.optional(),
 }) satisfies z.ZodType<ListSourcesQuery>
 
 export const sourceSummarySchema = z.object({
+  sourceStatus: sourceStatusSchema,
   id: z.string().regex(/^S-\d{4,}$/),
   name: z.string().min(1),
   vendor: z.string().min(1),
@@ -71,16 +75,19 @@ export const listSourcesResponseSchema = z.object({
   sources: z.array(sourceSummarySchema),
 }) satisfies z.ZodType<ListSourcesResponse>
 
-export const getCurrencyConversionRateResponseSchema = z.discriminatedUnion('state', [
-  z.object({
-    state: z.literal('configured'),
-    usdToMxnRate: z.number().positive(),
-    mxnToUsdRate: z.number().positive(),
-    effectiveDate: z.string().date(),
-  }),
-  z.object({ state: z.literal('missing') }),
-  z.object({ state: z.literal('invalid') }),
-]) satisfies z.ZodType<GetCurrencyConversionRateResponse>
+export const getCurrencyConversionRateResponseSchema = z.discriminatedUnion(
+  'state',
+  [
+    z.object({
+      state: z.literal('configured'),
+      usdToMxnRate: z.number().positive(),
+      mxnToUsdRate: z.number().positive(),
+      effectiveDate: z.string().date(),
+    }),
+    z.object({ state: z.literal('missing') }),
+    z.object({ state: z.literal('invalid') }),
+  ],
+) satisfies z.ZodType<GetCurrencyConversionRateResponse>
 
 export const sourceVendorShadeSchema = z.object({
   id: z.number().int().positive(),

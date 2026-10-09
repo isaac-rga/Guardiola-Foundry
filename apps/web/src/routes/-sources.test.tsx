@@ -5,6 +5,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -145,10 +146,7 @@ describe('sources route', () => {
   })
 
   it.each([
-    [
-      'missing',
-      'Not configured. Source catalog work is still available.',
-    ],
+    ['missing', 'Not configured. Source catalog work is still available.'],
     [
       'invalid',
       'Invalid configuration. Source catalog work is still available.',
@@ -163,10 +161,9 @@ describe('sources route', () => {
 
       expect(await screen.findByText(message)).toBeInTheDocument()
       expect(await screen.findByRole('table')).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Create Source' })).toHaveAttribute(
-        'href',
-        '/app/sources/new',
-      )
+      expect(
+        screen.getByRole('link', { name: 'Create Source' }),
+      ).toHaveAttribute('href', '/app/sources/new')
     },
   )
 
@@ -175,7 +172,7 @@ describe('sources route', () => {
     const fetchSpy = mockAuthenticatedSources({ sources: [sourceSummary()] })
     seedStoredSession('admin')
     const { router } = renderSourcesRoute(
-      '/app/sources?search=silk&textileFamily=Crepe&status=retired&linkState=linked&attentionState=data-needs-attention',
+      '/app/sources?search=silk&textileFamily=Crepe&includeRetired=true&linkState=linked&attentionState=data-needs-attention',
     )
 
     expect(
@@ -185,20 +182,14 @@ describe('sources route', () => {
       screen.getByRole('searchbox', { name: 'Search Sources' }),
     ).toHaveValue('silk')
     expect(
-      screen.getByRole('combobox', { name: 'Textile Family' }),
-    ).toHaveTextContent('Crepe')
+      screen.getByRole('button', { name: 'Include retired' }),
+    ).toBeInTheDocument()
     expect(
-      screen.getByRole('combobox', { name: 'Source Status' }),
-    ).toHaveTextContent('Retired')
-    expect(
-      screen.getByRole('combobox', { name: 'Material Link' }),
-    ).toHaveTextContent('Linked')
-    expect(
-      screen.getByRole('combobox', { name: 'Attention' }),
-    ).toHaveTextContent('Data needs attention')
+      screen.getByRole('button', { name: 'Textile family: Crepe' }),
+    ).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3333/sources?search=silk&textileFamily=Crepe&status=retired&linkState=linked&attentionState=data-needs-attention',
+        'http://localhost:3333/sources?search=silk&textileFamily=Crepe&includeRetired=true&linkState=linked&attentionState=data-needs-attention',
         expect.any(Object),
       )
     })
@@ -212,18 +203,21 @@ describe('sources route', () => {
       expect(router.state.location.search.search).toBe('silk organza')
     })
 
-    await selectFilter(user, 'Textile Family', 'Organza')
-    await selectFilter(user, 'Source Status', 'Active')
-    await selectFilter(user, 'Material Link', 'Unlinked')
-    await selectFilter(user, 'Attention', 'Cost needs attention')
+    await user.click(
+      screen.getByRole('button', { name: 'Textile family: Crepe' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Organza' }))
+    await user.click(screen.getByRole('button', { name: 'Close filters' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Remove Include retired filter' }),
+    )
 
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         search: 'silk organza',
         textileFamily: 'Organza',
-        status: 'active',
-        linkState: 'unlinked',
-        attentionState: 'cost-needs-attention',
+        linkState: 'linked',
+        attentionState: 'data-needs-attention',
       })
     })
   })
@@ -254,14 +248,206 @@ describe('sources route', () => {
     sourceResponse = jsonResponse(
       {
         message:
-          'Only Admins can view Retired Sources. Remove the Status filter to view Active Sources.',
+          'You do not have permission to view this Source catalog selection.',
       },
       { status: 403 },
     )
     renderSourcesRoute('/app/sources?status=retired')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Only Admins can view Retired Sources. Remove the Status filter to view Active Sources.',
+      'You do not have permission to view this Source catalog selection.',
+    )
+  })
+
+  it.each([
+    ['status=active', {}],
+    ['status=retired', { includeRetired: true }],
+    ['includeRetired=false&textileFamily=invalid&unsupported=value', {}],
+  ])(
+    'canonicalizes %s by replacing the existing history entry',
+    async (query, expected) => {
+      mockAuthenticatedSources({ sources: [sourceSummary()] })
+      seedStoredSession('admin')
+      const { router } = renderSourcesRoute(`/app/sources?${query}`)
+      await screen.findByRole('table')
+      await waitFor(() =>
+        expect(router.state.location.search).toEqual(expected),
+      )
+      expect(router.history.length).toBe(1)
+      expect(router.state.location.search).not.toHaveProperty('status')
+    },
+  )
+
+  it.each(['includeRetired=true', 'status=retired'])(
+    'sanitizes Operator %s before the first Source request',
+    async (query) => {
+      const fetchSpy = mockAuthenticatedSources(
+        { sources: [] },
+        { state: 'missing' },
+        'operator',
+      )
+      seedStoredSession('operator')
+      const { router } = renderSourcesRoute(`/app/sources?${query}`)
+      await screen.findByText('No Sources match this view.')
+      await waitFor(() => expect(router.state.location.search).toEqual({}))
+      const requests = fetchSpy.mock.calls
+        .map(([input]) => String(input))
+        .filter((url) => url.includes('/sources'))
+      expect(requests).toEqual(['http://localhost:3333/sources'])
+      await userEvent
+        .setup()
+        .click(screen.getByRole('button', { name: 'Filter' }))
+      expect(
+        screen.queryByRole('button', { name: 'Include retired' }),
+      ).not.toBeInTheDocument()
+      expect(router.history.length).toBe(1)
+    },
+  )
+
+  it.each(['', '?includeRetired=true&search=silk&linkState=linked'])(
+    'recovers from a table 403 at %s by clearing and retrying safe defaults',
+    async (query) => {
+      let denied = true
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input)
+        if (url.endsWith('/auth/me')) return sessionResponse('admin')
+        if (url.endsWith('/currency-conversion-rate'))
+          return jsonResponse({ state: 'missing' })
+        if (url.includes('/sources'))
+          return denied
+            ? jsonResponse({ message: 'Forbidden' }, { status: 403 })
+            : jsonResponse({ sources: [sourceSummary()] })
+        throw new Error(`Unexpected request: ${url}`)
+      })
+      seedStoredSession('admin')
+      const { router } = renderSourcesRoute(`/app/sources${query}`)
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('You do not have permission')
+      denied = false
+      await userEvent
+        .setup()
+        .click(within(alert).getByRole('button', { name: 'Clear all' }))
+      await screen.findByRole('table')
+      expect(router.state.location.search).toEqual({})
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    },
+  )
+
+  it('marks only Retired Source names and restores criteria through back and forward history', async () => {
+    const user = userEvent.setup()
+    mockAuthenticatedSources({
+      sources: [
+        sourceSummary(),
+        {
+          ...sourceSummary('S-0002'),
+          name: 'Retired Crepe',
+          sourceStatus: 'retired',
+        },
+      ],
+    })
+    seedStoredSession('admin')
+    const { router } = renderSourcesRoute('/app/sources?includeRetired=true')
+    const table = await screen.findByRole('table')
+    expect(within(table).getAllByText('Retired')).toHaveLength(1)
+    expect(within(table).getByText('Retired').parentElement).toHaveTextContent(
+      'Retired Crepe',
+    )
+    expect(within(table).queryByText('Active')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Filter' }))
+    await user.click(screen.getByRole('button', { name: /Textile family/ }))
+    await user.click(screen.getByRole('button', { name: 'Crepe' }))
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({
+        includeRetired: true,
+        textileFamily: 'Crepe',
+      }),
+    )
+    expect(router.history.length).toBe(2)
+    await act(async () => router.history.back())
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ includeRetired: true }),
+    )
+    await act(async () => router.history.forward())
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({
+        includeRetired: true,
+        textileFamily: 'Crepe',
+      }),
+    )
+  })
+
+  it('debounces remote search and retains rows with an accessible updating status', async () => {
+    let resolveSearch!: (response: Response) => void
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = String(input)
+        if (url.endsWith('/auth/me')) return sessionResponse('admin')
+        if (url.endsWith('/currency-conversion-rate'))
+          return jsonResponse({ state: 'missing' })
+        if (url.endsWith('/sources'))
+          return jsonResponse({ sources: [sourceSummary()] })
+        if (url.includes('/sources?search=silk'))
+          return new Promise<Response>((resolve) => {
+            resolveSearch = resolve
+          })
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    seedStoredSession('admin')
+    const { router } = renderSourcesRoute('/app/sources')
+    await screen.findByRole('table')
+    await userEvent
+      .setup()
+      .type(screen.getByRole('searchbox', { name: 'Search Sources' }), 'silk')
+    expect(
+      screen.getByRole('searchbox', { name: 'Search Sources' }),
+    ).toHaveValue('silk')
+    expect(router.state.location.search).toEqual({})
+    expect(
+      fetchSpy.mock.calls
+        .map(([input]) => String(input))
+        .filter((url) => url.includes('/sources?')),
+    ).toEqual([])
+    expect(screen.getByRole('status')).toHaveTextContent('Updating Sources')
+    await waitFor(() => expect(resolveSearch).toBeDefined())
+    expect(screen.getByRole('table')).toHaveTextContent('Ivory Silk Crepe')
+    resolveSearch(jsonResponse({ sources: [] }))
+    await screen.findByText('No Sources match this view.')
+    expect(router.state.location.search).toEqual({ search: 'silk' })
+    expect(router.history.length).toBe(1)
+  })
+
+  it('retries safe defaults after 403 even when the default list cache is fresh', async () => {
+    const requests: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/auth/me')) return sessionResponse('admin')
+      if (url.endsWith('/currency-conversion-rate'))
+        return jsonResponse({ state: 'missing' })
+      if (url.includes('/sources')) {
+        requests.push(url)
+        return url.includes('includeRetired')
+          ? jsonResponse({ message: 'Forbidden' }, { status: 403 })
+          : jsonResponse({ sources: [sourceSummary()] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    seedStoredSession('admin')
+    renderSourcesRoute('/app/sources', 30_000)
+    await screen.findByRole('table')
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Filter' }))
+    await user.click(screen.getByRole('button', { name: /Include retired/ }))
+    await user.click(screen.getByRole('button', { name: 'Close filters' }))
+    const alert = await screen.findByRole('alert')
+    await user.click(within(alert).getByRole('button', { name: 'Clear all' }))
+    await screen.findByRole('table')
+    await waitFor(() =>
+      expect(requests).toEqual([
+        'http://localhost:3333/sources',
+        'http://localhost:3333/sources?includeRetired=true',
+        'http://localhost:3333/sources',
+      ]),
     )
   })
 
@@ -298,13 +484,13 @@ describe('sources route', () => {
   })
 })
 
-function renderSourcesRoute(initialEntry: string) {
+function renderSourcesRoute(initialEntry: string, staleTime = 0) {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
   })
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime } },
   })
 
   return {
@@ -320,12 +506,13 @@ function renderSourcesRoute(initialEntry: string) {
 function mockAuthenticatedSources(
   body: unknown,
   currencyRate: unknown = { state: 'missing' },
+  role: 'admin' | 'operator' = 'admin',
 ) {
   return vi
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/auth/me')) return sessionResponse('admin')
+      if (url.endsWith('/auth/me')) return sessionResponse(role)
       if (url.endsWith('/currency-conversion-rate'))
         return jsonResponse(currencyRate)
       if (url.includes('/sources') && init?.method === 'GET')
@@ -337,6 +524,7 @@ function mockAuthenticatedSources(
 function sourceSummary(id = 'S-0001') {
   return {
     id,
+    sourceStatus: 'active',
     name: 'Ivory Silk Crepe',
     vendor: 'Maison Textile',
     textileFamily: 'Crepe',
@@ -376,16 +564,4 @@ function seedStoredSession(role: 'admin' | 'operator') {
       user: { id: 1, email: `${role}@example.com`, role, active: true },
     }),
   )
-}
-
-async function selectFilter(
-  user: ReturnType<typeof userEvent.setup>,
-  label: string,
-  option: string,
-) {
-  const trigger = screen.getByRole('combobox', { name: label })
-
-  await user.click(trigger)
-  await user.click(await screen.findByRole('option', { name: option }))
-  await waitFor(() => expect(trigger).toHaveTextContent(option))
 }
