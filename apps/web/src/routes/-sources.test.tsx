@@ -25,6 +25,73 @@ describe('sources route', () => {
     vi.restoreAllMocks()
   })
 
+  it.each([
+    ['Linked', 'Cost needs attention'],
+    ['Unlinked', 'Data needs attention'],
+  ])(
+    'shows unset criteria honestly and preserves selected %s and %s labels',
+    async (linkLabel, attentionLabel) => {
+      mockAuthenticatedSources({ sources: [sourceSummary()] })
+      seedStoredSession('admin')
+      renderSourcesRoute('/app/sources')
+      await screen.findByRole('table')
+      const user = userEvent.setup()
+      await user.click(screen.getByRole('button', { name: 'Filter' }))
+      const popover = screen.getByRole('dialog', { name: 'Table filters' })
+      expect(
+        within(popover).getByRole('button', { name: /Material link/ }),
+      ).toHaveTextContent('Not set')
+      expect(
+        within(popover).getByRole('button', { name: /Attention/ }),
+      ).toHaveTextContent('Not set')
+      expect(
+        screen.queryByRole('button', { name: 'Remove Material link filter' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Remove Attention filter' }),
+      ).not.toBeInTheDocument()
+
+      await user.click(
+        within(popover).getByRole('button', { name: /Material link/ }),
+      )
+      await user.click(within(popover).getByRole('button', { name: linkLabel }))
+      expect(
+        within(popover).getByRole('button', { name: /Material link/ }),
+      ).toHaveTextContent(linkLabel)
+      await user.click(
+        within(popover).getByRole('button', { name: /Attention/ }),
+      )
+      await user.click(
+        within(popover).getByRole('button', { name: attentionLabel }),
+      )
+      expect(
+        within(popover).getByRole('button', { name: /Attention/ }),
+      ).toHaveTextContent(attentionLabel)
+      expect(
+        screen.getByRole('button', { name: `Material link: ${linkLabel}` }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: `Attention: ${attentionLabel}` }),
+      ).toBeInTheDocument()
+
+      await user.click(
+        within(popover).getByRole('button', { name: 'Clear all' }),
+      )
+      expect(
+        within(popover).getByRole('button', { name: /Material link/ }),
+      ).toHaveTextContent('Not set')
+      expect(
+        within(popover).getByRole('button', { name: /Attention/ }),
+      ).toHaveTextContent('Not set')
+      expect(
+        screen.queryByRole('button', { name: 'Remove Material link filter' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Remove Attention filter' }),
+      ).not.toBeInTheDocument()
+    },
+  )
+
   it('opens a Source row through its stable app-owned Source ID route', async () => {
     mockAuthenticatedSources({ sources: [sourceSummary()] })
     seedStoredSession('operator')

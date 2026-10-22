@@ -44,7 +44,12 @@ export function SourceFilters({
       key: 'linkState',
       label: 'Material link',
       value: filters.linkState,
-      valueLabel: filters.linkState === 'linked' ? 'Linked' : 'Unlinked',
+      valueLabel:
+        filters.linkState === undefined
+          ? undefined
+          : filters.linkState === 'linked'
+            ? 'Linked'
+            : 'Unlinked',
       options: [
         { value: 'linked', label: 'Linked' },
         { value: 'unlinked', label: 'Unlinked' },
@@ -57,9 +62,11 @@ export function SourceFilters({
       label: 'Attention',
       value: filters.attentionState,
       valueLabel:
-        filters.attentionState === 'cost-needs-attention'
-          ? 'Cost needs attention'
-          : 'Data needs attention',
+        filters.attentionState === undefined
+          ? undefined
+          : filters.attentionState === 'cost-needs-attention'
+            ? 'Cost needs attention'
+            : 'Data needs attention',
       options: [
         { value: 'cost-needs-attention', label: 'Cost needs attention' },
         { value: 'data-needs-attention', label: 'Data needs attention' },
