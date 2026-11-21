@@ -75,8 +75,9 @@ export async function listBillsOfMaterials(
   })
   const body = await response.json()
   if (!response.ok) {
-    throw new Error(
+    throw new ApiRequestError(
       getResponseErrorMessage(body, 'Unable to load Bills of Materials.'),
+      response.status,
     )
   }
   return listBillsOfMaterialsResponseSchema.parse(body)

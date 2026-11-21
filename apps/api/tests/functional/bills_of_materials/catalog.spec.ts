@@ -129,6 +129,63 @@ test.group('Bills of Materials', (group) => {
         excludedLineCount: 0,
       },
     })
+
+    const adminSession = await authenticateAs(client, 'admin')
+    const historical = await client
+      .post('/bills-of-materials')
+      .header('Authorization', `Bearer ${adminSession.token}`)
+      .json({
+        kind: 'template',
+        name: 'Historical construction',
+        description: null,
+        lines: [
+          {
+            constructionPiece: 'Unverified historical piece',
+            materialId: null,
+            materialQuantity: null,
+            lineNote: null,
+            verified: false,
+          },
+        ],
+      })
+    historical.assertStatus(201)
+    const deleted = await client
+      .delete(`/bills-of-materials/${historical.body().id}`)
+      .header('Authorization', `Bearer ${adminSession.token}`)
+    deleted.assertStatus(204)
+
+    for (const filters of [
+      '?search=no-match',
+      '?kind=implementation',
+      '?kind=template&includeDeleted=true',
+      '?includeDeleted=true',
+    ]) {
+      const filtered = await client
+        .get('/bills-of-materials' + filters)
+        .header('Authorization', `Bearer ${adminSession.token}`)
+      filtered.assertStatus(200)
+      assert.deepEqual(filtered.body().summary, {
+        totalAvailable: 2,
+        templateCount: 1,
+        implementationCount: 1,
+        withoutProductVariantCount: 1,
+        withUnverifiedLinesCount: 1,
+      })
+      const rows = filtered.body().billsOfMaterials
+      if (filters === '?search=no-match') assert.isEmpty(rows)
+      if (filters === '?kind=implementation')
+        assert.deepEqual(
+          rows.map((row: { id: string }) => row.id),
+          [implementation.body().id]
+        )
+      if (filters === '?includeDeleted=true') {
+        assert.lengthOf(rows, 3)
+        assert.isNotNull(
+          rows.find((row: { id: string }) => row.id === historical.body().id).deletedAt
+        )
+        assert.isNull(rows.find((row: { id: string }) => row.id === template.body().id).deletedAt)
+      }
+    }
   })
 
   test('searches current catalog context, filters kind, and limits deleted records to Admins', async ({
@@ -208,12 +265,11 @@ test.group('Bills of Materials', (group) => {
       .header('Authorization', `Bearer ${operatorSession.token}`)
 
     adminDeleted.assertStatus(200)
-    operatorDeleted.assertStatus(200)
+    operatorDeleted.assertStatus(403)
     assert.deepEqual(
       adminDeleted.body().billsOfMaterials.map((item: { id: string }) => item.id),
       [template.body().id]
     )
-    assert.isEmpty(operatorDeleted.body().billsOfMaterials)
     assert.deepEqual(adminDeleted.body().summary, templates.body().summary)
   })
 

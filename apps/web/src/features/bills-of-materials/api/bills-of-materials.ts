@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import type {
   AssociateBillOfMaterialsTemplateProductRequest,
   ApplyBillOfMaterialsTemplateRequest,
@@ -38,17 +43,26 @@ export function useBillsOfMaterials(
   token: string,
   filters: ListBillsOfMaterialsQuery = {},
 ) {
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: [...billsOfMaterialsQueryKey, filters],
     queryFn: () => listBillsOfMaterials(token, filters),
+    placeholderData: keepPreviousData,
   })
 
   return {
     billsOfMaterials: query.data?.billsOfMaterials ?? [],
     summary: query.data?.summary ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     loadError: query.error,
     reload: query.refetch,
+    recoverDefault: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...billsOfMaterialsQueryKey, {}],
+        exact: true,
+        refetchType: 'all',
+      }),
   }
 }
 
@@ -283,7 +297,5 @@ function invalidateCandidateAffectingBillOfMaterialsQueries(
 }
 
 function isCandidateAuthenticationOrAuthorizationError(error: Error | null) {
-  return (
-    error instanceof ApiRequestError && [401, 403].includes(error.status)
-  )
+  return error instanceof ApiRequestError && [401, 403].includes(error.status)
 }

@@ -1,5 +1,5 @@
 import { CopyPlusIcon, FileStackIcon, PlusIcon } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   BillOfMaterialsSummary,
   ListBillsOfMaterialsQuery,
@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/table'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
+import { ApiRequestError } from '@/lib/api/transport'
 import {
   useBillsOfMaterials,
   useDeleteBillOfMaterials,
@@ -61,16 +62,70 @@ export function BillsOfMaterialsCatalogPage({
   onDeriveTemplate: (originId: string) => void
   onEdit: (billOfMaterialsId: string) => void
   filters: ListBillsOfMaterialsQuery
-  onFiltersChange: (changes: ListBillsOfMaterialsQuery) => void
+  onFiltersChange: (
+    changes: ListBillsOfMaterialsQuery,
+    options?: { replace?: boolean },
+  ) => void
 }) {
   const { session } = useAppShell()
   const isAdmin = session.user.role === 'admin'
+  const [searchValue, setSearchValue] = useState(filters.search ?? '')
+  const effectiveSearch = filters.search ?? ''
+  const normalizedSearch = searchValue.trim()
+  const isDebouncing = normalizedSearch !== effectiveSearch
+
+  useEffect(() => {
+    setSearchValue(filters.search ?? '')
+  }, [filters.search])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (normalizedSearch === effectiveSearch) return
+      onFiltersChange(
+        { search: normalizedSearch || undefined },
+        { replace: true },
+      )
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [effectiveSearch, normalizedSearch, onFiltersChange])
+
+  useEffect(() => {
+    if (filters.includeDeleted && !isAdmin) {
+      onFiltersChange({ includeDeleted: undefined }, { replace: true })
+    }
+  }, [filters.includeDeleted, isAdmin, onFiltersChange])
   const catalogFilters = {
-    ...filters,
-    includeDeleted: isAdmin && filters.includeDeleted,
+    ...(filters.search ? { search: filters.search } : {}),
+    ...(filters.kind ? { kind: filters.kind } : {}),
+    ...(isAdmin && filters.includeDeleted ? { includeDeleted: true } : {}),
   }
-  const { billsOfMaterials, summary, isLoading, loadError, reload } =
-    useBillsOfMaterials(session.token, catalogFilters)
+  const {
+    billsOfMaterials,
+    summary,
+    isLoading,
+    isFetching,
+    loadError,
+    reload,
+    recoverDefault,
+  } = useBillsOfMaterials(session.token, catalogFilters)
+  const isForbidden =
+    loadError instanceof ApiRequestError && loadError.status === 403
+  const isUnauthorized =
+    loadError instanceof ApiRequestError && loadError.status === 401
+
+  useEffect(() => {
+    if (isUnauthorized) onAuthenticationFailure()
+  }, [isUnauthorized, onAuthenticationFailure])
+
+  function clearFilters() {
+    if (isForbidden) void recoverDefault()
+    setSearchValue('')
+    onFiltersChange({
+      search: undefined,
+      kind: undefined,
+      includeDeleted: undefined,
+    })
+  }
   const hasActiveFilters = Boolean(
     catalogFilters.search ||
     catalogFilters.kind ||
@@ -117,16 +172,37 @@ export function BillsOfMaterialsCatalogPage({
       <Card>
         <CardContent className="space-y-5">
           <CatalogFilters
-            filters={catalogFilters}
+            filters={{ ...catalogFilters, search: searchValue }}
             isAdmin={isAdmin}
             onChange={onFiltersChange}
+            onSearchChange={(value) => setSearchValue(value.slice(0, 200))}
+            onClearAll={clearFilters}
           />
+          {isDebouncing || (isFetching && !isLoading) ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              Updating Bills of Materials...
+            </p>
+          ) : null}
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Loading Bills of Materials...
             </p>
           ) : null}
-          {loadError ? (
+          {isForbidden ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-border px-4 py-3"
+            >
+              <p>
+                You do not have permission to view this Bill of Materials
+                catalog selection.
+              </p>
+              <Button className="mt-3" variant="outline" onClick={clearFilters}>
+                Clear all
+              </Button>
+            </div>
+          ) : null}
+          {loadError && !isForbidden && !isUnauthorized ? (
             <div
               className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
               role="alert"
@@ -149,12 +225,11 @@ export function BillsOfMaterialsCatalogPage({
           summary ? (
             <CatalogEmptyState
               filtered={hasActiveFilters || summary.totalAvailable > 0}
-              onClear={() => onFiltersChange({})}
               onCreateImplementation={() => openManualCandidateDialog()}
               onCreateTemplate={onCreateTemplate}
             />
           ) : null}
-          {billsOfMaterials.length > 0 ? (
+          {!loadError && billsOfMaterials.length > 0 ? (
             <Table className="min-w-[68rem]">
               <TableHeader>
                 <TableRow>

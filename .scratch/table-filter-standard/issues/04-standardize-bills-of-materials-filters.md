@@ -4,11 +4,11 @@
 
 **Blocked by:** 02 — Productionize the approved shared filter UI.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Bills of Materials uses the shared visible search, Filter popover, chips, editing, clearing, responsive, empty, and accessible interaction pattern with Kind and Include deleted criteria.
-- [ ] Search, Kind, and Include deleted continue to hydrate from and synchronize to canonical URL state with the approved history behavior.
-- [ ] Include deleted is additive and Admin-only; explicit unauthorized API requests return `403`, unauthorized URL state is sanitized, and table-level permission recovery follows the shared behavior.
-- [ ] Deleted Bills of Materials are visibly identified with a Deleted badge while current records receive no additional lifecycle badge.
-- [ ] Filtering changes returned rows without changing the existing global meaning of Available BOMs, BOMs without an associated Product Variant, or BOMs pending line verification.
-- [ ] Focused route and API tests prove Bills of Materials-specific URL, permission, historical badge, and global-summary behavior without repeating the complete shared interaction suite.
+- [x] Bills of Materials uses the shared visible search, Filter popover, chips, editing, clearing, responsive, empty, and accessible interaction pattern with Kind and Include deleted criteria.
+- [x] Search, Kind, and Include deleted continue to hydrate from and synchronize to canonical URL state with the approved history behavior.
+- [x] Include deleted is additive and Admin-only; explicit unauthorized API requests return `403`, unauthorized URL state is sanitized, and table-level permission recovery follows the shared behavior.
+- [x] Deleted Bills of Materials are visibly identified with a Deleted badge while current records receive no additional lifecycle badge.
+- [x] Filtering changes returned rows without changing the existing global meaning of Available BOMs, BOMs without an associated Product Variant, or BOMs pending line verification.
+- [x] Focused route and API tests prove Bills of Materials-specific URL, permission, historical badge, and global-summary behavior without repeating the complete shared interaction suite.

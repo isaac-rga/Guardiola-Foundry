@@ -44,11 +44,14 @@ export default class BillsOfMaterialsController {
     if (!query.success) {
       return response.unprocessableEntity({ message: 'Invalid Bill of Materials filters.' })
     }
+    if (query.data.includeDeleted && authenticatedSession.user.role !== 'admin') {
+      return response.forbidden({ message: 'Only Admins can include deleted Bills of Materials.' })
+    }
     return response.ok(
       await listBillsOfMaterials({
         search: query.data.search,
         kind: query.data.kind,
-        includeDeleted: authenticatedSession.user.role === 'admin' && query.data.includeDeleted,
+        includeDeleted: query.data.includeDeleted,
       })
     )
   }

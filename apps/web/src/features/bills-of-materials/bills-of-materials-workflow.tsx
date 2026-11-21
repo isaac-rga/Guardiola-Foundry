@@ -41,7 +41,10 @@ export function BillsOfMaterialsWorkflow({
   onCreateTemplate: () => void
   onEdit: (billOfMaterialsId: string) => void
   onExitBuilder: () => void
-  onFiltersChange: (changes: ListBillsOfMaterialsQuery) => void
+  onFiltersChange: (
+    changes: ListBillsOfMaterialsQuery,
+    options?: { replace?: boolean },
+  ) => void
   onMissingImplementationContext: () => void
   onOpenDerivationBuilder: (originId: string) => void
   onOpenImplementationBuilder: (

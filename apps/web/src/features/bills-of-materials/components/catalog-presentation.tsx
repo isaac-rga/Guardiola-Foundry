@@ -1,12 +1,15 @@
-import { FilterIcon, SearchIcon } from 'lucide-react'
 import type {
   BillOfMaterialsCostProjection,
+  BillOfMaterialsKind,
   BillsOfMaterialsCatalogSummary,
   ListBillsOfMaterialsQuery,
 } from '@guardiola-foundry/shared-types'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import {
+  TableFilters,
+  type TableFilterCriterion,
+} from '@/components/app/table-filters'
 import { cn } from '@/lib/utils'
 
 export function CatalogSummary({
@@ -69,76 +72,64 @@ export function CatalogFilters({
   filters,
   isAdmin,
   onChange,
+  onSearchChange,
+  onClearAll,
 }: {
   filters: ListBillsOfMaterialsQuery
   isAdmin: boolean
   onChange: (changes: ListBillsOfMaterialsQuery) => void
+  onSearchChange: (value: string) => void
+  onClearAll: () => void
 }) {
+  const criteria: TableFilterCriterion[] = [
+    {
+      key: 'kind',
+      label: 'Kind',
+      value: filters.kind,
+      valueLabel:
+        filters.kind === 'template'
+          ? 'Template'
+          : filters.kind === 'implementation'
+            ? 'Implementation'
+            : undefined,
+      options: [
+        { label: 'Template', value: 'template' },
+        { label: 'Implementation', value: 'implementation' },
+      ],
+      onChange: (value) =>
+        onChange({ kind: value as BillOfMaterialsKind | undefined }),
+    },
+  ]
+  if (isAdmin) {
+    criteria.push({
+      key: 'includeDeleted',
+      label: 'Include deleted',
+      value: filters.includeDeleted ? 'true' : undefined,
+      additive: true,
+      onChange: (value) =>
+        onChange({ includeDeleted: value ? true : undefined }),
+    })
+  }
   return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap">
-      <div className="relative w-full lg:max-w-sm">
-        <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          aria-label="Search Bills of Materials"
-          className="h-9 pl-10"
-          onChange={(event) =>
-            onChange({
-              ...filters,
-              search: event.target.value.trimStart() || undefined,
-            })
-          }
-          placeholder="Search name, ID, Product, Variant, or origin"
-          type="search"
-          value={filters.search ?? ''}
-        />
-      </div>
-      {[
-        { label: 'All', value: undefined },
-        { label: 'Templates', value: 'template' as const },
-        { label: 'Implementations', value: 'implementation' as const },
-      ].map((option) => (
-        <Button
-          aria-pressed={filters.kind === option.value}
-          className="h-9"
-          key={option.label}
-          onClick={() => onChange({ ...filters, kind: option.value })}
-          size="sm"
-          type="button"
-          variant={filters.kind === option.value ? 'secondary' : 'ghost'}
-        >
-          {option.label}
-        </Button>
-      ))}
-      {isAdmin ? (
-        <Button
-          aria-pressed={Boolean(filters.includeDeleted)}
-          className="h-9"
-          onClick={() =>
-            onChange({
-              ...filters,
-              includeDeleted: filters.includeDeleted ? undefined : true,
-            })
-          }
-          size="sm"
-          type="button"
-          variant={filters.includeDeleted ? 'secondary' : 'outline'}
-        >
-          <FilterIcon />
-          {filters.includeDeleted ? 'Including deleted' : 'Include deleted'}
-        </Button>
-      ) : null}
-    </div>
+    <TableFilters
+      criteria={criteria}
+      onClearAll={onClearAll}
+      search={{
+        label: 'Search Bills of Materials',
+        placeholder: 'Search name, ID, Product, Variant, or origin',
+        value: filters.search ?? '',
+        onChange: onSearchChange,
+      }}
+    />
   )
 }
 
 export function CatalogEmptyState({
   filtered,
-  onClear,
   onCreateImplementation,
   onCreateTemplate,
 }: {
   filtered: boolean
-  onClear: () => void
   onCreateImplementation: () => void
   onCreateTemplate: () => void
 }) {
@@ -151,9 +142,9 @@ export function CatalogEmptyState({
       </p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         {filtered ? (
-          <Button onClick={onClear} size="sm" type="button" variant="outline">
-            Clear catalog filters
-          </Button>
+          <p className="text-sm text-muted-foreground">
+            Clear search or filters to return to the operational catalog.
+          </p>
         ) : (
           <>
             <Button onClick={onCreateTemplate} size="sm" type="button">
