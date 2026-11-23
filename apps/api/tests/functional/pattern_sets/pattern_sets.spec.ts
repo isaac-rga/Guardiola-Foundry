@@ -173,7 +173,7 @@ test.group('Pattern Sets', (group) => {
     const operatorList = await client
       .get('/pattern-sets?includeRetired=true')
       .header('Authorization', `Bearer ${operator.token}`)
-    operatorList.assertBody({ patternSets: [] })
+    operatorList.assertStatus(403)
 
     const restoreResponse = await client
       .post(`/pattern-sets/${original.id}/restore`)

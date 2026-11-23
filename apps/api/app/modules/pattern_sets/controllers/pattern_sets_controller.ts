@@ -37,9 +37,11 @@ export default class PatternSetsController {
   }
 
   async index({ authenticatedSession, request, response }: HttpContext) {
-    const includeRetired =
-      authenticatedSession.user.role === 'admin' &&
-      (request.input('includeRetired') === true || request.input('includeRetired') === 'true')
+    const includeRetiredParam = request.input('includeRetired')
+    const includeRetired = includeRetiredParam === true || includeRetiredParam === 'true'
+    if (includeRetired && authenticatedSession.user.role !== 'admin') {
+      return response.forbidden({ message: 'Only Admins can include retired Pattern Sets.' })
+    }
     return response.ok(await listPatternSets(includeRetired))
   }
 

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, RotateCcw, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import type {
   PatternSet,
@@ -10,9 +10,10 @@ import type {
 import { createPatternSetRequestSchema } from '@guardiola-foundry/shared-validation'
 
 import { PageHeader } from '@/components/app/page-header'
+import { TableFilters } from '@/components/app/table-filters'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import { hasApiRequestStatus } from '@/lib/api/transport'
 import { usePatternSets } from './api/queries'
 
 const emptyValues: PatternSetMutationRequest = {
@@ -48,10 +50,30 @@ const emptyValues: PatternSetMutationRequest = {
   quantityProposals: [],
 }
 
-export function PatternSetsPage() {
+type PatternSetsPageProps = {
+  includeRetired: boolean
+  onAuthenticationFailure: () => void
+  onIncludeRetiredChange: (
+    includeRetired: boolean,
+    options?: { replace?: boolean },
+  ) => void
+}
+
+export function PatternSetsPage({
+  includeRetired,
+  onAuthenticationFailure,
+  onIncludeRetiredChange,
+}: PatternSetsPageProps) {
   const { session } = useAppShell()
   const isAdmin = session.user.role === 'admin'
-  const [includeRetired, setIncludeRetired] = useState(false)
+  const includeRetiredInCatalog = isAdmin && includeRetired
+
+  useEffect(() => {
+    if (!isAdmin && includeRetired) {
+      onIncludeRetiredChange(false, { replace: true })
+    }
+  }, [includeRetired, isAdmin, onIncludeRetiredChange])
+
   const [editing, setEditing] = useState<PatternSet | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [pendingEdit, setPendingEdit] = useState<{
@@ -66,6 +88,8 @@ export function PatternSetsPage() {
     patternSets,
     isLoading,
     loadError,
+    removeCachedList,
+    recoverDefault,
     isSaving,
     isChangingStatus,
     saveError,
@@ -74,7 +98,23 @@ export function PatternSetsPage() {
     getUsageImpact,
     retirePatternSet,
     restorePatternSet,
-  } = usePatternSets(session.token, isAdmin && includeRetired)
+  } = usePatternSets(session.token, includeRetiredInCatalog)
+  const isForbidden = hasApiRequestStatus(loadError, 403)
+  const isUnauthorized = hasApiRequestStatus(loadError, 401)
+
+  useEffect(() => {
+    if (isUnauthorized) {
+      // The query cache survives sign-in and could replay this 401 afterward.
+      removeCachedList()
+      onAuthenticationFailure()
+    }
+  }, [isUnauthorized, onAuthenticationFailure, removeCachedList])
+
+  function clearFilters() {
+    if (isForbidden) void recoverDefault()
+    onIncludeRetiredChange(false)
+  }
+
   const form = useForm<PatternSetMutationRequest>({
     resolver: zodResolver(createPatternSetRequestSchema),
     defaultValues: emptyValues,
@@ -126,18 +166,21 @@ export function PatternSetsPage() {
       />
 
       <Card>
-        <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="gap-2 sm:flex-row sm:items-start sm:justify-between">
           <CardTitle>Pattern Set catalog</CardTitle>
           {isAdmin ? (
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={includeRetired}
-                onCheckedChange={(checked) =>
-                  setIncludeRetired(checked === true)
-                }
-              />
-              Include retired
-            </label>
+            <TableFilters
+              criteria={[
+                {
+                  key: 'includeRetired',
+                  label: 'Include retired',
+                  value: includeRetiredInCatalog ? 'true' : undefined,
+                  additive: true,
+                  onChange: (value) => onIncludeRetiredChange(value === 'true'),
+                },
+              ]}
+              onClearAll={clearFilters}
+            />
           ) : null}
         </CardHeader>
         <CardContent>
@@ -146,14 +189,32 @@ export function PatternSetsPage() {
               Loading Pattern Sets...
             </p>
           ) : null}
-          {loadError ? <p role="alert">{loadError.message}</p> : null}
+          {isForbidden ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-border px-4 py-3"
+            >
+              <p>
+                You do not have permission to view this Pattern Set catalog
+                selection.
+              </p>
+              <Button className="mt-3" variant="outline" onClick={clearFilters}>
+                Clear all
+              </Button>
+            </div>
+          ) : null}
+          {loadError && !isForbidden && !isUnauthorized ? (
+            <p role="alert">{loadError.message}</p>
+          ) : null}
           {statusError ? <p role="alert">{statusError.message}</p> : null}
           {!isLoading && !loadError && patternSets.length === 0 ? (
             <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No Pattern Sets registered yet.
+              {includeRetiredInCatalog
+                ? 'No Pattern Sets match this view. Clear filters to return to the catalog.'
+                : 'No Pattern Sets registered yet.'}
             </div>
           ) : null}
-          {patternSets.length > 0 ? (
+          {!isForbidden && !isUnauthorized && patternSets.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -178,8 +239,12 @@ export function PatternSetsPage() {
                         </p>
                       ) : null}
                     </TableCell>
-                    <TableCell className="align-top capitalize">
-                      {patternSet.status}
+                    <TableCell className="align-top">
+                      {patternSet.status === 'retired' ? (
+                        <Badge variant="secondary">Retired</Badge>
+                      ) : (
+                        'Active'
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-normal align-top">
                       {patternSet.quantityProposals.length === 0 ? (

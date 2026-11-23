@@ -33,8 +33,9 @@ export async function listPatternSets(
   })
   const body = await response.json()
   if (!response.ok)
-    throw new Error(
+    throw new ApiRequestError(
       getResponseErrorMessage(body, 'Unable to load Pattern Sets.'),
+      response.status,
     )
   return listPatternSetsResponseSchema.parse(body)
 }

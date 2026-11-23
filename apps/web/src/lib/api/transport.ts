@@ -10,6 +10,10 @@ export class ApiRequestError extends Error {
   }
 }
 
+export function hasApiRequestStatus(error: unknown, ...statuses: number[]) {
+  return error instanceof ApiRequestError && statuses.includes(error.status)
+}
+
 export function resolveApiUrl(path: string) {
   if (!API_BASE_URL) {
     return path
