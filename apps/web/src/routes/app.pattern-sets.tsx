@@ -6,7 +6,6 @@ import {
 import { z } from 'zod'
 
 import { PatternSetsPage } from '@/features/pattern-sets/pattern-sets-page'
-import { clearAuthSession } from '@/lib/auth/session-storage'
 
 const patternSetsSearchSchema = z.object({
   includeRetired: z.literal(true).optional().catch(undefined),
@@ -35,10 +34,6 @@ function PatternSetsRoute() {
   return (
     <PatternSetsPage
       includeRetired={includeRetired === true}
-      onAuthenticationFailure={() => {
-        clearAuthSession()
-        void navigate({ to: '/sign-in' })
-      }}
       onIncludeRetiredChange={(includeRetired, options) =>
         void navigate({
           search: { includeRetired: includeRetired ? true : undefined },

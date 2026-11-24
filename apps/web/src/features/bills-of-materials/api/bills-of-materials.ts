@@ -175,8 +175,6 @@ export function useProductVariantCandidates(
 
   return {
     ...query,
-    isAuthenticationError:
-      query.error instanceof ApiRequestError && query.error.status === 401,
     isErrorRetryable: !isCandidateAuthenticationOrAuthorizationError(
       query.error,
     ),

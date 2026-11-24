@@ -24,7 +24,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import {
+  useAppShell,
+  useExpireSessionOnUnauthorized,
+} from '@/features/app-shell/authenticated-app-shell'
 import { cn } from '@/lib/utils'
 import { ApiRequestError } from '@/lib/api/transport'
 import {
@@ -43,7 +46,6 @@ import {
 import { ProductVariantCandidateDialog } from './components/product-variant-candidate-dialog'
 
 export function BillsOfMaterialsCatalogPage({
-  onAuthenticationFailure,
   onCreateTemplate,
   onCreateImplementation,
   onApplyTemplate,
@@ -52,7 +54,6 @@ export function BillsOfMaterialsCatalogPage({
   filters,
   onFiltersChange,
 }: {
-  onAuthenticationFailure: () => void
   onCreateTemplate: () => void
   onCreateImplementation: (candidate: ProductVariantCandidate) => void
   onApplyTemplate: (
@@ -110,12 +111,7 @@ export function BillsOfMaterialsCatalogPage({
   } = useBillsOfMaterials(session.token, catalogFilters)
   const isForbidden =
     loadError instanceof ApiRequestError && loadError.status === 403
-  const isUnauthorized =
-    loadError instanceof ApiRequestError && loadError.status === 401
-
-  useEffect(() => {
-    if (isUnauthorized) onAuthenticationFailure()
-  }, [isUnauthorized, onAuthenticationFailure])
+  const isUnauthorized = useExpireSessionOnUnauthorized(loadError)
 
   function clearFilters() {
     if (isForbidden) void recoverDefault()
@@ -413,7 +409,6 @@ export function BillsOfMaterialsCatalogPage({
         </CardContent>
       </Card>
       <ProductVariantCandidateDialog
-        onAuthenticationFailure={onAuthenticationFailure}
         open={variantDialogOpen}
         returnFocusRef={variantDialogReturnFocusRef}
         token={session.token}
@@ -459,7 +454,6 @@ export function BillsOfMaterialsCatalogPage({
         }}
       />
       <ProductVariantCandidateDialog
-        onAuthenticationFailure={onAuthenticationFailure}
         open={applicationTemplateId !== null}
         returnFocusRef={variantDialogReturnFocusRef}
         templateId={applicationTemplateId ?? undefined}

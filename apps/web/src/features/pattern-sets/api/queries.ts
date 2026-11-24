@@ -58,8 +58,6 @@ export function usePatternSets(token: string, includeRetired: boolean) {
     patternSets: listQuery.data?.patternSets ?? [],
     isLoading: listQuery.isLoading,
     loadError: listQuery.error,
-    removeCachedList: () =>
-      queryClient.removeQueries({ queryKey: listQueryKey, exact: true }),
     recoverDefault: () =>
       queryClient.invalidateQueries({
         queryKey: activePatternSetsQueryKey,

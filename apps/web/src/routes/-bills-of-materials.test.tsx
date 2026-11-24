@@ -1504,18 +1504,131 @@ describe('Bills of Materials route', () => {
     },
   )
 
-  it('treats a catalog 401 as session expiry', async () => {
-    mockCatalogRequests(() =>
-      jsonResponse({ message: 'Session expired.' }, { status: 401 }),
-    )
+  it('expires the session after a catalog refresh 401 and reopens after sign-in', async () => {
+    const user = userEvent.setup()
+    const template = billOfMaterialsFixture()
+    const renewedSession = {
+      ...sessionFixture('admin'),
+      token: 'renewed-session',
+    }
+    let deleted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const { pathname } = new URL(String(input))
+      if (pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
+      if (pathname === '/auth/login') return jsonResponse(renewedSession)
+      if (pathname === '/bills-of-materials' && init?.method === 'GET') {
+        if (
+          new Headers(init.headers).get('Authorization') ===
+          'Bearer renewed-session'
+        ) {
+          return jsonResponse(catalogResponse([]))
+        }
+        return deleted
+          ? jsonResponse({ message: 'Session expired.' }, { status: 401 })
+          : jsonResponse(catalogResponse([template]))
+      }
+      if (
+        pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'DELETE'
+      ) {
+        deleted = true
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`Unexpected request: ${pathname}`)
+    })
+
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${template.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Delete Bill of Materials' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete BOM' }))
     expect(
       await screen.findByRole('heading', {
         name: /sign in to guardiola foundry/i,
       }),
     ).toBeInTheDocument()
     expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+
+    await user.type(screen.getByLabelText('Email Address'), 'admin@example.com')
+    await user.type(screen.getByLabelText('Password'), 'Password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(
+      await screen.findByRole('link', { name: 'Bills of Materials' }),
+    )
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toContain(
+      'renewed-session',
+    )
+  })
+
+  it('keeps a late catalog 401 from ending the next session', async () => {
+    const user = userEvent.setup()
+    const renewedSession = { ...sessionFixture(), token: 'renewed-session' }
+    let finishOldCatalog: (response: Response) => void = () => {}
+    const oldCatalog = new Promise<Response>((resolve) => {
+      finishOldCatalog = resolve
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const { pathname } = new URL(String(input))
+      if (pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (pathname === '/auth/login') return jsonResponse(renewedSession)
+      if (pathname === '/products') {
+        return jsonResponse({ message: 'Session expired.' }, { status: 401 })
+      }
+      if (pathname === '/bills-of-materials') {
+        if (
+          new Headers(init?.headers).get('Authorization') ===
+          'Bearer renewed-session'
+        ) {
+          return jsonResponse(catalogResponse([]))
+        }
+        return oldCatalog
+      }
+      throw new Error(`Unexpected request: ${pathname}`)
+    })
+
+    seedStoredSession()
+    const { router } = renderBillsOfMaterialsRoute()
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.some(
+          ([input]) => new URL(String(input)).pathname === '/bills-of-materials',
+        ),
+      ).toBe(true),
+    )
+    await user.click(await screen.findByRole('link', { name: 'Products' }))
+    await user.click(await screen.findByRole('link', { name: 'Sign in again' }))
+    await user.type(
+      await screen.findByLabelText('Email Address'),
+      'operator@example.com',
+    )
+    await user.type(screen.getByLabelText('Password'), 'Password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(
+      await screen.findByRole('link', { name: 'Bills of Materials' }),
+    )
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/app/bills-of-materials'),
+    )
+    await act(async () => {
+      finishOldCatalog(
+        jsonResponse({ message: 'Session expired.' }, { status: 401 }),
+      )
+    })
+
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toContain(
+      'renewed-session',
+    )
   })
 
   it('debounces remote search, retains rows, and keeps Kind changes in navigable history', async () => {

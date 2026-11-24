@@ -7,7 +7,6 @@ import { listBillsOfMaterialsQuerySchema } from '@guardiola-foundry/shared-valid
 import { z } from 'zod'
 
 import { BillsOfMaterialsWorkflow } from '@/features/bills-of-materials/bills-of-materials-workflow'
-import { clearAuthSession } from '@/lib/auth/session-storage'
 
 const billsOfMaterialsSearchSchema = z.object({
   screen: z
@@ -78,10 +77,6 @@ function BillsOfMaterialsRoute() {
       productVariantId={productVariantId}
       screen={screen}
       templateId={templateId}
-      onAuthenticationFailure={() => {
-        clearAuthSession()
-        void navigate({ to: '/sign-in' })
-      }}
       onExitBuilder={() =>
         void navigate({
           search: { screen: 'catalog' },

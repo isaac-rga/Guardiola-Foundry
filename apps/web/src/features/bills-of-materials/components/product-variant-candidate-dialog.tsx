@@ -1,5 +1,5 @@
 import { SearchIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { ProductVariantCandidate } from '@guardiola-foundry/shared-types'
 
@@ -12,12 +12,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useExpireSessionOnUnauthorized } from '@/features/app-shell/authenticated-app-shell'
 import { useDebouncedCatalogSearch } from '@/hooks/use-catalog-search'
 import { cn } from '@/lib/utils'
 import { useProductVariantCandidates } from '../api/bills-of-materials'
 
 export function ProductVariantCandidateDialog({
-  onAuthenticationFailure,
   onOpenChange,
   onSelect,
   open,
@@ -26,7 +26,6 @@ export function ProductVariantCandidateDialog({
   templateId,
   token,
 }: {
-  onAuthenticationFailure?: () => void
   onOpenChange: (open: boolean) => void
   onSelect: (candidate: ProductVariantCandidate) => void
   open: boolean
@@ -37,7 +36,6 @@ export function ProductVariantCandidateDialog({
 }) {
   const [query, setQuery] = useState('')
   const [announcement, setAnnouncement] = useState('')
-  const handledAuthenticationFailureRef = useRef(false)
   const pendingSelectionRef = useRef<{
     candidate: ProductVariantCandidate
     onSelect: (candidate: ProductVariantCandidate) => void
@@ -54,16 +52,7 @@ export function ProductVariantCandidateDialog({
   )
   const isSearching = isDebouncing || search.isFetching
 
-  useEffect(() => {
-    if (!search.isAuthenticationError) {
-      handledAuthenticationFailureRef.current = false
-      return
-    }
-    if (handledAuthenticationFailureRef.current) return
-
-    handledAuthenticationFailureRef.current = true
-    onAuthenticationFailure?.()
-  }, [onAuthenticationFailure, search.isAuthenticationError])
+  useExpireSessionOnUnauthorized(search.error)
 
   const activateCandidate = (candidate: ProductVariantCandidate) => {
     if (!candidate.selectable) {

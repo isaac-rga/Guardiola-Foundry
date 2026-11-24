@@ -62,13 +62,7 @@ const productCategoryOptions: Array<{
   { value: 'other', label: 'Other' },
 ]
 
-export function ProductEditPage({
-  onAuthenticationFailure,
-  productId,
-}: {
-  onAuthenticationFailure: () => void
-  productId: string
-}) {
+export function ProductEditPage({ productId }: { productId: string }) {
   const navigate = useNavigate()
   const { session } = useAppShell()
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -123,7 +117,6 @@ export function ProductEditPage({
       key={product.id}
       collections={collections}
       isRestoring={restoration.isRestoring}
-      onAuthenticationFailure={onAuthenticationFailure}
       product={product}
       productId={productId}
       saveMessage={saveMessage}
@@ -135,7 +128,6 @@ export function ProductEditPage({
 function ActiveProductEditPage({
   collections,
   isRestoring,
-  onAuthenticationFailure,
   onSaveMessageChange,
   product,
   productId,
@@ -143,14 +135,13 @@ function ActiveProductEditPage({
 }: {
   collections: Array<{ id: number; name: string }>
   isRestoring: boolean
-  onAuthenticationFailure: () => void
   onSaveMessageChange: (message: string | null) => void
   product: ProductDetail
   productId: string
   saveMessage: string | null
 }) {
   const navigate = useNavigate()
-  const { session } = useAppShell()
+  const { expireSession, session } = useAppShell()
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [removeImage, setRemoveImage] = useState(false)
   const [imageInputKey, setImageInputKey] = useState(0)
@@ -584,7 +575,7 @@ function ActiveProductEditPage({
         onRestore={productVariants.restoreVariant}
         onSave={productVariants.saveVariant}
         onSignInAgain={() => {
-          if (!shouldBlockNavigation()) onAuthenticationFailure()
+          if (!shouldBlockNavigation()) void expireSession({ ignoreBlocker: true })
         }}
       />
 

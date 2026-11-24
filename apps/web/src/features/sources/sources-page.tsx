@@ -2,11 +2,11 @@ import type { ListSourcesQuery } from '@guardiola-foundry/shared-types'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { ApiRequestError } from '@/lib/api/transport'
-import { clearAuthSession } from '@/lib/auth/session-storage'
 
 import { PageHeader } from '@/components/app/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { SessionExpiredSignInLink } from '@/components/app/session-expired-sign-in-link'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import { MaterialsAreaNavigation } from '@/features/materials/components/materials-area-navigation'
 import {
@@ -220,11 +220,7 @@ export function SourcesPage({ filters, onFiltersChange }: SourcesPageProps) {
           {isUnauthorized ? (
             <div role="alert">
               <p>Your session has expired. Sign in again to continue.</p>
-              <Button asChild variant="outline" className="mt-3">
-                <Link to="/sign-in" onClick={clearAuthSession}>
-                  Sign in again
-                </Link>
-              </Button>
+              <SessionExpiredSignInLink className="mt-3" />
             </div>
           ) : null}
 

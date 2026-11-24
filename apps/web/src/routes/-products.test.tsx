@@ -852,7 +852,10 @@ describe('products route', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('treats an unauthorized Product catalog response as an authentication failure', async () => {
+  it.each([
+    ['stored credentials', false],
+    ['credentials cleared by another tab', true],
+  ] as const)('offers sign-in after a Product catalog 401 with %s', async (_, clearStoredSession) => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = new URL(String(input))
@@ -880,6 +883,9 @@ describe('products route', () => {
       ),
     ).not.toBeInTheDocument()
 
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    if (clearStoredSession) localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+
     await user.click(screen.getByRole('link', { name: 'Sign in again' }))
 
     expect(
@@ -887,6 +893,7 @@ describe('products route', () => {
         name: /sign in to guardiola foundry/i,
       }),
     ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
   })
 
   it('shows the valid accessible list actions for each Product state while keeping Product names linked', async () => {

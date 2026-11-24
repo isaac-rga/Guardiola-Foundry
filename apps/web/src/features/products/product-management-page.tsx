@@ -39,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { SessionExpiredSignInLink } from '@/components/app/session-expired-sign-in-link'
 import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import {
   useCreateProduct,
@@ -59,7 +60,6 @@ import type {
 } from '@/features/products/product-catalog-filters'
 import { findDuplicateProductName } from '@/features/products/utils/product-name-warning'
 import { ApiRequestError } from '@/lib/api/transport'
-import { clearAuthSession } from '@/lib/auth/session-storage'
 import { createProductRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   CreateProductRequest,
@@ -452,11 +452,7 @@ export function ProductManagementPage({
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   Sign in again to continue working with Products.
                 </p>
-                <Button asChild className="mt-4" variant="outline">
-                  <Link to="/sign-in" onClick={clearAuthSession}>
-                    Sign in again
-                  </Link>
-                </Button>
+                <SessionExpiredSignInLink className="mt-4" />
               </div>
             ) : isForbidden ? (
               <div

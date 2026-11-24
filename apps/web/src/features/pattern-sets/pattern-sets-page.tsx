@@ -40,7 +40,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
+import {
+  useAppShell,
+  useExpireSessionOnUnauthorized,
+} from '@/features/app-shell/authenticated-app-shell'
 import { hasApiRequestStatus } from '@/lib/api/transport'
 import { usePatternSets } from './api/queries'
 
@@ -52,7 +55,6 @@ const emptyValues: PatternSetMutationRequest = {
 
 type PatternSetsPageProps = {
   includeRetired: boolean
-  onAuthenticationFailure: () => void
   onIncludeRetiredChange: (
     includeRetired: boolean,
     options?: { replace?: boolean },
@@ -61,7 +63,6 @@ type PatternSetsPageProps = {
 
 export function PatternSetsPage({
   includeRetired,
-  onAuthenticationFailure,
   onIncludeRetiredChange,
 }: PatternSetsPageProps) {
   const { session } = useAppShell()
@@ -88,7 +89,6 @@ export function PatternSetsPage({
     patternSets,
     isLoading,
     loadError,
-    removeCachedList,
     recoverDefault,
     isSaving,
     isChangingStatus,
@@ -100,15 +100,7 @@ export function PatternSetsPage({
     restorePatternSet,
   } = usePatternSets(session.token, includeRetiredInCatalog)
   const isForbidden = hasApiRequestStatus(loadError, 403)
-  const isUnauthorized = hasApiRequestStatus(loadError, 401)
-
-  useEffect(() => {
-    if (isUnauthorized) {
-      // The query cache survives sign-in and could replay this 401 afterward.
-      removeCachedList()
-      onAuthenticationFailure()
-    }
-  }, [isUnauthorized, onAuthenticationFailure, removeCachedList])
+  const isUnauthorized = useExpireSessionOnUnauthorized(loadError)
 
   function clearFilters() {
     if (isForbidden) void recoverDefault()
