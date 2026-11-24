@@ -3,6 +3,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { createQueryClientWrapper } from '@/test/query-client-wrapper'
+
 import { routeTree } from '../routeTree.gen'
 
 describe('sign-in route', () => {
@@ -58,7 +60,7 @@ describe('sign-in route', () => {
       }),
     })
 
-    render(<RouterProvider router={router} />)
+    render(<RouterProvider router={router} />, { wrapper: createQueryClientWrapper() })
 
     expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
 
@@ -98,7 +100,7 @@ describe('sign-in route', () => {
       }),
     })
 
-    render(<RouterProvider router={router} />)
+    render(<RouterProvider router={router} />, { wrapper: createQueryClientWrapper() })
     expect(await screen.findByRole('heading', { name: /sign in to guardiola foundry/i })).toBeInTheDocument()
 
     await user.type(screen.getByLabelText(/email address/i), 'admin@example.com')
