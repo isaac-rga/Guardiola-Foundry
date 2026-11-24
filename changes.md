@@ -1,136 +1,103 @@
-# Bills of Materials Uses Shared Filters and Preserves Global Summaries
+# Catalog sign-in recovery after a 401
 
-The Bills of Materials catalog now uses the shared table-filter control. Users can filter by Kind. Admins can include current and Deleted Bills of Materials in one result set. Filters change the displayed rows; the operational summaries keep their global meaning. This change implements [ticket 04](.scratch/table-filter-standard/issues/04-standardize-bills-of-materials-filters.md) under the [Table Filter Standard](docs/ui/table-filters.md).
+Users can sign in again after a catalog session expires and reopen the catalog in the same tab. Products, Sources, Bills of Materials, Pattern Sets, and the Product Variants table use one session-expiration action. The change applies to catalog requests. The separate `/auth/me` verification race is outside Issue 08. [Issue 08](.scratch/table-filter-standard/issues/08-consolidate-catalog-authentication-failure-handling.md)
 
-## Shared Controls and Clear Actions
+## One session-expiration action
 
-[CatalogFilters](apps/web/src/features/bills-of-materials/components/catalog-presentation.tsx) replaces the Kind buttons and separate Include deleted button with the existing shared [TableFilters](apps/web/src/components/app/table-filters.tsx) control. Search stays visible. Kind offers Template and Implementation. Include deleted is available only to Admins and applies directly from the criterion list.
+The authenticated route supplies `expireSession` through the app shell. The action clears the local session and opens **Sign in**. It allows this navigation when local credentials are already absent. It ignores an expiry request if a different token is in storage or a sign-in navigation is already in progress. Sign-out and password change use the same action after the API call succeeds. [Authenticated route](apps/web/src/routes/app.tsx)
 
-The shared control supplies chip editing, chip removal, immediate selection, popover navigation, close controls, and inline wrapping. It receives allowed criteria and callbacks. It does not interpret roles or build requests. The shared control and its complete interaction test suite do not change.
+| Catalog | Response to a `401` |
+| --- | --- |
+| Bills of Materials and Pattern Sets | Open **Sign in** automatically. The Product Variant candidate search in Bills of Materials uses the same action. |
+| Products and Sources | Show a shared **Sign in again** link. The action starts when the User selects the link. |
+| Product Variants | Show a **Sign in again** button in the embedded table. The parent Product page checks for unsaved changes before it calls the action. |
 
-Clear all clears search and both optional criteria. It restores the default catalog. The popover stays open when the User clears from inside it. When no rows match, CatalogEmptyState directs the User to clear search or filters. It no longer adds a separate clear button.
+See the [automatic recovery hook](apps/web/src/features/app-shell/authenticated-app-shell.tsx), [shared link](apps/web/src/components/app/session-expired-sign-in-link.tsx), and [parent Product page](apps/web/src/features/products/product-edit-page.tsx).
 
-## URL State, Search, and Browser History
+## Query cache for each authenticated session
 
-The [Bills of Materials route](apps/web/src/routes/app.bills-of-materials.tsx) owns URL validation and navigation. It maps catalog Kind to `catalogKind`, which stays separate from the builder's `kind` parameter. It uses the existing shared query schema for catalog criteria. Invalid, unsupported, empty, and default catalog values are removed through a canonical URL replacement. Existing builder context fields remain supported.
+The authenticated route keys the session component by token. The app shell creates a TanStack Query client for that component with the app's default query options. The client stays in use as the User moves between authenticated pages in the same session. A new session gets a new client. Cached errors and late responses from the previous session stay with the previous client. This replaces the Pattern Sets cache removal that ran before sign-in. [Authenticated app shell](apps/web/src/features/app-shell/authenticated-app-shell.tsx) · [Pattern Set queries](apps/web/src/features/pattern-sets/api/queries.ts)
 
-Search changes replace the current history entry. Criterion selection, editing, removal, and Clear all create history entries. Back and Forward restore the complete applied selection.
+## Permission recovery after a 403
 
-The [catalog page](apps/web/src/features/bills-of-materials/bills-of-materials-catalog-page.tsx) synchronizes the search input when the applied URL search changes. It does not subscribe to history events. Scope Boundaries describes the pending-draft limitation.
-
-The catalog page updates the input immediately and limits typed text to 200 characters. It trims the effective search and waits 250 ms before updating the URL and request. This prevents an overlength draft from leaving the updating status active after URL validation rejects it.
-
-The [catalog query hook](apps/web/src/features/bills-of-materials/api/bills-of-materials.ts) retains previous rows while a new filter query loads. The page announces Updating Bills of Materials during the delay or refresh. The query key continues to contain the complete effective filter object.
-
-## Deleted Records and Permission Recovery
-
-Include deleted adds Deleted Bills of Materials to current records. Existing Deleted badges remain beside historical names. Current records receive no additional lifecycle badge.
-
-The catalog page removes unauthorized Include deleted URL state and excludes that flag from the effective request before querying. The [Bills of Materials controller](apps/api/app/modules/bills_of_materials/controllers/bills_of_materials_controller.ts) remains the authorization authority. It now returns `403` when an Operator explicitly requests `includeDeleted=true`. It previously ignored that flag and returned `200`.
-
-The [list endpoint adapter](apps/web/src/features/bills-of-materials/api/endpoints.ts) preserves the HTTP status in ApiRequestError. The catalog page uses that status to distinguish recovery paths:
-
-- A table-level `403` keeps the session, hides the table, and shows a permission message with Clear all.
-- Clear all restores the default URL and invalidates the exact default query with `refetchType: 'all'`. This also retries a failed query whose filters already equal the defaults.
-- A catalog `401` clears the session and returns the User to sign-in.
-
-## Global Operational Summaries
-
-The [catalog read service](apps/api/app/modules/bills_of_materials/services/read_bills_of_materials.ts) does not change. It builds summaries from all current Bills of Materials, independently of search and Kind restrictions on the returned rows. Deleted records do not contribute to the summaries, even when Include deleted adds them to the table.
-
-Available BOMs, BOMs without an associated Product Variant, and BOMs pending line verification therefore keep their existing meaning. The tests use nonzero summary values to prove this rule across search, Kind, and Include deleted.
+The catalog keeps the current session on a `403`. **Clear all** returns to the default catalog query. In the Product Variants table, this action restores the default rows and leaves the parent Product page usable. [Table Filter Standard](docs/ui/table-filters.md#authorization-and-errors) · [Product Variants table](apps/web/src/features/products/components/product-variants-card.tsx)
 
 ## Architecture Views
 
-### C4 Level 3 — Web Filter Composition
+### C4 Level 3 — Web
 
 ```mermaid
-flowchart TB
-  subgraph Web["Web container - React"]
-    Route["BillsOfMaterialsRoute<br/>Validated URL and history updates"]
-    Workflow["BillsOfMaterialsWorkflow<br/>Catalog or builder selection"]
-    Page["BillsOfMaterialsCatalogPage<br/>Search draft, permissions and query state"]
-    Filters["CatalogFilters<br/>Kind and allowed Include deleted criterion"]
-    Shared["TableFilters<br/>Search, popover, chips and clear controls"]
-    Route -->|Applied filters and navigation callbacks| Workflow
-    Workflow -->|Catalog props| Page
-    Page -->|Allowed filters and search callbacks| Filters
-    Filters -->|Controlled values and criterion callbacks| Shared
+flowchart LR
+  subgraph Web["Web · React"]
+    Auto["Bills of Materials and Pattern Sets pages<br/>Start automatic recovery"]
+    Manual["Products and Sources pages<br/>Show Sign in again"]
+    Link["Session Expired Sign-in Link<br/>Starts recovery on selection"]
+    Variants["Product Variants Card<br/>Shows Sign in again"]
+    Product["Product Edit Page<br/>Checks for unsaved changes"]
+    Shell["Authenticated App Shell<br/>Provides the session action and query cache"]
+    SignIn["Sign-in Page<br/>Starts a new authenticated session"]
+    Auto -->|Requests session expiry on 401| Shell
+    Manual -->|Renders| Link
+    Link -->|Requests session expiry| Shell
+    Variants -->|Asks to leave Product| Product
+    Product -->|Requests expiry after draft check| Shell
+    Shell -->|Opens through route navigation| SignIn
   end
 ```
 
-Applied values pass down through the rendered components. User actions return through the supplied callbacks. The route owns URL updates, and the catalog page owns the search draft and effective permissions. The page uses the feature query hook and endpoint adapter for requests. These functions are not separate UI components. The shared TableFilters component owns presentation and interaction only.
-
-### C4 Dynamic — Apply Search and Catalog Criteria
-
-This view follows the main feature flow from the shared controls to the returned catalog. CatalogFilters adapts the criteria, and BillsOfMaterialsWorkflow passes props. The sequence omits those two pass-through components. The API path shown below runs when the query fetches data; a fresh cached result can be reused.
+### C4 Dynamic — Reopen Bills of Materials after session expiry
 
 ```mermaid
 sequenceDiagram
-  autonumber
   actor User
-  box Frontend
-    participant Shared as TableFilters
-    participant Page as BillsOfMaterialsCatalogPage
-    participant Route as BillsOfMaterialsRoute
+  box Web
+    participant Catalog as Bills of Materials Catalog
+    participant Shell as Authenticated App Shell
+    participant SignIn as Sign-in Page
   end
-  box Backend
-    participant Controller as BillsOfMaterialsController
-    participant Catalog as Catalog read service
-    participant Database
+  box API
+    participant Guard as Bearer Auth Middleware
+    participant Auth as Auth Controller
+    participant Service as Auth Service
+    participant Bills as Bills of Materials Controller
+    participant DB as PostgreSQL
   end
-
-  User->>Shared: Change search or a criterion
-  alt Kind or allowed Include deleted changes
-    Shared->>Route: Apply criterion through feature callbacks
-    Note over Route: Merge only the changed criterion<br/>Create a history entry
-  else Search text changes
-    Shared->>Page: Update the search draft
-    Note over Page: Limit input to 200 characters<br/>Wait 250 ms after the last edit
-    Page->>Route: Apply normalized search with replace
-    Note over Route: Replace the current history entry
-  end
-  Route-->>Page: Supply validated filters through the workflow
-  Page-->>Shared: Supply controlled values through CatalogFilters
-  Note over Page: Exclude unauthorized Include deleted<br/>Retain prior rows during refresh
-  Page->>Controller: GET /bills-of-materials with effective filters
-  Note over Controller: Validate query and authorize inclusion<br/>Unauthorized explicit inclusion returns 403
-  Controller->>Catalog: List Bills of Materials with the filters
-  Catalog->>Database: Load current records and include deleted when requested
-  Database-->>Catalog: Bills of Materials and related records
-  Note over Catalog: Apply search and Kind to returned rows<br/>Build global summaries from all current records
-  Catalog-->>Controller: Filtered rows and global summaries
-  Controller-->>Page: 200 with catalog data
-  Note over Page: Show returned rows and global summaries<br/>Mark historical rows Deleted
+  Catalog->>Guard: Refresh with old token
+  Guard->>Service: Check token
+  Service->>DB: Look up session
+  DB-->>Service: No valid session
+  Service-->>Guard: Authentication failed
+  Guard-->>Catalog: 401
+  Catalog->>Shell: Request session expiry
+  Shell->>SignIn: Clear local session and open Sign in
+  User->>SignIn: Enter credentials
+  SignIn->>Auth: Request sign-in
+  Auth->>Service: Verify credentials and issue token
+  Service->>DB: Read User and store access token
+  Service-->>Auth: New session
+  Auth-->>SignIn: New session
+  SignIn->>Shell: Open authenticated app with new token
+  Note over Catalog,Shell: The app shell creates a new query cache for this session.
+  User->>Catalog: Reopen Bills of Materials
+  Catalog->>Guard: Request catalog with new token
+  Guard->>Bills: Forward authenticated request
+  Bills-->>Catalog: Catalog results
 ```
-
-The read service and database relationships are existing parts of the list endpoint. The feature connects the shared controls to that path and preserves the global summary calculation. The authorization rejection and Clear all recovery are described under Deleted Records and Permission Recovery; they are secondary flows rather than the main sequence. Domain relationships do not change, so no UML domain view is required.
 
 ## Focused Coverage
 
-The [BOM route suite](apps/web/src/routes/-bills-of-materials.test.tsx) proves Kind and Include deleted URL state, canonical defaults, Operator sanitation before requests, mixed current and Deleted rows, chip edits and removal, Clear all, and Back and Forward restoration. It also proves delayed search, retained rows, and the 200-character input limit. Permission cases cover filtered and default-query `403` recovery and separate `401` session expiry. Existing builder and lifecycle scenarios continue to pass.
-
-The [endpoint suite](apps/web/src/features/bills-of-materials/api/endpoints.test.ts) remains part of the focused web verification. The [API catalog suite](apps/api/tests/functional/bills_of_materials/catalog.spec.ts) proves Operator rejection, additive historical inclusion, and global summary invariants under search, Kind, and Include deleted. Feature tests do not repeat the complete shared interaction matrix.
+- A Bills of Materials refresh returns `401` after the table has loaded. The User signs in again and reopens the catalog with the new session. A separate test releases a delayed `401` from the old session after the User signs in again. [Bills of Materials route tests](apps/web/src/routes/-bills-of-materials.test.tsx)
+- The Products **Sign in again** link works when local credentials are present or already absent. [Products route tests](apps/web/src/routes/-products.test.tsx)
+- A Product Variant `401` respects the Product draft confirmation. A `403` can be cleared without closing the session or losing the draft. [Product Variant route tests](apps/web/src/routes/-product-variants.test.tsx)
 
 ## Focused Verification
 
-The latest web checks below ran from `apps/web` for the current implementation. API verification, independent reviews, and browser checks ran earlier. These diagram updates change documentation only.
-
-- `./node_modules/.bin/vitest run src/routes/-bills-of-materials.test.tsx src/features/bills-of-materials/api/endpoints.test.ts` — 46 tests passed.
-- `pnpm --filter @guardiola-foundry/api test --files tests/functional/bills_of_materials/catalog.spec.ts` — 6 tests passed against the local test database.
-- `./node_modules/.bin/tsc -b --pretty false` — passed.
-- `pnpm --filter @guardiola-foundry/api typecheck` — passed.
-- `./node_modules/.bin/oxlint src/routes/app.bills-of-materials.tsx src/routes/-bills-of-materials.test.tsx src/features/bills-of-materials/bills-of-materials-workflow.tsx src/features/bills-of-materials/bills-of-materials-catalog-page.tsx` — passed. Earlier API ESLint checks passed for the controller and catalog tests.
-- Earlier independent Standards and Spec reviews identified the search-length and pending-draft cases. The search-length fix is covered by a test. The pending-draft case is outside the current scope.
-- Browser checks — confirmed Kind selection, chip behavior, Include deleted with a Deleted row, clearing, URL state, Back and Forward, empty results, and unchanged global summaries. At 390 px, controls wrapped and the page width stayed 390 px. Permission-error recovery was verified through tests; the browser tour did not force an authorization failure.
-- Documentation checks — both diagrams passed the Mermaid parser. Local file links, Markdown structure, focused Prettier checks, and `git diff --check` passed.
-
-The sandbox initially blocked the local API listener. The API tests passed with elevated execution. The local browser session also expired during the visual check; the User signed in, and the check continued. Neither condition was a product test failure.
+- The Issue 08 implementation run passed 155 tests across 10 web suites. Web type checking, lint on the changed files, and both independent reviews passed. Vitest reported React `act(...)` and router warnings. [Issue 08 verification](.scratch/table-filter-standard/issues/08-consolidate-catalog-authentication-failure-handling.md#verification)
+- A browser check with an isolated API fixture verified the five `401` interactions, sign-in and reopening of Bills of Materials in the same tab, and **Clear all** after a `403` on all five tables. [Browser scenarios](.scratch/table-filter-standard/issues/08-consolidate-catalog-authentication-failure-handling.md#verification)
+- A handoff rerun on the current diff passed four focused sign-in and permission tests across the Products, Sources, and Product Variants route suites.
 
 ## Scope Boundaries
 
-This ticket changes the Bills of Materials catalog only. It adds no dependencies, migrations, shared domain contracts, or domain relationships. The builder workflows, global summary calculation, and shared filter component keep their existing responsibilities. Other catalog migrations and the combined five-table release review remain outside this ticket; the release review belongs to [ticket 07](.scratch/table-filter-standard/issues/07-verify-and-close-the-unified-filter-migration.md).
-
-If the User types a search and navigates before the 250 ms delay ends, a pending draft can still apply after navigation when both history entries have the same applied search. Cancellation of that draft is outside the current scope. Tests cover restoration of applied URL state with Back and Forward.
-
-The issue retains its completion state and acceptance criteria. This file contains the implementation and verification handoff. The full `pnpm quality` gate was not run, per repository instructions.
+- The API and its authorization rules stay the same. Catalogs still own their filters, queries, and default results.
+- The `/auth/me` bootstrap stays as it was. An overlapping session check can still interfere with a newer sign-in. Issue 08 covers cached and late catalog responses.
+- The full `pnpm quality` gate is reserved for the human and CI.
