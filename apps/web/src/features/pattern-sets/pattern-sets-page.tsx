@@ -166,8 +166,10 @@ export function PatternSetsPage({
       />
 
       <Card>
-        <CardHeader className="gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <CardHeader>
           <CardTitle>Pattern Set catalog</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
           {isAdmin ? (
             <TableFilters
               criteria={[
@@ -182,8 +184,6 @@ export function PatternSetsPage({
               onClearAll={clearFilters}
             />
           ) : null}
-        </CardHeader>
-        <CardContent>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">
               Loading Pattern Sets...

@@ -50,6 +50,16 @@ export function useProductList(token: string, filters?: ListProductsQuery) {
   })
 }
 
+export function useRecoverDefaultProductList() {
+  const queryClient = useQueryClient()
+  return () =>
+    queryClient.invalidateQueries({
+      queryKey: productListQueryKey(),
+      exact: true,
+      refetchType: 'all',
+    })
+}
+
 export function useCreateProduct(token: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({

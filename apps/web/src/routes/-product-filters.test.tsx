@@ -252,6 +252,43 @@ it('recovers from a default-query 403 without losing the session', async () => {
   expect(router.state.location.searchStr).toBe('')
 })
 
+it('retries safe Product defaults after a forbidden query even with a fresh cache', async () => {
+  const user = userEvent.setup()
+  let safeProductName = 'Cached Gown'
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input))
+    if (url.pathname === '/auth/me') return authMeResponse()
+    if (url.pathname === '/products') {
+      if (url.searchParams.has('includeDeleted')) {
+        return jsonResponse({ message: 'Forbidden' }, { status: 403 })
+      }
+      return jsonResponse({
+        products: [productSummary({ id: 'P-SAFE', name: safeProductName })],
+        collections: [],
+      })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+
+  seedStoredSession()
+  const { router } = renderProductsRoute('/app/products', 30_000)
+  expect(await screen.findByText('Cached Gown')).toBeVisible()
+  safeProductName = 'Safe Gown'
+
+  await user.click(screen.getByRole('button', { name: 'Filter' }))
+  await user.click(screen.getByRole('button', { name: /Include deleted/ }))
+  await user.click(screen.getByRole('button', { name: 'Close filters' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('You do not have permission')
+  expect(screen.queryByText('Cached Gown')).not.toBeInTheDocument()
+  await user.click(within(alert).getByRole('button', { name: 'Clear all' }))
+
+  expect(await screen.findByText('Safe Gown')).toBeVisible()
+  expect(router.state.location.searchStr).toBe('')
+  expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+})
+
 it('closes the value editor without applying a value and removes obsolete prototype parameters', async () => {
   const user = userEvent.setup()
   const router = openCatalog(
@@ -447,13 +484,13 @@ it('lets admins opt into deleted Products from the list and hides that control f
   ).not.toBeInTheDocument()
 })
 
-function renderProductsRoute(initialEntry = '/app/products') {
+function renderProductsRoute(initialEntry = '/app/products', staleTime = 0) {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
   })
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime } },
   })
   render(
     <QueryClientProvider client={client}>

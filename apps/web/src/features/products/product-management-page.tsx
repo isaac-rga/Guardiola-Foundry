@@ -43,6 +43,7 @@ import { useAppShell } from '@/features/app-shell/authenticated-app-shell'
 import {
   useCreateProduct,
   useProductList,
+  useRecoverDefaultProductList,
 } from '@/features/products/api/products'
 import {
   TableFilters,
@@ -147,6 +148,7 @@ export function ProductManagementPage({
     search: effectiveSearch || undefined,
     includeDeleted: effectiveIncludeDeleted,
   })
+  const recoverDefault = useRecoverDefaultProductList()
   const { createProduct: createProductRecord, isCreating } = useCreateProduct(
     session.token,
   )
@@ -730,9 +732,7 @@ export function ProductManagementPage({
   }
 
   function resetFilters() {
-    if (isForbidden && !effectiveSearch && !effectiveIncludeDeleted) {
-      void productsQuery.refetch()
-    }
+    if (isForbidden) void recoverDefault()
     setSearchValue('')
     onFiltersChange({
       search: undefined,

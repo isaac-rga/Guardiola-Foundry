@@ -150,7 +150,7 @@ The standard shares presentation and interaction only. Each feature continues to
 ## Further Notes
 
 - The durable interaction contract is documented in [Table Filter Standard](../../docs/ui/table-filters.md) and is referenced by the frontend agent guide so future filtered tables load it before implementation.
-- The approved executable reference is Products Variant A at `/app/products?filterPrototype=A` in the current working tree. Review it before production UI work. The specification is authoritative where later decisions intentionally differ from the prototype's temporary behavior.
+- Commit `58c1fa3` records the approved Products Variant A reference in `apps/web/src/features/products/components/product-filter-prototype.tsx`. The specification is authoritative where later decisions intentionally differ from the prototype's temporary behavior.
 - The prototype is implementation evidence, not a production architecture. Preserve the validated look, proportions, and flow while replacing prototype wiring with the controlled shared component and feature-owned contracts described above.
 - Use existing domain terms exactly: `Product`, `Product Variant`, `Source`, `Bill of Materials`, `Pattern Set`, `Lifecycle Status`, `Product Status`, `Active`, `Inactive`, `Deleted`, and `Retired`.
 - No domain glossary change or architecture ADR is required. This feature establishes a durable frontend interaction standard while retaining the repository's existing layered architecture.
