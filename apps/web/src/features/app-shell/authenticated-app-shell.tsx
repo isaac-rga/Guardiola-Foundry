@@ -1,4 +1,9 @@
 import type { ReactNode } from 'react'
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -27,6 +32,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import guardiolaBridalLogo from '@/assets/guardiola-bridal-logo.png'
+import { hasApiRequestStatus } from '@/lib/api/transport'
 import { cn } from '@/lib/utils'
 import type { AuthSessionResponse, ChangePasswordRequest } from '@guardiola-foundry/shared-types'
 import {
@@ -40,8 +46,11 @@ import {
 } from 'lucide-react'
 import { createContext, useContext } from 'react'
 
+type ExpireSession = (options?: { ignoreBlocker?: boolean }) => Promise<void>
+
 type AppShellContextValue = {
   changePasswordError: string | null
+  expireSession: ExpireSession
   isChangingPassword: boolean
   isSigningOut: boolean
   logoutError: string | null
@@ -50,15 +59,8 @@ type AppShellContextValue = {
   onSignOut: () => Promise<void>
 }
 
-type AuthenticatedAppShellProps = {
-  changePasswordError: string | null
+type AuthenticatedAppShellProps = AppShellContextValue & {
   children: ReactNode
-  isChangingPassword: boolean
-  isSigningOut: boolean
-  logoutError: string | null
-  onChangePassword: (payload: ChangePasswordRequest) => Promise<void>
-  onSignOut: () => Promise<void>
-  session: AuthSessionResponse
 }
 
 type NavigationItem = {
@@ -88,6 +90,7 @@ const primaryNavigation: NavigationItem[] = [
 export function AuthenticatedAppShell({
   changePasswordError,
   children,
+  expireSession,
   isChangingPassword,
   isSigningOut,
   logoutError,
@@ -95,9 +98,15 @@ export function AuthenticatedAppShell({
   onSignOut,
   session,
 }: AuthenticatedAppShellProps) {
+  const appQueryClient = useQueryClient()
+  // Queries and mutation callbacks from a previous session keep their old client.
+  const [sessionQueryClient] = useState(
+    () => new QueryClient({ defaultOptions: appQueryClient.getDefaultOptions() }),
+  )
   const contextValue = useMemo<AppShellContextValue>(
     () => ({
       changePasswordError,
+      expireSession,
       isChangingPassword,
       isSigningOut,
       logoutError,
@@ -107,6 +116,7 @@ export function AuthenticatedAppShell({
     }),
     [
       changePasswordError,
+      expireSession,
       isChangingPassword,
       isSigningOut,
       logoutError,
@@ -118,17 +128,19 @@ export function AuthenticatedAppShell({
   const [sidebarOpen, setSidebarOpen] = useState(readPersistedSidebarOpenState)
 
   return (
-    <appShellContext.Provider value={contextValue}>
-      <SidebarProvider
-        open={sidebarOpen}
-        onOpenChange={(open) => {
-          setSidebarOpen(open)
-          persistSidebarOpenState(open)
-        }}
-      >
-        <AuthenticatedAppShellFrame>{children}</AuthenticatedAppShellFrame>
-      </SidebarProvider>
-    </appShellContext.Provider>
+    <QueryClientProvider client={sessionQueryClient}>
+      <appShellContext.Provider value={contextValue}>
+        <SidebarProvider
+          open={sidebarOpen}
+          onOpenChange={(open) => {
+            setSidebarOpen(open)
+            persistSidebarOpenState(open)
+          }}
+        >
+          <AuthenticatedAppShellFrame>{children}</AuthenticatedAppShellFrame>
+        </SidebarProvider>
+      </appShellContext.Provider>
+    </QueryClientProvider>
   )
 }
 
@@ -140,6 +152,17 @@ export function useAppShell() {
   }
 
   return context
+}
+
+export function useExpireSessionOnUnauthorized(error: unknown) {
+  const expireSession = useContext(appShellContext)?.expireSession
+  const isUnauthorized = hasApiRequestStatus(error, 401)
+
+  useEffect(() => {
+    if (isUnauthorized) void expireSession?.()
+  }, [expireSession, isUnauthorized])
+
+  return isUnauthorized
 }
 
 function AccountMenu() {

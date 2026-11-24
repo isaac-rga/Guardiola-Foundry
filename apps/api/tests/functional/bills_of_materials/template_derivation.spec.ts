@@ -6,7 +6,7 @@ import {
   createProduct,
   createTemplate,
   createProductVariant,
-  updateProduct,
+  inactivateProduct,
   updateProductVariant,
   createImplementation,
 } from '#tests/functional/bills_of_materials/support/bom_test_support'
@@ -259,7 +259,7 @@ test.group('Bills of Materials', (group) => {
       'Unavailable',
       'inactive'
     )
-    await updateProduct(client, session.token, productId, 'Unavailable source Product', 'inactive')
+    await inactivateProduct(client, session.token, productId)
     const fromInactiveContext = await client
       .post(`/bills-of-materials/${implementation.id}/templates`)
       .header('Authorization', `Bearer ${session.token}`)

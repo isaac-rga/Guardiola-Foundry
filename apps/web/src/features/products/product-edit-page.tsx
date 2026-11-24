@@ -141,7 +141,7 @@ function ActiveProductEditPage({
   saveMessage: string | null
 }) {
   const navigate = useNavigate()
-  const { session } = useAppShell()
+  const { expireSession, session } = useAppShell()
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [removeImage, setRemoveImage] = useState(false)
   const [imageInputKey, setImageInputKey] = useState(0)
@@ -153,11 +153,12 @@ function ActiveProductEditPage({
   })
   const productsQuery = useProductList(session.token)
   const isAdmin = session.user.role === 'admin'
+  const includeDeletedInVariants = isAdmin && includeDeletedVariants
   const productVariants = useProductVariants(
     session.token,
     productId,
     true,
-    isAdmin && includeDeletedVariants
+    includeDeletedInVariants
   )
   const hasPendingImageChanges = selectedImageFile !== null || removeImage
   const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
@@ -168,9 +169,11 @@ function ActiveProductEditPage({
     }
   }, [hasPendingChanges, onSaveMessageChange])
 
+  const shouldBlockNavigation = () =>
+    !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage)
+
   useBlocker({
-    shouldBlockFn: () =>
-      !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage),
+    shouldBlockFn: shouldBlockNavigation,
     enableBeforeUnload: () => hasPendingChanges,
   })
 
@@ -208,8 +211,8 @@ function ActiveProductEditPage({
   const isDeleting = deletion.isDeleting
   const isChangingAvailability = availability.isChangingAvailability
   const isMutating = isSaving || isRestoring || isDeleting || isChangingAvailability
-  const hasActiveVariants = productVariants.variants.some(
-    (variant) => variant.status === 'active' && !variant.deletedAt
+  const hasActiveVariants = productVariants.currentVariants.some(
+    (variant) => variant.status === 'active'
   )
 
   return (
@@ -558,17 +561,22 @@ function ActiveProductEditPage({
 
       <ProductVariantsCard
         isAdmin={isAdmin}
-        includeDeleted={includeDeletedVariants}
+        includeDeleted={includeDeletedInVariants}
         product={product}
         variants={productVariants.variants}
         isLoading={productVariants.isLoading}
+        isUpdating={productVariants.isUpdating}
         loadError={productVariants.loadError}
         isSaving={productVariants.isSaving}
         isChangingAvailability={productVariants.isChangingAvailability}
         onDelete={productVariants.deleteVariant}
         onIncludeDeletedChange={setIncludeDeletedVariants}
+        onRecoverDefault={() => void productVariants.recoverDefault()}
         onRestore={productVariants.restoreVariant}
         onSave={productVariants.saveVariant}
+        onSignInAgain={() => {
+          if (!shouldBlockNavigation()) void expireSession({ ignoreBlocker: true })
+        }}
       />
 
     </div>

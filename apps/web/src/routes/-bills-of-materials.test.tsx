@@ -5,6 +5,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -1356,11 +1357,11 @@ describe('Bills of Materials route', () => {
       }),
     ).toHaveValue('Jackie')
     expect(
-      screen.getByRole('button', { name: 'Implementations' }),
-    ).toHaveAttribute('aria-pressed', 'true')
+      screen.getByRole('button', { name: 'Kind: Implementation' }),
+    ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Including deleted' }),
-    ).toHaveAttribute('aria-pressed', 'true')
+      screen.getByRole('button', { name: 'Include deleted' }),
+    ).toBeInTheDocument()
     await waitFor(() => {
       expect(
         fetchSpy.mock.calls.some(([input]) => {
@@ -1378,15 +1379,376 @@ describe('Bills of Materials route', () => {
       screen.getByText('No Bills of Materials match this view.'),
     ).toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Clear catalog filters' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Clear all' }))
 
     await waitFor(() => {
       expect(router.state.location.search.search).toBeUndefined()
       expect(router.state.location.search.catalogKind).toBeUndefined()
       expect(router.state.location.search.includeDeleted).toBeUndefined()
     })
+    const summary = screen.getByRole('region', {
+      name: 'Bills of Materials summary',
+    })
+    expect(summary).toHaveTextContent('3')
+    expect(summary).toHaveTextContent('2 Templates · 1 Implementations')
+    expect(summary).toHaveTextContent(
+      'BOMs without an associated Product Variant2',
+    )
+    expect(summary).toHaveTextContent('BOMs pending line verification1')
+    await act(async () => router.history.back())
+    expect(
+      await screen.findByRole('button', { name: 'Kind: Implementation' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('searchbox', { name: 'Search Bills of Materials' }),
+    ).toHaveValue('Jackie')
+    expect(
+      screen.getByRole('button', { name: 'Include deleted' }),
+    ).toBeInTheDocument()
+    await act(async () => router.history.forward())
+    await waitFor(() => expect(router.state.location.search).toEqual({}))
+  })
+
+  it.each([
+    '?search=%20%20&catalogKind=invalid&includeDeleted=false&unsupported=old',
+    '?search=' +
+      'a'.repeat(201) +
+      '&catalogKind=invalid&includeDeleted=invalid',
+  ])('canonicalizes invalid catalog URL state: %s', async (query) => {
+    const fetchSpy = mockCatalogRequests(() =>
+      jsonResponse(catalogResponse([])),
+    )
+    seedStoredSession('admin')
+    const { router } = renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials' + query,
+    )
+    await screen.findByText('No Bills of Materials registered yet.')
+    await waitFor(() => expect(router.state.location.searchStr).toBe(''))
+    expect(
+      fetchSpy.mock.calls
+        .filter(
+          ([input]) =>
+            new URL(String(input)).pathname === '/bills-of-materials',
+        )
+        .every(([input]) => new URL(String(input)).search === ''),
+    ).toBe(true)
+  })
+
+  it('sanitizes unauthorized Include deleted before querying and omits the criterion', async () => {
+    const fetchSpy = mockCatalogRequests(
+      () => jsonResponse(catalogResponse([])),
+      'operator',
+    )
+    seedStoredSession()
+    const { router } = renderBillsOfMaterialsRoute(
+      '/app/bills-of-materials?catalogKind=template&includeDeleted=true',
+    )
+    await screen.findByText('No Bills of Materials match this view.')
+    await waitFor(() =>
+      expect(router.state.location.search.includeDeleted).toBeUndefined(),
+    )
+    expect(router.state.location.search.catalogKind).toBe('template')
+    expect(
+      fetchSpy.mock.calls
+        .filter(
+          ([input]) =>
+            new URL(String(input)).pathname === '/bills-of-materials',
+        )
+        .every(
+          ([input]) =>
+            !new URL(String(input)).searchParams.has('includeDeleted'),
+        ),
+    ).toBe(true)
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Filter' }))
+    expect(
+      screen.queryByRole('button', { name: 'Include deleted' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('dialog', { name: 'Table filters' })).getByRole(
+        'button',
+        { name: /Kind/ },
+      ),
+    ).toHaveTextContent('Template')
+  })
+
+  it.each(['', '?search=Jackie&catalogKind=template&includeDeleted=true'])(
+    'recovers a catalog 403 with Clear all and preserves the session: %s',
+    async (query) => {
+      let denied = true
+      const fetchSpy = mockCatalogRequests(() =>
+        denied
+          ? jsonResponse({ message: 'Selection forbidden.' }, { status: 403 })
+          : jsonResponse(catalogResponse([billOfMaterialsFixture()])),
+      )
+      seedStoredSession('admin')
+      const { router } = renderBillsOfMaterialsRoute(
+        '/app/bills-of-materials' + query,
+      )
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('You do not have permission')
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      denied = false
+      await userEvent
+        .setup()
+        .click(within(alert).getByRole('button', { name: 'Clear all' }))
+      await screen.findByRole('table')
+      expect(router.state.location.searchStr).toBe('')
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+      const requests = fetchSpy.mock.calls.filter(
+        ([input]) => new URL(String(input)).pathname === '/bills-of-materials',
+      )
+      expect(new URL(String(requests.at(-1)?.[0])).search).toBe('')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    },
+  )
+
+  it('expires the session after a catalog refresh 401 and reopens after sign-in', async () => {
+    const user = userEvent.setup()
+    const template = billOfMaterialsFixture()
+    const renewedSession = {
+      ...sessionFixture('admin'),
+      token: 'renewed-session',
+    }
+    let deleted = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const { pathname } = new URL(String(input))
+      if (pathname === '/auth/me') return jsonResponse(sessionFixture('admin'))
+      if (pathname === '/auth/login') return jsonResponse(renewedSession)
+      if (pathname === '/bills-of-materials' && init?.method === 'GET') {
+        if (
+          new Headers(init.headers).get('Authorization') ===
+          'Bearer renewed-session'
+        ) {
+          return jsonResponse(catalogResponse([]))
+        }
+        return deleted
+          ? jsonResponse({ message: 'Session expired.' }, { status: 401 })
+          : jsonResponse(catalogResponse([template]))
+      }
+      if (
+        pathname === `/bills-of-materials/${template.id}` &&
+        init?.method === 'DELETE'
+      ) {
+        deleted = true
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`Unexpected request: ${pathname}`)
+    })
+
+    seedStoredSession('admin')
+    renderBillsOfMaterialsRoute()
+    await screen.findByText(template.name)
+    await user.click(
+      screen.getByRole('button', { name: `Actions for ${template.name}` }),
+    )
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Delete Bill of Materials' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete BOM' }))
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to guardiola foundry/i,
+      }),
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+
+    await user.type(screen.getByLabelText('Email Address'), 'admin@example.com')
+    await user.type(screen.getByLabelText('Password'), 'Password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(
+      await screen.findByRole('link', { name: 'Bills of Materials' }),
+    )
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toContain(
+      'renewed-session',
+    )
+  })
+
+  it('keeps a late catalog 401 from ending the next session', async () => {
+    const user = userEvent.setup()
+    const renewedSession = { ...sessionFixture(), token: 'renewed-session' }
+    let finishOldCatalog: (response: Response) => void = () => {}
+    const oldCatalog = new Promise<Response>((resolve) => {
+      finishOldCatalog = resolve
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const { pathname } = new URL(String(input))
+      if (pathname === '/auth/me') return jsonResponse(sessionFixture())
+      if (pathname === '/auth/login') return jsonResponse(renewedSession)
+      if (pathname === '/products') {
+        return jsonResponse({ message: 'Session expired.' }, { status: 401 })
+      }
+      if (pathname === '/bills-of-materials') {
+        if (
+          new Headers(init?.headers).get('Authorization') ===
+          'Bearer renewed-session'
+        ) {
+          return jsonResponse(catalogResponse([]))
+        }
+        return oldCatalog
+      }
+      throw new Error(`Unexpected request: ${pathname}`)
+    })
+
+    seedStoredSession()
+    const { router } = renderBillsOfMaterialsRoute()
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.some(
+          ([input]) => new URL(String(input)).pathname === '/bills-of-materials',
+        ),
+      ).toBe(true),
+    )
+    await user.click(await screen.findByRole('link', { name: 'Products' }))
+    await user.click(await screen.findByRole('link', { name: 'Sign in again' }))
+    await user.type(
+      await screen.findByLabelText('Email Address'),
+      'operator@example.com',
+    )
+    await user.type(screen.getByLabelText('Password'), 'Password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(
+      await screen.findByRole('link', { name: 'Bills of Materials' }),
+    )
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/app/bills-of-materials'),
+    )
+    await act(async () => {
+      finishOldCatalog(
+        jsonResponse({ message: 'Session expired.' }, { status: 401 }),
+      )
+    })
+
+    expect(
+      await screen.findByText('No Bills of Materials registered yet.'),
+    ).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toContain(
+      'renewed-session',
+    )
+  })
+
+  it('debounces remote search, retains rows, and keeps Kind changes in navigable history', async () => {
+    let finishSearch: (response: Response) => void = () => {}
+    const fetchSpy = mockCatalogRequests((url) =>
+      url.searchParams.has('search')
+        ? new Promise<Response>((resolve) => {
+            finishSearch = resolve
+          })
+        : jsonResponse(catalogResponse([billOfMaterialsFixture()])),
+    )
+    seedStoredSession('admin')
+    const { router } = renderBillsOfMaterialsRoute()
+    await screen.findByRole('table')
+    const user = userEvent.setup()
+    const search = screen.getByRole('searchbox', {
+      name: 'Search Bills of Materials',
+    })
+    await user.type(search, '  Jackie  ')
+    expect(search).toHaveValue('  Jackie  ')
+    expect(router.state.location.search.search).toBeUndefined()
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        new URL(String(input)).searchParams.has('search'),
+      ),
+    ).toHaveLength(0)
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Updating Bills of Materials...',
+    )
+    expect(screen.getByRole('table')).toHaveTextContent(
+      'Jackie base construction',
+    )
+    await waitFor(() =>
+      expect(router.state.location.search.search).toBe('Jackie'),
+    )
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.some(
+          ([input]) =>
+            new URL(String(input)).searchParams.get('search') === 'Jackie',
+        ),
+      ).toBe(true),
+    )
+    expect(router.history.length).toBe(1)
+    expect(screen.getByRole('table')).toHaveTextContent(
+      'Jackie base construction',
+    )
+    await act(async () =>
+      finishSearch(
+        jsonResponse(
+          catalogResponse([
+            { ...billOfMaterialsFixture(), name: 'Matched BOM' },
+          ]),
+        ),
+      ),
+    )
+    await screen.findByText('Matched BOM')
+    await waitFor(() =>
+      expect(screen.queryByRole('status')).not.toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Filter' }))
+    const popover = screen.getByRole('dialog', { name: 'Table filters' })
+    await user.click(within(popover).getByRole('button', { name: /Kind/ }))
+    await user.click(within(popover).getByRole('button', { name: 'Template' }))
+    await user.keyboard('{Escape}')
+    expect(router.state.location.search).toMatchObject({
+      search: 'Jackie',
+      catalogKind: 'template',
+    })
+    expect(router.history.length).toBe(2)
+    await user.click(screen.getByRole('button', { name: 'Kind: Template' }))
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Table filters' })).getByRole(
+        'button',
+        { name: 'Implementation' },
+      ),
+    )
+    await user.keyboard('{Escape}')
+    expect(router.state.location.search.catalogKind).toBe('implementation')
+    await user.click(screen.getByRole('button', { name: 'Remove Kind filter' }))
+    expect(router.state.location.search.catalogKind).toBeUndefined()
+    expect(router.state.location.search.search).toBe('Jackie')
+    await act(async () => router.history.back())
+    expect(
+      await screen.findByRole('button', { name: 'Kind: Implementation' }),
+    ).toBeInTheDocument()
+  })
+
+  it('bounds typed catalog search to the server limit and settles the update', async () => {
+    const fetchSpy = mockCatalogRequests(() =>
+      jsonResponse(catalogResponse([])),
+    )
+    seedStoredSession('admin')
+    const { router } = renderBillsOfMaterialsRoute()
+    const user = userEvent.setup()
+    const search = await screen.findByRole('searchbox', {
+      name: 'Search Bills of Materials',
+    })
+    await user.click(search)
+    await user.paste('x'.repeat(201))
+    expect(search).toHaveValue('x'.repeat(200))
+    await waitFor(() =>
+      expect(router.state.location.search.search).toBe('x'.repeat(200)),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('status')).not.toBeInTheDocument(),
+    )
+    expect(
+      fetchSpy.mock.calls
+        .filter(
+          ([input]) =>
+            new URL(String(input)).pathname === '/bills-of-materials',
+        )
+        .every(
+          ([input]) =>
+            (new URL(String(input)).searchParams.get('search') ?? '').length <=
+            200,
+        ),
+    ).toBe(true)
   })
 
   it('assigns a previously unassociated Template once from the catalog', async () => {
@@ -2466,7 +2828,14 @@ describe('Bills of Materials route', () => {
         return jsonResponse(
           catalogResponse(
             url.searchParams.get('includeDeleted') === 'true'
-              ? [deletedTemplate]
+              ? [
+                  deletedTemplate,
+                  {
+                    ...billOfMaterialsFixture(),
+                    id: 'BOM-CURRENT',
+                    name: 'Current construction',
+                  },
+                ]
               : [],
           ),
         )
@@ -2479,10 +2848,16 @@ describe('Bills of Materials route', () => {
 
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
-    await user.click(
-      await screen.findByRole('button', { name: 'Include deleted' }),
-    )
+    await includeDeletedBillsOfMaterials(user)
     await screen.findByText(deletedTemplate.name)
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByText('Deleted')).toHaveLength(1)
+    expect(
+      within(table).getByText('Current construction').closest('tr'),
+    ).not.toHaveTextContent('Deleted')
+    expect(
+      within(table).queryByText('Current', { exact: true }),
+    ).not.toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
         name: `Actions for ${deletedTemplate.name}`,
@@ -2645,9 +3020,7 @@ describe('Bills of Materials route', () => {
 
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
-    await user.click(
-      await screen.findByRole('button', { name: 'Include deleted' }),
-    )
+    await includeDeletedBillsOfMaterials(user)
     await user.click(
       screen.getByRole('button', {
         name: `Actions for ${deletedTemplate.name}`,
@@ -2697,9 +3070,7 @@ describe('Bills of Materials route', () => {
 
     seedStoredSession('admin')
     renderBillsOfMaterialsRoute()
-    await user.click(
-      await screen.findByRole('button', { name: 'Include deleted' }),
-    )
+    await includeDeletedBillsOfMaterials(user)
     await user.click(
       screen.getByRole('button', {
         name: `Actions for ${deletedTemplate.name}`,
@@ -2757,6 +3128,29 @@ describe('Bills of Materials route', () => {
     ).toBeInTheDocument()
   })
 })
+
+async function includeDeletedBillsOfMaterials(
+  user: ReturnType<typeof userEvent.setup>,
+) {
+  await user.click(await screen.findByRole('button', { name: 'Filter' }))
+  const popover = screen.getByRole('dialog', { name: 'Table filters' })
+  await user.click(
+    within(popover).getByRole('button', { name: /Include deleted/ }),
+  )
+  await user.keyboard('{Escape}')
+}
+
+function mockCatalogRequests(
+  respond: (url: URL) => Response | Promise<Response>,
+  role: 'admin' | 'operator' = 'admin',
+) {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input))
+    if (url.pathname === '/auth/me') return jsonResponse(sessionFixture(role))
+    if (url.pathname === '/bills-of-materials') return respond(url)
+    throw new Error(`Unexpected request: ${url.pathname}`)
+  })
+}
 
 function renderBillsOfMaterialsRoute(
   initialEntry = '/app/bills-of-materials',

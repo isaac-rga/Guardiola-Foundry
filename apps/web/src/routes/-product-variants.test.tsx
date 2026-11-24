@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -360,7 +360,7 @@ describe('Product Variants on the product route', () => {
     })
 
     seedStoredSession()
-    renderProductRoute()
+    const router = renderProductRoute()
 
     const variantName = await screen.findByText('Jackie Showroom')
     const variantRow = variantName.closest('tr')
@@ -385,20 +385,21 @@ describe('Product Variants on the product route', () => {
       expect(screen.queryByText('Jackie Showroom')).not.toBeInTheDocument()
     })
 
-    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
+    await includeDeletedVariants(user)
 
     const deletedVariantName = await screen.findByText('Jackie Showroom')
     const deletedVariantRow = deletedVariantName.closest('tr')
     expect(deletedVariantRow).not.toBeNull()
     expect(within(deletedVariantRow as HTMLTableRowElement).getByText('Deleted')).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Base Active/ })).not.toHaveTextContent('Deleted')
+    expect(screen.getByRole('button', { name: 'Remove Include deleted filter' })).toBeVisible()
+    expect(router.state.location.href).toBe('/app/products/P-JACKIE')
 
     await user.click(
       within(deletedVariantRow as HTMLTableRowElement).getByRole('button', { name: 'Restore' })
     )
 
-    await waitFor(() => {
-      expect(within(deletedVariantRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
-    })
+    expect(await screen.findByRole('row', { name: /Jackie Showroom Active/ })).toBeVisible()
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:3333/products/P-JACKIE/variants/PV-SHOW01/restore',
       expect.objectContaining({ method: 'POST' })
@@ -432,10 +433,178 @@ describe('Product Variants on the product route', () => {
     renderProductRoute()
 
     await screen.findByText('No Product Variants registered yet.')
-    expect(screen.queryByRole('button', { name: /deleted/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Filter' })).not.toBeInTheDocument()
     expect(
       fetchSpy.mock.calls.some(([input]) => String(input).includes('includeDeleted=true'))
     ).toBe(false)
+  })
+
+  it.each([false, true])(
+    'recovers from a Variant list 403 and preserves the Product draft (Include deleted: %s)',
+    async (includeDeleted) => {
+      const user = userEvent.setup()
+      const baseVariant = variantFixture({ id: 'PV-BASE01', name: 'Base' })
+      const requests: string[] = []
+      let forbidden = true
+      mockProductVariantRequests((url, method) => {
+        if (method !== 'GET') return
+        requests.push(url.search)
+        if (forbidden && (url.searchParams.has('includeDeleted') === includeDeleted)) {
+          return jsonResponse({ message: 'Forbidden' }, { status: 403 })
+        }
+        return jsonResponse({ variants: [baseVariant] })
+      })
+
+      seedStoredSession()
+      const href = '/app/products/P-JACKIE?search=Jackie'
+      const router = renderProductRoute(href)
+      const name = await screen.findByRole('textbox', { name: 'Product name' })
+      await user.type(name, ' draft')
+
+      if (includeDeleted) {
+        await screen.findByText('Base')
+        await includeDeletedVariants(user)
+      }
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('You do not have permission')
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+      if (includeDeleted) {
+        await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+        const dialog = await screen.findByRole('dialog')
+        expect(within(dialog).getByRole('radio', { name: /Product and Active Variants/ })).toBeVisible()
+        await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      }
+
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+      await act(async () => {
+        window.dispatchEvent(new Event('visibilitychange'))
+        visibility.mockReturnValue('visible')
+        window.dispatchEvent(new Event('visibilitychange'))
+        window.dispatchEvent(new Event('offline'))
+        window.dispatchEvent(new Event('online'))
+      })
+      expect(screen.getByRole('alert')).toHaveTextContent('You do not have permission')
+      expect(requests).toEqual(includeDeleted ? ['', '?includeDeleted=true'] : [''])
+
+      forbidden = false
+      await user.click(
+        within(screen.getByRole('alert')).getByRole('button', { name: 'Clear all' })
+      )
+
+      expect(await screen.findByText('Base')).toBeVisible()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Remove Include deleted filter' })).not.toBeInTheDocument()
+      expect(requests).toEqual(includeDeleted ? ['', '?includeDeleted=true', ''] : ['', ''])
+      expect(name).toHaveValue('Jackie draft')
+      expect(router.state.location.href).toBe(href)
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    }
+  )
+
+  it('keeps denied Variant history hidden after a successful Variant save', async () => {
+    const user = userEvent.setup()
+    let finishRequest: (() => void) | undefined
+    const deniedRequest = new Promise<void>((resolve) => {
+      finishRequest = resolve
+    })
+    let forbidden = false
+    const baseVariant = variantFixture({ id: 'PV-BASE01', name: 'Base' })
+    const deletedVariant = variantFixture({
+      id: 'PV-SHOW01',
+      name: 'Jackie Showroom',
+      deletedAt: '2026-09-08T16:00:00.000Z'
+    })
+    mockProductVariantRequests(async (url, method) => {
+      if (method === 'POST') {
+        return jsonResponse(variantFixture({ id: 'PV-RETAIL', name: 'Jackie Retail' }), { status: 201 })
+      }
+      if (method !== 'GET') return
+      if (!url.searchParams.has('includeDeleted')) return jsonResponse({ variants: [baseVariant] })
+      if (forbidden) {
+        await deniedRequest
+        return jsonResponse({ message: 'Forbidden' }, { status: 403 })
+      }
+      return jsonResponse({ variants: [baseVariant, deletedVariant] })
+    })
+
+    seedStoredSession()
+    renderProductRoute()
+    await screen.findByText('Base')
+    await includeDeletedVariants(user)
+    expect(await screen.findByText('Jackie Showroom')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Remove Include deleted filter' }))
+
+    forbidden = true
+    await includeDeletedVariants(user)
+    expect(await screen.findByRole('status')).toHaveTextContent('Updating Product Variants…')
+    expect(screen.getByText('Base')).toBeVisible()
+    expect(screen.queryByText('Jackie Showroom')).not.toBeInTheDocument()
+    finishRequest?.()
+    expect(await screen.findByRole('alert')).toHaveTextContent('You do not have permission')
+
+    await user.click(screen.getByRole('button', { name: 'Add Product Variant' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Product Variant name'), 'Jackie Retail')
+    await user.click(within(dialog).getByRole('button', { name: 'Add Variant' }))
+
+    expect(await screen.findByText('Added Jackie Retail.')).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('You do not have permission')
+    expect(screen.queryByText('Jackie Showroom')).not.toBeInTheDocument()
+  })
+
+  it('offers to inactivate current Variants after clearing the only successful list selection', async () => {
+    const user = userEvent.setup()
+    const baseVariant = variantFixture({ id: 'PV-BASE01', name: 'Base' })
+    mockProductVariantRequests((url, method) => {
+      if (method !== 'GET') return
+      if (url.searchParams.has('includeDeleted')) {
+        return jsonResponse({ variants: [baseVariant] })
+      }
+      return jsonResponse({ message: 'Unable to load Product Variants.' }, { status: 500 })
+    })
+
+    seedStoredSession()
+    renderProductRoute()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load Product Variants.')
+    await includeDeletedVariants(user)
+    expect(await screen.findByText('Base')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Remove Include deleted filter' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load Product Variants.')
+
+    await user.click(screen.getByRole('button', { name: 'Inactivate Product' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('radio', { name: /Product and Active Variants/ })).toBeVisible()
+  })
+
+  it('offers sign-in after a Variant list 401 and honors the unsaved Product draft prompt', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    mockProductVariantRequests((_, method) => {
+      if (method === 'GET') return jsonResponse({ message: 'Unauthorized' }, { status: 401 })
+    })
+
+    seedStoredSession()
+    const router = renderProductRoute()
+    const name = await screen.findByRole('textbox', { name: 'Product name' })
+    await user.type(name, ' draft')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Your session has expired.')
+    expect(within(alert).queryByRole('button', { name: 'Clear all' })).not.toBeInTheDocument()
+    const signInAgain = within(alert).getByRole('button', { name: 'Sign in again' })
+    await user.click(signInAgain)
+
+    expect(router.state.location.pathname).toBe('/app/products/P-JACKIE')
+    expect(name).toHaveValue('Jackie draft')
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+
+    await user.click(signInAgain)
+
+    expect(await screen.findByRole('heading', { name: 'Sign in to Guardiola Foundry' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/sign-in')
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
   })
 
   it('keeps a deleted Variant visible and explains an Admin restoration name conflict', async () => {
@@ -489,7 +658,7 @@ describe('Product Variants on the product route', () => {
     renderProductRoute()
 
     await screen.findByText('No Product Variants registered yet.')
-    await user.click(screen.getByRole('button', { name: 'Include deleted' }))
+    await includeDeletedVariants(user)
     const deletedVariantRow = (await screen.findByText('Jackie Showroom')).closest('tr')
     expect(deletedVariantRow).not.toBeNull()
 
@@ -507,25 +676,57 @@ describe('Product Variants on the product route', () => {
   })
 })
 
-function renderProductRoute() {
+function mockProductVariantRequests(
+  respond: (
+    url: URL,
+    method: string | undefined
+  ) => Response | undefined | Promise<Response | undefined>
+) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(String(input))
+
+    if (url.pathname === '/auth/me') return jsonResponse(sessionFixture())
+    if (url.pathname === '/products/P-JACKIE' && init?.method === 'GET') {
+      return jsonResponse(productDetailFixture())
+    }
+    if (url.pathname === '/products' && init?.method === 'GET') {
+      return jsonResponse({ products: [productDetailFixture().product], collections: [] })
+    }
+    if (url.pathname === '/products/P-JACKIE/variants') {
+      const response = await respond(url, init?.method)
+      if (response) return response
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  })
+}
+
+async function includeDeletedVariants(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Filter' }))
+  const filters = await screen.findByRole('dialog', { name: 'Table filters' })
+  await user.click(within(filters).getByRole('button', { name: /Include deleted/ }))
+  await user.keyboard('{Escape}')
+}
+
+function renderProductRoute(initialEntry = '/app/products/P-JACKIE') {
   const router = createRouter({
     routeTree,
     history: createMemoryHistory({
-      initialEntries: ['/app/products/P-JACKIE']
+      initialEntries: [initialEntry]
     })
   })
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, staleTime: 30_000 },
       mutations: { retry: false }
     }
   })
 
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>
   )
+  return router
 }
 
 function seedStoredSession(role: 'admin' | 'operator' = 'admin') {

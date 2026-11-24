@@ -163,7 +163,7 @@ test.group('Bills of Materials', (group) => {
 
     const operator = await authenticateAs(client, 'operator')
     const operatorCatalog = await client
-      .get('/bills-of-materials?includeDeleted=true')
+      .get('/bills-of-materials')
       .header('Authorization', `Bearer ${operator.token}`)
     operatorCatalog.assertStatus(200)
     assert.notInclude(

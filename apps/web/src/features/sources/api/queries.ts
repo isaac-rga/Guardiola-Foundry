@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import type {
   CreateSourceRequest,
   ListSourcesQuery,
@@ -23,10 +28,22 @@ function sourceDetailQueryKey(sourceId: string) {
 }
 
 export function useSourceList(token: string, filters: ListSourcesQuery) {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const query = useQuery({
     queryKey: [...sourceListQueryKey, filters],
     queryFn: () => listSources(token, filters),
+    placeholderData: keepPreviousData,
   })
+
+  return {
+    ...query,
+    recoverDefault: () =>
+      queryClient.invalidateQueries({
+        queryKey: [...sourceListQueryKey, {}],
+        exact: true,
+        refetchType: 'all',
+      }),
+  }
 }
 
 export function useCurrencyConversionRate(token: string) {

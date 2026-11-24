@@ -36,12 +36,13 @@ export type SourceAttentionState = (typeof SOURCE_ATTENTION_STATES)[number]
 export interface ListSourcesQuery {
   search?: string
   textileFamily?: TextileFamily
-  status?: SourceStatus
+  includeRetired?: boolean
   linkState?: SourceLinkState
   attentionState?: SourceAttentionState
 }
 
 export interface SourceSummary {
+  sourceStatus: SourceStatus
   id: string
   name: string
   vendor: string

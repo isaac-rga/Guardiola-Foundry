@@ -28,8 +28,8 @@ jobs:
       TZ: UTC
       NODE_ENV: test
       PORT: 3333
-      HOST: localhost
-      APP_URL: http://localhost:3333
+      HOST: 127.0.0.1
+      APP_URL: http://127.0.0.1:3333
       APP_KEY: ci-only-app-key-with-at-least-32-characters
       LOG_LEVEL: info
 
@@ -50,7 +50,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

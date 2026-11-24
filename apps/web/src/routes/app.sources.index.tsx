@@ -13,10 +13,10 @@ function SourcesIndexRoute() {
   return (
     <SourcesPage
       filters={filters}
-      onFiltersChange={(changes) =>
+      onFiltersChange={(changes, options) =>
         void navigate({
           search: (current) => ({ ...current, ...changes }),
-          replace: true,
+          replace: options?.replace,
         })
       }
     />

@@ -10,6 +10,8 @@ The first protected web route is `/app`. Access to `/app` is enforced at the Tan
 
 The `/sign-in` route owns post-auth navigation. After a successful login, the client stores the returned session payload and navigates to `/app`. The protected route then performs its standard current-session bootstrap before rendering. This keeps the sign-in page responsible for authentication state capture while the route layer remains responsible for protected-route access rules and redirect behavior.
 
+The authenticated web app uses a query cache scoped to the current session. [ADR 0004](0004-scope-web-query-cache-to-authenticated-session.md)
+
 Users are created through seed or setup flows, not public registration. Email addresses are matched case-insensitively using normalized storage. Seeded users may keep their initial password until they choose to change it. A password change requires the current password, the new password must be at least 8 characters long, and forgotten passwords are reserved for a separate recovery flow.
 
 Login failures are intentionally specific: email not found, incorrect password, and inactive user are distinct cases. Basic login rate limiting is included through a per-email lockout: 5 failed attempts cause a 15-minute lockout, and a successful login clears the failed-attempt counter. Inactive users cannot log in, and existing tokens for inactive users are rejected on authenticated endpoints.

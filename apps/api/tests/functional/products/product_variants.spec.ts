@@ -174,12 +174,22 @@ test.group('Product Variants', (group) => {
         name: 'Inactive Jackie',
         shortDescription: null,
         lifecycleStatus: 'testing',
-        productStatus: 'inactive',
         productCategory: null,
         collectionId: null,
       })
 
     inactiveProductResponse.assertStatus(200)
+
+    const inactivationResponse = await client
+      .post(`/products/${inactiveProductId}/inactivate`)
+      .header('Authorization', `Bearer ${session.token}`)
+      .json({})
+
+    inactivationResponse.assertStatus(200)
+    inactivationResponse.assertBodyContains({
+      id: inactiveProductId,
+      productStatus: 'inactive',
+    })
 
     const inactiveCreateResponse = await client
       .post(`/products/${inactiveProductId}/variants`)
@@ -262,8 +272,10 @@ test.group('Product Variants', (group) => {
       .get(`/products/${productId}/variants?includeDeleted=true`)
       .header('Authorization', `Bearer ${session.token}`)
 
-    operatorRecoveryListResponse.assertStatus(200)
-    operatorRecoveryListResponse.assertBody({ variants: [baseVariant] })
+    operatorRecoveryListResponse.assertStatus(403)
+    operatorRecoveryListResponse.assertBody({
+      message: 'Only Admins can include deleted Product Variants.',
+    })
 
     const adminSession = await authenticateAs(client, 'admin')
     const recoveryListResponse = await client
@@ -271,6 +283,7 @@ test.group('Product Variants', (group) => {
       .header('Authorization', `Bearer ${adminSession.token}`)
 
     recoveryListResponse.assertStatus(200)
+    assert.deepInclude(recoveryListResponse.body().variants, baseVariant)
     const deletedVariant = recoveryListResponse
       .body()
       .variants.find((candidate: { id: string }) => candidate.id === variant.id)

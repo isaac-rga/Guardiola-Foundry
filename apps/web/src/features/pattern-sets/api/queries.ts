@@ -14,17 +14,18 @@ import {
   searchPatternSets,
   updatePatternSet,
 } from './endpoints'
-import { ApiRequestError } from '@/lib/api/transport'
+import { hasApiRequestStatus } from '@/lib/api/transport'
 
 const patternSetsQueryPrefix = ['pattern-sets'] as const
+const activePatternSetsQueryKey = [...patternSetsQueryPrefix, 'active'] as const
 
 export function usePatternSets(token: string, includeRetired: boolean) {
   const queryClient = useQueryClient()
+  const listQueryKey = includeRetired
+    ? [...patternSetsQueryPrefix, 'include-retired']
+    : activePatternSetsQueryKey
   const listQuery = useQuery({
-    queryKey: [
-      ...patternSetsQueryPrefix,
-      includeRetired ? 'include-retired' : 'active',
-    ],
+    queryKey: listQueryKey,
     queryFn: () => listPatternSets(token, includeRetired),
   })
   const saveMutation = useMutation({
@@ -57,6 +58,12 @@ export function usePatternSets(token: string, includeRetired: boolean) {
     patternSets: listQuery.data?.patternSets ?? [],
     isLoading: listQuery.isLoading,
     loadError: listQuery.error,
+    recoverDefault: () =>
+      queryClient.invalidateQueries({
+        queryKey: activePatternSetsQueryKey,
+        exact: true,
+        refetchType: 'all',
+      }),
     isSaving: saveMutation.isPending,
     isChangingStatus: retireMutation.isPending || restoreMutation.isPending,
     saveError: saveMutation.error,
@@ -88,9 +95,7 @@ export function usePatternSetSearch(token: string, search: string) {
 }
 
 function isCatalogSearchErrorRetryable(error: Error | null) {
-  return !(
-    error instanceof ApiRequestError && [401, 403].includes(error.status)
-  )
+  return !hasApiRequestStatus(error, 401, 403)
 }
 
 export function usePatternSetDetail(

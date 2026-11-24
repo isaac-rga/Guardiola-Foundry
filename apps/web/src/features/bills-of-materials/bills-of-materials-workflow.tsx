@@ -21,7 +21,6 @@ export function BillsOfMaterialsWorkflow({
   derivationOriginId,
   filters,
   kind,
-  onAuthenticationFailure,
   onCreateTemplate,
   onEdit,
   onExitBuilder,
@@ -37,11 +36,13 @@ export function BillsOfMaterialsWorkflow({
   derivationOriginId?: string
   filters: ListBillsOfMaterialsQuery
   kind: 'template' | 'implementation'
-  onAuthenticationFailure: () => void
   onCreateTemplate: () => void
   onEdit: (billOfMaterialsId: string) => void
   onExitBuilder: () => void
-  onFiltersChange: (changes: ListBillsOfMaterialsQuery) => void
+  onFiltersChange: (
+    changes: ListBillsOfMaterialsQuery,
+    options?: { replace?: boolean },
+  ) => void
   onMissingImplementationContext: () => void
   onOpenDerivationBuilder: (originId: string) => void
   onOpenImplementationBuilder: (
@@ -121,7 +122,6 @@ export function BillsOfMaterialsWorkflow({
   return (
     <BillsOfMaterialsCatalogPage
       filters={filters}
-      onAuthenticationFailure={onAuthenticationFailure}
       onFiltersChange={onFiltersChange}
       onEdit={onEdit}
       onCreateImplementation={(candidate) => {

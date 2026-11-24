@@ -13,11 +13,13 @@ import type { HttpContext } from '@adonisjs/core/http'
 
 export default class ProductVariantsController {
   async index({ authenticatedSession, params, request, response }: HttpContext) {
-    const result = await listProductVariants(params.productId, {
-      includeDeleted:
-        authenticatedSession.user.role === 'admin' &&
-        this.shouldIncludeDeleted(request.input('includeDeleted')),
-    })
+    const includeDeleted = this.shouldIncludeDeleted(request.input('includeDeleted'))
+
+    if (includeDeleted && authenticatedSession.user.role !== 'admin') {
+      return response.forbidden({ message: 'Only Admins can include deleted Product Variants.' })
+    }
+
+    const result = await listProductVariants(params.productId, { includeDeleted })
 
     if (result === 'product-not-found') {
       return response.notFound({ message: 'Product not found.' })

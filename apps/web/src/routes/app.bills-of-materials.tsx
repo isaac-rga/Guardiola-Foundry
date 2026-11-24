@@ -1,21 +1,56 @@
-import { createFileRoute } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  defaultStringifySearch,
+  redirect,
+} from '@tanstack/react-router'
+import { listBillsOfMaterialsQuerySchema } from '@guardiola-foundry/shared-validation'
 import { z } from 'zod'
 
 import { BillsOfMaterialsWorkflow } from '@/features/bills-of-materials/bills-of-materials-workflow'
-import { clearAuthSession } from '@/lib/auth/session-storage'
+
+const billsOfMaterialsSearchSchema = z.object({
+  screen: z
+    .enum(['builder', 'catalog'])
+    .optional()
+    .catch(undefined)
+    .transform((value) => (value === 'catalog' ? undefined : value)),
+  kind: z.enum(['template', 'implementation']).optional().catch(undefined),
+  productVariantId: z.string().optional(),
+  billOfMaterialsId: z.string().optional(),
+  templateId: z.string().optional(),
+  derivationOriginId: z.string().optional(),
+  search: z
+    .string()
+    .trim()
+    .pipe(listBillsOfMaterialsQuerySchema.shape.search.unwrap())
+    .optional()
+    .catch(undefined),
+  catalogKind: listBillsOfMaterialsQuerySchema.shape.kind.catch(undefined),
+  includeDeleted: listBillsOfMaterialsQuerySchema.shape.includeDeleted
+    .catch(undefined)
+    .transform((value) => value || undefined),
+})
 
 export const Route = createFileRoute('/app/bills-of-materials')({
-  validateSearch: z.object({
-    screen: z.enum(['builder', 'catalog']).optional().catch('catalog'),
-    kind: z.enum(['template', 'implementation']).optional().catch('template'),
-    productVariantId: z.string().optional(),
-    billOfMaterialsId: z.string().optional(),
-    templateId: z.string().optional(),
-    derivationOriginId: z.string().optional(),
-    search: z.string().max(200).optional(),
-    catalogKind: z.enum(['template', 'implementation']).optional(),
-    includeDeleted: z.boolean().optional().catch(false),
-  }),
+  validateSearch: billsOfMaterialsSearchSchema,
+  beforeLoad: ({ location, search }) => {
+    const canonical = billsOfMaterialsSearchSchema.parse(search)
+    if (
+      defaultStringifySearch(
+        Object.fromEntries(Object.entries(canonical).sort()),
+      ) !==
+      defaultStringifySearch(
+        Object.fromEntries(Object.entries(location.search).sort()),
+      )
+    ) {
+      throw redirect({
+        to: location.pathname,
+        search: canonical,
+        hash: location.hash,
+        replace: true,
+      })
+    }
+  },
   component: BillsOfMaterialsRoute,
 })
 
@@ -42,10 +77,6 @@ function BillsOfMaterialsRoute() {
       productVariantId={productVariantId}
       screen={screen}
       templateId={templateId}
-      onAuthenticationFailure={() => {
-        clearAuthSession()
-        void navigate({ to: '/sign-in' })
-      }}
       onExitBuilder={() =>
         void navigate({
           search: { screen: 'catalog' },
@@ -53,15 +84,17 @@ function BillsOfMaterialsRoute() {
           resetScroll: false,
         })
       }
-      onFiltersChange={(changes) =>
+      onFiltersChange={(changes, options) =>
         void navigate({
           search: (previous) => ({
             ...previous,
-            search: changes.search,
-            catalogKind: changes.kind,
-            includeDeleted: changes.includeDeleted,
+            ...('search' in changes ? { search: changes.search } : {}),
+            ...('kind' in changes ? { catalogKind: changes.kind } : {}),
+            ...('includeDeleted' in changes
+              ? { includeDeleted: changes.includeDeleted }
+              : {}),
           }),
-          replace: true,
+          replace: options?.replace ?? false,
           resetScroll: false,
         })
       }

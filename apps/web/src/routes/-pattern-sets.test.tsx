@@ -5,6 +5,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -90,7 +91,6 @@ describe('Pattern Set catalog route', () => {
     expect(
       screen.getByText('140 cm → 3.25 m — Marker study'),
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText('Include retired')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Create Pattern Set' }))
     await user.type(screen.getByLabelText('Pattern Set name'), 'Cape patterns')
@@ -153,8 +153,9 @@ describe('Pattern Set catalog route', () => {
     )
   })
 
-  it('lets only an Admin include retired records and restore them', async () => {
+  it('hydrates the Admin filter, mixes Active and Retired records, and preserves filter history', async () => {
     const user = userEvent.setup()
+    const active = patternSetFixture({ id: 'PS-BASE02' })
     const retired = patternSetFixture({
       status: 'retired',
       name: 'Archived pattern',
@@ -166,10 +167,14 @@ describe('Pattern Set catalog route', () => {
         return jsonResponse(sessionFixture('admin'))
       if (url.pathname === '/pattern-sets' && init?.method === 'GET') {
         return jsonResponse({
-          patternSets:
-            url.searchParams.get('includeRetired') === 'true' && !restored
-              ? [retired]
-              : [],
+          patternSets: [
+            active,
+            ...(restored
+              ? [{ ...retired, status: 'active' }]
+              : url.searchParams.get('includeRetired') === 'true'
+                ? [retired]
+                : []),
+          ],
         })
       }
       if (
@@ -183,22 +188,204 @@ describe('Pattern Set catalog route', () => {
     })
 
     seedStoredSession('admin')
-    renderPatternSetsRoute()
+    const router = renderPatternSetsRoute(
+      '/app/pattern-sets?includeRetired=true',
+    )
 
-    await screen.findByText('No Pattern Sets registered yet.')
-    await user.click(screen.getByLabelText('Include retired'))
+    await screen.findByRole('button', { name: 'Remove Include retired filter' })
+    const activeRow = (await screen.findByText('Skirt patterns')).closest(
+      'tr',
+    ) as HTMLTableRowElement
+    expect(within(activeRow).getByText('Active')).toBeInTheDocument()
+    expect(within(activeRow).queryByText('Retired')).not.toBeInTheDocument()
     const retiredRow = (await screen.findByText('Archived pattern')).closest(
       'tr',
     ) as HTMLTableRowElement
-    expect(within(retiredRow).getByText('retired')).toBeInTheDocument()
+    expect(within(retiredRow).getByText('Retired')).toBeInTheDocument()
     expect(
       within(retiredRow).queryByRole('button', { name: 'Edit' }),
     ).not.toBeInTheDocument()
-    await user.click(
-      within(retiredRow).getByRole('button', { name: 'Restore' }),
-    )
+
+    await user.click(screen.getByRole('button', { name: 'Clear all' }))
+    await waitFor(() => expect(router.state.location.search).toEqual({}))
     await waitFor(() =>
       expect(screen.queryByText('Archived pattern')).not.toBeInTheDocument(),
+    )
+    await act(() => router.history.back())
+    expect(await screen.findByText('Archived pattern')).toBeInTheDocument()
+    expect(router.state.location.search).toEqual({ includeRetired: true })
+    await act(() => router.history.forward())
+    await waitFor(() => expect(router.state.location.search).toEqual({}))
+
+    await user.click(screen.getByRole('button', { name: 'Filter' }))
+    await user.click(screen.getByRole('button', { name: /Include retired/ }))
+    await user.click(screen.getByRole('button', { name: 'Close filters' }))
+    expect(await screen.findByText('Archived pattern')).toBeInTheDocument()
+    expect(router.state.location.search).toEqual({ includeRetired: true })
+    await user.click(screen.getByRole('button', { name: 'Restore' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Restore' }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Archived pattern')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['admin', 'includeRetired=false&unsupported=value'],
+    ['admin', 'includeRetired=invalid'],
+    ['operator', 'includeRetired=true'],
+  ] as const)(
+    'replaces non-canonical %s links (%s) and queries only the default list',
+    async (role, search) => {
+      const requests: string[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture(role))
+        if (url.pathname === '/pattern-sets') {
+          requests.push(url.search)
+          return jsonResponse({ patternSets: [patternSetFixture()] })
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+      seedStoredSession(role)
+      const router = renderPatternSetsRoute(`/app/pattern-sets?${search}`)
+      await screen.findByRole('table')
+      await waitFor(() => expect(router.state.location.searchStr).toBe(''))
+      expect(router.history.length).toBe(1)
+      expect(requests).toEqual([''])
+      if (role === 'operator') {
+        expect(
+          screen.queryByRole('button', { name: 'Filter' }),
+        ).not.toBeInTheDocument()
+      }
+    },
+  )
+
+  it.each(['', '?includeRetired=true'])(
+    'recovers from a table 403 at %s with a safe query and keeps the session',
+    async (search) => {
+      const catalogRequests: string[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/auth/me')
+          return jsonResponse(sessionFixture('admin'))
+        if (url.pathname === '/pattern-sets') {
+          catalogRequests.push(url.search)
+          return catalogRequests.length === 1
+            ? jsonResponse({ message: 'Forbidden' }, { status: 403 })
+            : jsonResponse({ patternSets: [patternSetFixture()] })
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      })
+
+      seedStoredSession('admin')
+      const router = renderPatternSetsRoute(`/app/pattern-sets${search}`)
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('You do not have permission')
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      await userEvent
+        .setup()
+        .click(within(alert).getByRole('button', { name: 'Clear all' }))
+      expect(await screen.findByText('Skirt patterns')).toBeInTheDocument()
+      expect(router.state.location.search).toEqual({})
+      expect(catalogRequests).toEqual([search, ''])
+      expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull()
+    },
+  )
+
+  it('keeps loaded rows visible when refreshing after a successful save fails', async () => {
+    const user = userEvent.setup()
+    let saved = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('operator'))
+      if (url.pathname === '/pattern-sets' && init?.method === 'GET') {
+        return saved
+          ? jsonResponse({ message: 'Catalog unavailable' }, { status: 500 })
+          : jsonResponse({ patternSets: [patternSetFixture()] })
+      }
+      if (url.pathname === '/pattern-sets' && init?.method === 'POST') {
+        saved = true
+        return jsonResponse(
+          patternSetFixture({ id: 'PS-NEW001', name: 'Cape patterns' }),
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('operator')
+    renderPatternSetsRoute()
+    await screen.findByText('Skirt patterns')
+    await user.click(screen.getByRole('button', { name: 'Create Pattern Set' }))
+    await user.type(screen.getByLabelText('Pattern Set name'), 'Cape patterns')
+    await user.click(screen.getByRole('button', { name: 'Save Pattern Set' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Catalog unavailable',
+    )
+    expect(screen.getByRole('table')).toHaveTextContent('Skirt patterns')
+  })
+
+  it('signs out after a catalog refresh returns 401 and reloads the catalog after sign-in', async () => {
+    const user = userEvent.setup()
+    let expired = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/auth/me')
+        return jsonResponse(sessionFixture('admin'))
+      if (url.pathname === '/auth/login') {
+        return jsonResponse({
+          ...sessionFixture('admin'),
+          token: 'new-session-token',
+        })
+      }
+      if (url.pathname === '/pattern-sets' && init?.method === 'GET') {
+        if (
+          new Headers(init.headers).get('Authorization') ===
+          'Bearer new-session-token'
+        ) {
+          return jsonResponse({
+            patternSets: [patternSetFixture({ name: 'Updated catalog' })],
+          })
+        }
+        return expired
+          ? jsonResponse({ message: 'Unauthorized' }, { status: 401 })
+          : jsonResponse({ patternSets: [patternSetFixture()] })
+      }
+      if (url.pathname === '/pattern-sets' && init?.method === 'POST') {
+        expired = true
+        return jsonResponse(
+          patternSetFixture({ id: 'PS-NEW001', name: 'Cape patterns' }),
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    })
+
+    seedStoredSession('admin')
+    const router = renderPatternSetsRoute()
+    await screen.findByText('Skirt patterns')
+    await user.click(screen.getByRole('button', { name: 'Create Pattern Set' }))
+    await user.type(screen.getByLabelText('Pattern Set name'), 'Cape patterns')
+    await user.click(screen.getByRole('button', { name: 'Save Pattern Set' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'))
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull()
+
+    await user.type(
+      await screen.findByLabelText('Email Address'),
+      'admin@example.com',
+    )
+    await user.type(screen.getByLabelText('Password'), 'Password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(await screen.findByRole('link', { name: 'Pattern Sets' }))
+    expect(await screen.findByText('Updated catalog')).toBeInTheDocument()
+    expect(localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toContain(
+      'new-session-token',
     )
   })
 
@@ -315,19 +502,20 @@ describe('Pattern Set catalog route', () => {
   })
 })
 
-function renderPatternSetsRoute() {
+function renderPatternSetsRoute(initialEntry = '/app/pattern-sets') {
   const router = createRouter({
     routeTree,
-    history: createMemoryHistory({ initialEntries: ['/app/pattern-sets'] }),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
   })
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+  return router
 }
 
 function seedStoredSession(role: 'admin' | 'operator') {

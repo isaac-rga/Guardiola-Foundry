@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { StatusBadge } from '@/components/app/status-badge'
+import { TableFilters } from '@/components/app/table-filters'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -17,6 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { hasApiRequestStatus } from '@/lib/api/transport'
 import { updateProductVariantRequestSchema } from '@guardiola-foundry/shared-validation'
 import type {
   ProductDetail,
@@ -36,11 +38,14 @@ export function ProductVariantsCard({
   isChangingAvailability,
   isLoading,
   isSaving,
+  isUpdating,
   loadError,
   onDelete,
   onIncludeDeletedChange,
+  onRecoverDefault,
   onRestore,
   onSave,
+  onSignInAgain,
   product,
   variants,
 }: {
@@ -49,14 +54,17 @@ export function ProductVariantsCard({
   isChangingAvailability: boolean
   isLoading: boolean
   isSaving: boolean
-  loadError: unknown
+  isUpdating: boolean
+  loadError: Error | null
   onDelete: (variantId: string) => Promise<void>
   onIncludeDeletedChange: (includeDeleted: boolean) => void
+  onRecoverDefault: () => void
   onRestore: (variantId: string) => Promise<ProductVariant>
   onSave: (input: {
     currentVariant: ProductVariant | null
     values: UpdateProductVariantRequest
   }) => Promise<ProductVariant>
+  onSignInAgain: () => void
   product: ProductDetail
   variants: ProductVariant[]
 }) {
@@ -86,36 +94,40 @@ export function ProductVariantsCard({
     }
   })
   const isProductActive = product.productStatus === 'active'
+  const isForbidden = hasApiRequestStatus(loadError, 403)
+  const isUnauthorized = hasApiRequestStatus(loadError, 401)
   const nonDeletedVariantCount = variants.filter((variant) => !variant.deletedAt).length
 
   return (
     <>
       <Card className="rounded-[1.75rem]">
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <CardHeader className="flex flex-col items-start justify-between gap-4 sm:flex-row">
           <div className="space-y-1.5">
             <CardTitle>Product Variants</CardTitle>
             <CardDescription>
               Maintain commercially named, constructively distinct Variants without treating them as Product revisions.
             </CardDescription>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            {isAdmin ? (
-              <Button
-                type="button"
-                variant={includeDeleted ? 'secondary' : 'outline'}
-                aria-pressed={includeDeleted}
-                disabled={isChangingAvailability}
-                onClick={() => onIncludeDeletedChange(!includeDeleted)}
-              >
-                {includeDeleted ? 'Including deleted' : 'Include deleted'}
-              </Button>
-            ) : null}
-            <Button type="button" disabled={!isProductActive} onClick={() => openCreateDialog()}>
-              Add Product Variant
-            </Button>
-          </div>
+          <Button type="button" disabled={!isProductActive} onClick={() => openCreateDialog()}>
+            Add Product Variant
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
+          {isAdmin && !isForbidden && !isUnauthorized ? (
+            <TableFilters
+              criteria={[
+                {
+                  key: 'includeDeleted',
+                  label: 'Include deleted',
+                  value: includeDeleted ? 'true' : undefined,
+                  additive: true,
+                  onChange: (value) => onIncludeDeletedChange(value === 'true'),
+                },
+              ]}
+              onClearAll={() => onIncludeDeletedChange(false)}
+            />
+          ) : null}
+
           {!isProductActive ? (
             <p className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
               Activate this Product before adding a Product Variant. Existing Variants remain available for maintenance.
@@ -140,8 +152,36 @@ export function ProductVariantsCard({
             </p>
           ) : null}
 
+          {isUpdating ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              Updating Product Variants…
+            </p>
+          ) : null}
+
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading Product Variants…</p>
+          ) : isUnauthorized ? (
+            <div className="rounded-xl border border-border px-4 py-3" role="alert">
+              <p>Your session has expired.</p>
+              <Button className="mt-3" type="button" variant="outline" onClick={onSignInAgain}>
+                Sign in again
+              </Button>
+            </div>
+          ) : isForbidden ? (
+            <div className="rounded-xl border border-border px-4 py-3" role="alert">
+              <p>You do not have permission to view this Product Variant selection.</p>
+              <Button
+                className="mt-3"
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  onIncludeDeletedChange(false)
+                  onRecoverDefault()
+                }}
+              >
+                Clear all
+              </Button>
+            </div>
           ) : loadError ? (
             <p
               className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive"
@@ -149,6 +189,10 @@ export function ProductVariantsCard({
             >
               {loadError instanceof Error ? loadError.message : 'Unable to load Product Variants.'}
             </p>
+          ) : variants.length === 0 && includeDeleted ? (
+            <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-8 text-center text-sm text-muted-foreground">
+              No Product Variants match this view. Clear filters to return to the default list.
+            </div>
           ) : variants.length === 0 ? (
             <div className="rounded-[1.5rem] border border-dashed border-border/80 bg-muted/18 px-6 py-8 text-center">
               <p className="text-sm font-medium text-foreground">No Product Variants registered yet.</p>

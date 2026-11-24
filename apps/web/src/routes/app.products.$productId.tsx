@@ -8,6 +8,5 @@ export const Route = createFileRoute('/app/products/$productId')({
 
 function ProductEditRoute() {
   const { productId } = Route.useParams()
-
   return <ProductEditPage productId={productId} />
 }

@@ -11,6 +11,7 @@ import {
 import {
   createProductRequestSchema,
   inactivateProductRequestSchema,
+  listProductsQuerySchema,
   updateProductRequestSchema,
 } from '@guardiola-foundry/shared-validation'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -18,11 +19,22 @@ import type { MultipartFile } from '@adonisjs/core/bodyparser'
 
 export default class ProductsController {
   async index({ authenticatedSession, request, response }: HttpContext) {
+    const query = listProductsQuerySchema.safeParse(request.qs())
+
+    if (!query.success) {
+      return response.unprocessableEntity({ message: 'Invalid Product filters.' })
+    }
+
+    if (query.data.includeDeleted && authenticatedSession.user.role !== 'admin') {
+      return response.forbidden({
+        message: 'Only Admins can include deleted Products.',
+      })
+    }
+
     return response.ok(
       await listProducts({
-        includeDeleted:
-          authenticatedSession.user.role === 'admin' &&
-          this.shouldIncludeDeleted(request.input('includeDeleted')),
+        search: query.data.search,
+        includeDeleted: query.data.includeDeleted,
       })
     )
   }
@@ -184,9 +196,5 @@ export default class ProductsController {
     const body = request.all()
 
     return body.removeImage === true || body.removeImage === 'true'
-  }
-
-  private shouldIncludeDeleted(includeDeleted: unknown) {
-    return includeDeleted === true || includeDeleted === 'true'
   }
 }

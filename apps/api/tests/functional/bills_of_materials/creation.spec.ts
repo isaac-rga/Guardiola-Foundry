@@ -3,7 +3,7 @@ import {
   authenticateAs,
   createProduct,
   createProductVariant,
-  updateProduct,
+  inactivateProduct,
   updateProductVariant,
   createImplementation,
 } from '#tests/functional/bills_of_materials/support/bom_test_support'
@@ -126,7 +126,7 @@ test.group('Bills of Materials', (group) => {
     const session = await authenticateAs(client, 'operator')
     const productId = await createProduct(client, session.token, 'Inactive Jackie')
     const variantId = await createProductVariant(client, session.token, productId, 'Showroom')
-    await updateProduct(client, session.token, productId, 'Inactive Jackie', 'inactive')
+    await inactivateProduct(client, session.token, productId)
 
     const response = await client
       .post('/bills-of-materials')
