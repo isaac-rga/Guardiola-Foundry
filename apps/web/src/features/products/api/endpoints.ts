@@ -244,7 +244,10 @@ export async function listProductVariants(
   const body = await response.json()
 
   if (!response.ok) {
-    throw new Error(getResponseErrorMessage(body, 'Unable to load Product Variants.'))
+    throw new ApiRequestError(
+      getResponseErrorMessage(body, 'Unable to load Product Variants.'),
+      response.status,
+    )
   }
 
   return listProductVariantsResponseSchema.parse(body)

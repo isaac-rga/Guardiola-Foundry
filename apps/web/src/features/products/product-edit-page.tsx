@@ -62,7 +62,13 @@ const productCategoryOptions: Array<{
   { value: 'other', label: 'Other' },
 ]
 
-export function ProductEditPage({ productId }: { productId: string }) {
+export function ProductEditPage({
+  onAuthenticationFailure,
+  productId,
+}: {
+  onAuthenticationFailure: () => void
+  productId: string
+}) {
   const navigate = useNavigate()
   const { session } = useAppShell()
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -117,6 +123,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
       key={product.id}
       collections={collections}
       isRestoring={restoration.isRestoring}
+      onAuthenticationFailure={onAuthenticationFailure}
       product={product}
       productId={productId}
       saveMessage={saveMessage}
@@ -128,6 +135,7 @@ export function ProductEditPage({ productId }: { productId: string }) {
 function ActiveProductEditPage({
   collections,
   isRestoring,
+  onAuthenticationFailure,
   onSaveMessageChange,
   product,
   productId,
@@ -135,6 +143,7 @@ function ActiveProductEditPage({
 }: {
   collections: Array<{ id: number; name: string }>
   isRestoring: boolean
+  onAuthenticationFailure: () => void
   onSaveMessageChange: (message: string | null) => void
   product: ProductDetail
   productId: string
@@ -153,11 +162,12 @@ function ActiveProductEditPage({
   })
   const productsQuery = useProductList(session.token)
   const isAdmin = session.user.role === 'admin'
+  const includeDeletedInVariants = isAdmin && includeDeletedVariants
   const productVariants = useProductVariants(
     session.token,
     productId,
     true,
-    isAdmin && includeDeletedVariants
+    includeDeletedInVariants
   )
   const hasPendingImageChanges = selectedImageFile !== null || removeImage
   const hasPendingChanges = form.formState.isDirty || hasPendingImageChanges
@@ -168,9 +178,11 @@ function ActiveProductEditPage({
     }
   }, [hasPendingChanges, onSaveMessageChange])
 
+  const shouldBlockNavigation = () =>
+    !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage)
+
   useBlocker({
-    shouldBlockFn: () =>
-      !isNavigatingAfterDelete && hasPendingChanges && !window.confirm(unsavedChangesMessage),
+    shouldBlockFn: shouldBlockNavigation,
     enableBeforeUnload: () => hasPendingChanges,
   })
 
@@ -208,8 +220,8 @@ function ActiveProductEditPage({
   const isDeleting = deletion.isDeleting
   const isChangingAvailability = availability.isChangingAvailability
   const isMutating = isSaving || isRestoring || isDeleting || isChangingAvailability
-  const hasActiveVariants = productVariants.variants.some(
-    (variant) => variant.status === 'active' && !variant.deletedAt
+  const hasActiveVariants = productVariants.currentVariants.some(
+    (variant) => variant.status === 'active'
   )
 
   return (
@@ -558,17 +570,22 @@ function ActiveProductEditPage({
 
       <ProductVariantsCard
         isAdmin={isAdmin}
-        includeDeleted={includeDeletedVariants}
+        includeDeleted={includeDeletedInVariants}
         product={product}
         variants={productVariants.variants}
         isLoading={productVariants.isLoading}
+        isUpdating={productVariants.isUpdating}
         loadError={productVariants.loadError}
         isSaving={productVariants.isSaving}
         isChangingAvailability={productVariants.isChangingAvailability}
         onDelete={productVariants.deleteVariant}
         onIncludeDeletedChange={setIncludeDeletedVariants}
+        onRecoverDefault={() => void productVariants.recoverDefault()}
         onRestore={productVariants.restoreVariant}
         onSave={productVariants.saveVariant}
+        onSignInAgain={() => {
+          if (!shouldBlockNavigation()) onAuthenticationFailure()
+        }}
       />
 
     </div>
